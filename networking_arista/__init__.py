@@ -12,8 +12,11 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import gettext
 import pbr.version
 
 
 __version__ = pbr.version.VersionInfo(
     'networking_arista').version_string()
+
+gettext.install('networking_arista', unicode=1)
