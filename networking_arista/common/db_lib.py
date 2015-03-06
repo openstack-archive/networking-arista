@@ -336,3 +336,35 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
                    'id': [network_id]}
         return super(NeutronNets,
                      self).get_networks(self.admin_ctx, filters=filters) or []
+
+    def get_subnet_info(self, subnet_id):
+        subnet = self.get_subnet(subnet_id)
+        return subnet
+
+    def get_subnet_ip_version(self, subnet_id):
+        subnet = self.get_subnet(subnet_id)
+        return subnet['ip_version']
+
+    def get_subnet_gateway_ip(self, subnet_id):
+        subnet = self.get_subnet(subnet_id)
+        return subnet['gateway_ip']
+
+    def get_subnet_cidr(self, subnet_id):
+        subnet = self.get_subnet(subnet_id)
+        return subnet['cidr']
+
+    def get_network_id(self, subnet_id):
+        subnet = self.get_subnet(subnet_id)
+        return subnet['network_id']
+
+    def get_network_id_from_port_id(self, port_id):
+        port = self.get_port(port_id)
+        return port['network_id']
+
+    def get_subnet(self, subnet_id):
+        return super(NeutronNets,
+                     self).get_subnet(self.admin_ctx, subnet_id) or []
+
+    def get_port(self, port_id):
+        return super(NeutronNets,
+                     self).get_port(self.admin_ctx, port_id) or []
