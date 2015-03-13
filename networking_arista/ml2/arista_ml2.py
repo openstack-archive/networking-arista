@@ -17,11 +17,11 @@ import itertools
 
 import jsonrpclib
 from oslo.config import cfg
+from oslo_log import log as logging
 
 from neutron.common import constants as n_const
 from neutron.i18n import _LI
 from neutron.i18n import _LW
-from neutron.openstack.common import log as logging
 from neutron.plugins.ml2.drivers.arista import exceptions as arista_exc
 
 from networking_arista.common import db_lib
