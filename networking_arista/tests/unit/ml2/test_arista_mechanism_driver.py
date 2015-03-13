@@ -765,7 +765,7 @@ class FakePortContext(object):
         return self._original_port.get(portbindings.HOST_ID)
 
 
-class SyncServiceTest(base.BaseTestCase):
+class SyncServiceTest(testlib_api.SqlTestCase):
     """Test cases for the sync service."""
 
     def setUp(self):
