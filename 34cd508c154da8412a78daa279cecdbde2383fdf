@@ -1,0 +1,10 @@
+Verified+2: Jenkins
+Code-Review+1: Henry Gessau <gessau@cisco.com>
+Code-Review+2: Sukhdev Kapur <sukhdev@aristanetworks.com>
+Workflow+1: Sukhdev Kapur <sukhdev@aristanetworks.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@valinux.co.jp>
+Submitted-by: Jenkins
+Submitted-at: Fri, 17 Apr 2015 06:03:04 +0000
+Reviewed-on: https://review.openstack.org/172956
+Project: stackforge/networking-arista
+Branch: refs/heads/master
