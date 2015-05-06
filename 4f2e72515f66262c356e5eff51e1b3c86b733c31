@@ -1,0 +1,8 @@
+Verified+2: Jenkins
+Code-Review+2: Sukhdev Kapur <sukhdev@aristanetworks.com>
+Workflow+1: Sukhdev Kapur <sukhdev@aristanetworks.com>
+Submitted-by: Jenkins
+Submitted-at: Wed, 06 May 2015 17:55:18 +0000
+Reviewed-on: https://review.openstack.org/180644
+Project: stackforge/networking-arista
+Branch: refs/heads/stable/kilo
