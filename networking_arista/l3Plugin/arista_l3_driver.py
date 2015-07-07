@@ -17,6 +17,7 @@ import socket
 import struct
 
 import jsonrpclib
+from oslo_concurrency import lockutils
 from oslo.config import cfg
 from oslo_log import log as logging
 
@@ -375,7 +376,8 @@ class AristaL3Driver(object):
         try:
             # this returns array of return values for every command in
             # full_command list
-            ret = server.runCmds(version=1, cmds=full_command)
+            with lockutils.lock('arista-l3-client'):
+                ret = server.runCmds(version=1, cmds=full_command)
             LOG.info(_LI('Results of execution on Arista EOS: %s'), ret)
 
         except Exception:
