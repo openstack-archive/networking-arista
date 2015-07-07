@@ -20,6 +20,7 @@ import jsonrpclib
 from oslo.config import cfg
 from oslo_log import log as logging
 
+from neutron.i18n import _LE
 from neutron.i18n import _LI
 from neutron.plugins.ml2.drivers.arista import exceptions as arista_exc
 
@@ -40,6 +41,9 @@ router_in_vrf = {
                           'exit'],
                'delete': ['no vrf definition {0}']},
 
+    'routes': {'create': ['ip route vrf {0} {1} {2}'],
+               'delete': ['no ip route vrf {0} {1} {2}']},
+
     'interface': {'add': ['ip routing vrf {1}',
                           'vlan {0}',
                           'exit',
@@ -51,6 +55,9 @@ router_in_vrf = {
 router_in_default_vrf = {
     'router': {'create': [],   # Place holder for now.
                'delete': []},  # Place holder for now.
+
+    'routes': {'create': ['ip route {1} {2}'],
+               'delete': ['no ip route {1} {2}']},
 
     'interface': {'add': ['ip routing',
                           'vlan {0}',
@@ -109,9 +116,11 @@ class AristaL3Driver(object):
                 additional_cmds_for_mlag['interface'])
         if self._use_vrf:
             self.routerDict = router_in_vrf['router']
+            self._routesDict = router_in_vrf['routes']
             self._interfaceDict = router_in_vrf['interface']
         else:
             self.routerDict = router_in_default_vrf['router']
+            self._routesDict = router_in_default_vrf['routes']
             self._interfaceDict = router_in_default_vrf['interface']
 
     def _eapi_host_url(self, host):
@@ -185,6 +194,27 @@ class AristaL3Driver(object):
         if self._mlag_configured:
             for c in self._additionalRouterCmdsDict['delete']:
                 cmds.append(c)
+
+        self._run_openstack_l3_cmds(cmds, server)
+
+    def update_routes_on_eos(self, router_name, created_routes, deleted_routes,
+                             server):
+        """Creates routes on Arista HW Device.
+
+        :param router_name: globally unique identifier for router/VRF
+        :param created_routes: The routes to create
+        :param deleted_routes: The routes to delete
+        :param server: Server endpoint on the Arista switch to be configured
+        """
+        cmds = []
+        for route in deleted_routes:
+            for c in self._routesDict['delete']:
+                cmds.append(c.format(router_name, route['destination'],
+                                     route['nexthop']))
+        for route in created_routes:
+            for c in self._routesDict['create']:
+                cmds.append(c.format(router_name, route['destination'],
+                                     route['nexthop']))
 
         self._run_openstack_l3_cmds(cmds, server)
 
@@ -263,7 +293,7 @@ class AristaL3Driver(object):
                     mlag_peer_failed = False
                 except Exception:
                     if self._mlag_configured and not mlag_peer_failed:
-                        # In paied switch, it is OK to fail on one switch
+                        # In paired switch, it is OK to fail on one switch
                         mlag_peer_failed = True
                     else:
                         msg = (_('Failed to create router %s on EOS') %
@@ -283,7 +313,7 @@ class AristaL3Driver(object):
                     mlag_peer_failed = False
                 except Exception:
                     if self._mlag_configured and not mlag_peer_failed:
-                        # In paied switch, it is OK to fail on one switch
+                        # In paired switch, it is OK to fail on one switch
                         mlag_peer_failed = True
                     else:
                         msg = (_('Failed to create router %s on EOS') %
@@ -292,11 +322,34 @@ class AristaL3Driver(object):
                         raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
     def update_router(self, context, router_id, original_router, new_router):
-        """Updates a router which is already created on Arista Switch.
+        """Updates a router which is already created on Arista Switch."""
+        if not router_id or not original_router or not new_router:
+            return
 
-        TODO: (Sukhdev) - to be implemented in next release.
-        """
-        pass
+        if self._mlag_configured:
+            LOG.info(_LI('Router update not supported for MLAG'))
+            return
+
+        tenant_id = original_router['tenant_id']
+        router_name = self._arista_router_name(tenant_id,
+                                               original_router['name'])
+
+        original_routes = original_router['routes']
+        new_routes = new_router['routes']
+
+        created_routes = [route for route in new_routes
+                          if route not in original_routes]
+        deleted_routes = [route for route in original_routes
+                          if route not in new_routes]
+
+        for s in self._servers():
+            try:
+                self.update_routes_on_eos(router_name, created_routes,
+                                          deleted_routes, s)
+            except Exception:
+                msg = _LE('Failed to update routes on EOS')
+                LOG.exception(msg)
+                raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
     def add_router_interface(self, context, router_info):
         """Adds an interface to a router created on Arista HW router.

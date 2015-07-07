@@ -91,6 +91,21 @@ class AristaL3DriverTestCasesDefaultVrf(base.BaseTestCase):
 
         server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
+    def test_update_routes_on_eos(self, mock__server):
+        server = _get_mock_server_obj(mock__server)
+        router_name = 'test-router-1'
+        created_routes = [{'destination': '10.0.0.0/24', 'nexthop': '1.2.3.4'}]
+        deleted_routes = [{'destination': '20.0.0.0/16', 'nexthop': '2.3.4.5'}]
+
+        self.drv.update_routes_on_eos(router_name, created_routes,
+                                      deleted_routes, server)
+        cmds = ['enable', 'configure',
+                'no ip route 20.0.0.0/16 2.3.4.5',
+                'ip route 10.0.0.0/24 1.2.3.4',
+                'exit']
+
+        server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+
     def test_add_interface_to_router_on_eos(self, mock__server):
         server = _get_mock_server_obj(mock__server)
         router_name = 'test-router-1'
@@ -160,6 +175,24 @@ class AristaL3DriverTestCasesUsingVRFs(base.BaseTestCase):
         for r in routers:
             self.drv.delete_router_from_eos(r, server)
             cmds = ['enable', 'configure', 'no vrf definition %s' % r,
+                    'exit']
+
+            server.runCmds.assert_called_with(version=1, cmds=cmds)
+
+    def test_update_routes_on_eos(self, mock__server):
+        server = _get_mock_server_obj(mock__server)
+        max_vrfs = 5
+        routers = ['testRouter-%s' % n for n in range(max_vrfs)]
+
+        created_routes = [{'destination': '10.0.0.0/24', 'nexthop': '1.2.3.4'}]
+        deleted_routes = [{'destination': '20.0.0.0/16', 'nexthop': '2.3.4.5'}]
+
+        for r in routers:
+            self.drv.update_routes_on_eos(r, created_routes, deleted_routes,
+                                          server)
+            cmds = ['enable', 'configure',
+                    'no ip route vrf %s 20.0.0.0/16 2.3.4.5' % r,
+                    'ip route vrf %s 10.0.0.0/24 1.2.3.4' % r,
                     'exit']
 
             server.runCmds.assert_called_with(version=1, cmds=cmds)
