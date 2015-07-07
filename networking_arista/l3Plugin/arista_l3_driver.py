@@ -94,19 +94,16 @@ class AristaL3Driver(object):
     Command API - JSON RPC API provided by Arista EOS
     """
     def __init__(self):
-        self._servers = []
         self._hosts = []
         self._interfaceDict = None
         self._validate_config()
         host = cfg.CONF.l3_arista.primary_l3_host
         self._hosts.append(host)
-        self._servers.append(jsonrpclib.Server(self._eapi_host_url(host)))
         self._mlag_configured = cfg.CONF.l3_arista.mlag_config
         self._use_vrf = cfg.CONF.l3_arista.use_vrf
         if self._mlag_configured:
             host = cfg.CONF.l3_arista.secondary_l3_host
             self._hosts.append(host)
-            self._servers.append(jsonrpclib.Server(self._eapi_host_url(host)))
             self._additionalRouterCmdsDict = additional_cmds_for_mlag['router']
             self._additionalInterfaceCmdsDict = (
                 additional_cmds_for_mlag['interface'])
@@ -124,6 +121,17 @@ class AristaL3Driver(object):
         eapi_server_url = ('https://%s:%s@%s/command-api' %
                            (user, pwd, host))
         return eapi_server_url
+
+    def _server(self, host):
+        """Return a JSON RPC server object for an EAPI host.
+
+        :param host: The hostname of the EAPI server.
+        """
+        return jsonrpclib.Server(self._eapi_host_url(host))
+
+    def _servers(self):
+        """Return a list of JSON RPC server objects for all EAPI hosts."""
+        return [self._server(host) for host in self._hosts]
 
     def _validate_config(self):
         if cfg.CONF.l3_arista.get('primary_l3_host') == '':
@@ -249,7 +257,7 @@ class AristaL3Driver(object):
 
             rdm = str(int(hashlib.sha256(router_name).hexdigest(), 16) % 65536)
             mlag_peer_failed = False
-            for s in self._servers:
+            for s in self._servers():
                 try:
                     self.create_router_on_eos(router_name, rdm, s)
                     mlag_peer_failed = False
@@ -269,7 +277,7 @@ class AristaL3Driver(object):
         if router:
             router_name = self._arista_router_name(tenant_id, router['name'])
             mlag_peer_failed = False
-            for s in self._servers:
+            for s in self._servers():
                 try:
                     self.delete_router_from_eos(router_name, s)
                     mlag_peer_failed = False
@@ -305,7 +313,7 @@ class AristaL3Driver(object):
                 # For MLAG, we send a specific IP address as opposed to cidr
                 # For now, we are using x.x.x.253 and x.x.x.254 as virtual IP
                 mlag_peer_failed = False
-                for i, server in enumerate(self._servers):
+                for i, server in enumerate(self._servers()):
                     # Get appropriate virtual IP address for this router
                     router_ip = self._get_router_ip(cidr, i,
                                                     router_info['ip_version'])
@@ -327,7 +335,7 @@ class AristaL3Driver(object):
                                 msg=msg)
 
             else:
-                for s in self._servers:
+                for s in self._servers():
                     self.add_interface_to_router(router_info['seg_id'],
                                                  router_name,
                                                  router_info['gip'],
@@ -342,7 +350,7 @@ class AristaL3Driver(object):
             router_name = self._arista_router_name(router_info['tenant_id'],
                                                    router_info['name'])
             mlag_peer_failed = False
-            for s in self._servers:
+            for s in self._servers():
                 try:
                     self.delete_interface_from_router(router_info['seg_id'],
                                                       router_name, s)
