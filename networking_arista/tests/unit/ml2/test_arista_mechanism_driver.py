@@ -552,6 +552,47 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 ]
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
+    def test_register_with_eos_no_tenant(self):
+        self.drv._server.runCmds.side_effect = [Exception, None]
+        self.drv.register_with_eos()
+        auth = fake_keystone_info_class()
+        keystone_url = '%s://%s:%s/v2.0/' % (auth.auth_protocol,
+                                             auth.auth_host,
+                                             auth.auth_port)
+        new_auth_cmd = ('auth url %s user %s password %s tenant %s' % (
+                        keystone_url,
+                        auth.admin_user,
+                        auth.admin_password,
+                        auth.admin_tenant_name))
+        new_cmds = ['enable',
+                    'configure',
+                    'cvx',
+                    'service openstack',
+                    'region %s' % self.region,
+                    new_auth_cmd,
+                    'sync interval %d' % cfg.CONF.ml2_arista.sync_interval,
+                    'exit',
+                    'exit',
+                    'exit',
+                    ]
+        old_auth_cmd = ('auth url %s user %s password %s' % (
+                        keystone_url,
+                        auth.admin_user,
+                        auth.admin_password))
+        old_cmds = ['enable',
+                    'configure',
+                    'cvx',
+                    'service openstack',
+                    'region %s' % self.region,
+                    old_auth_cmd,
+                    'exit',
+                    'exit',
+                    'exit',
+                    ]
+        calls = [mock.call(version=1, cmds=new_cmds),
+                 mock.call(version=1, cmds=old_cmds)]
+        self.drv._server.runCmds.assert_has_calls(calls)
+
 
 class AristaRPCWrapperInvalidConfigTestCase(base.BaseTestCase):
     """Negative test cases to test the Arista Driver configuration."""

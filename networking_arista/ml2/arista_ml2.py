@@ -67,7 +67,7 @@ class AristaRPCWrapper(object):
         """
         cmd = ['show openstack config region %s timestamp' % self.region]
         try:
-            self._run_eos_cmds(cmd)
+            self._run_eos_cmds(cmd, log_errors=False)
             self.cli_commands['timestamp'] = cmd
         except arista_exc.AristaRpcError:
             self.cli_commands['timestamp'] = []
@@ -377,23 +377,41 @@ class AristaRPCWrapper(object):
         critical end-point information is registered with EOS.
         """
 
-        cmds = ['auth url %s user %s password %s tenant %s' % (
-                self._keystone_url(),
-                self.keystone_conf.admin_user,
-                self.keystone_conf.admin_password,
-                self.keystone_conf.admin_tenant_name)]
-
-        log_cmds = ['auth url %s user %s password %s tenant %s' % (
+        try:
+            cmds = ['auth url %s user %s password %s tenant %s' % (
                     self._keystone_url(),
                     self.keystone_conf.admin_user,
-                    '******',
+                    self.keystone_conf.admin_password,
                     self.keystone_conf.admin_tenant_name)]
 
-        sync_interval_cmd = 'sync interval %d' % self.sync_interval
-        cmds.append(sync_interval_cmd)
-        log_cmds.append(sync_interval_cmd)
+            log_cmds = ['auth url %s user %s password %s tenant %s' % (
+                        self._keystone_url(),
+                        self.keystone_conf.admin_user,
+                        '******',
+                        self.keystone_conf.admin_tenant_name)]
 
-        self._run_openstack_cmds(cmds, commands_to_log=log_cmds)
+            sync_interval_cmd = 'sync interval %d' % self.sync_interval
+            cmds.append(sync_interval_cmd)
+            log_cmds.append(sync_interval_cmd)
+
+            self._run_openstack_cmds(cmds, commands_to_log=log_cmds,
+                                     log_errors=False)
+        except arista_exc.AristaRpcError:
+            LOG.info('EOS keystone auth command failed. Falling back to old '
+                     'format')
+
+            # Older EOS versions do not support the 'tenant <tenant>'
+            # arguments to the auth command or the 'sync' command.
+            cmds = ['auth url %s user %s password %s' %
+                    (self._keystone_url(),
+                     self.keystone_conf.admin_user,
+                     self.keystone_conf.admin_password)]
+
+            log_cmds = ['auth url %s user %s password ******' %
+                        (self._keystone_url(),
+                         self.keystone_conf.admin_user)]
+
+            self._run_openstack_cmds(cmds, commands_to_log=log_cmds)
 
     def clear_region_updated_time(self):
         # TODO(shashank): Remove this once the call is removed from the ML2
@@ -411,7 +429,7 @@ class AristaRPCWrapper(object):
             return self._run_eos_cmds(commands=timestamp_cmd)[0]
         return None
 
-    def _run_eos_cmds(self, commands, commands_to_log=None):
+    def _run_eos_cmds(self, commands, commands_to_log=None, log_errors=True):
         """Execute/sends a CAPI (Command API) command to EOS.
 
         In this method, list of commands is appended with prefix and
@@ -421,6 +439,9 @@ class AristaRPCWrapper(object):
         :param commands_to_log : This should be set to the command that is
                                  logged. If it is None, then the commands
                                  param is logged.
+        :param log_errors : Whether failures should be logged as error
+                            messages. Otherwise, they will be logged at info
+                            level.
         """
 
         log_cmds = commands
@@ -449,7 +470,10 @@ class AristaRPCWrapper(object):
                     'host': host})
             # Logging exception here can reveal passwords as the exception
             # contains the CLI command which contains the credentials.
-            LOG.error(msg)
+            if log_errors:
+                LOG.error(msg)
+            else:
+                LOG.info(msg)
             raise arista_exc.AristaRpcError(msg=msg)
 
         return ret
@@ -477,7 +501,8 @@ class AristaRPCWrapper(object):
                                                       'cvx']))
         return full_command
 
-    def _run_openstack_cmds(self, commands, commands_to_log=None):
+    def _run_openstack_cmds(self, commands, commands_to_log=None,
+                            log_errors=True):
         """Execute/sends a CAPI (Command API) command to EOS.
 
         In this method, list of commands is appended with prefix and
@@ -487,6 +512,9 @@ class AristaRPCWrapper(object):
         :param commands_to_logs : This should be set to the command that is
                                   logged. If it is None, then the commands
                                   param is logged.
+        :param log_errors : Whether failures should be logged as error
+                            messages. Otherwise, they will be logged at info
+                            level.
         """
 
         full_command = self._build_command(commands)
@@ -494,7 +522,7 @@ class AristaRPCWrapper(object):
             full_log_command = self._build_command(commands_to_log)
         else:
             full_log_command = None
-        self._run_eos_cmds(full_command, full_log_command)
+        self._run_eos_cmds(full_command, full_log_command, log_errors)
 
     def _eapi_host_url(self):
         self._validate_config()
@@ -665,7 +693,9 @@ class SyncService(object):
     def _sync_start(self):
         """Let EOS know that a sync in being initiated."""
         try:
-            self._rpc._run_openstack_cmds(['sync start'])
+            # Don't log failures as error messages as this command isn't
+            # supported by older EOS versions.
+            self._rpc._run_openstack_cmds(['sync start'], log_errors=False)
             return True
         except arista_exc.AristaRpcError:
             self._force_sync = True
@@ -674,7 +704,9 @@ class SyncService(object):
     def _sync_end(self):
         """Let EOS know that sync is complete."""
         try:
-            self._rpc._run_openstack_cmds(['sync end'])
+            # Don't log failures as error messages as this command isn't
+            # supported by older EOS versions.
+            self._rpc._run_openstack_cmds(['sync end'], log_errors=False)
             return True
         except arista_exc.AristaRpcError:
             self._force_sync = True
