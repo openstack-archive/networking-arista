@@ -215,6 +215,9 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         self.drv = arista_ml2.AristaRPCWrapper()
         self.region = 'RegionOne'
         self.drv._server = mock.MagicMock()
+        # The first 'full-feature' version.
+        # FIXME: Currently unknown.
+        self.drv._eos_version = (4, 13, 11)
 
     def _get_exit_mode_cmds(self, modes):
         return ['exit'] * len(modes)
@@ -346,6 +349,34 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                         (net_id, net_id))
             cmds.append('segment 1 type vlan id %d' % net_id)
             cmds.append('shared')
+
+        cmds.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
+                                              'cvx', 'configure', 'enable']))
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+
+    def test_create_network_bulk_v_4_13_10(self):
+        self.drv._eos_version = (4, 13, 10)
+        tenant_id = 'ten-2'
+        num_networks = 10
+        networks = [{
+            'network_id': 'net-id-%d' % net_id,
+            'network_name': 'net-name-%d' % net_id,
+            'segmentation_id': net_id,
+            'shared': True,
+            } for net_id in range(1, num_networks)
+        ]
+
+        self.drv.create_network_bulk(tenant_id, networks)
+        cmds = ['enable',
+                'configure',
+                'cvx',
+                'service openstack',
+                'region RegionOne',
+                'tenant ten-2']
+        for net_id in range(1, num_networks):
+            cmds.append('network id net-id-%d name "net-name-%d"' %
+                        (net_id, net_id))
+            cmds.append('segment 1 type vlan id %d' % net_id)
 
         cmds.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
                                               'cvx', 'configure', 'enable']))
@@ -523,10 +554,52 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         self.assertEqual(net_info, valid_net_info,
                          ('Must return network info for a valid net'))
 
-    def test_check_cli_commands(self):
+    def test__check_eos_version(self):
+        self.drv._eos_version = None
+        self.drv._server.runCmds.return_value = [{'version': '4.13.10M'}]
+        self.drv._check_eos_version()
+        cmds = ['show version']
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self.assertEqual(self.drv._eos_version, (4, 13, 10))
+
+    def test__check_eos_version_no_letter(self):
+        self.drv._eos_version = None
+        self.drv._server.runCmds.return_value = [{'version': '4.13.10'}]
+        self.drv._check_eos_version()
+        cmds = ['show version']
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self.assertEqual(self.drv._eos_version, (4, 13, 10))
+
+    def test__check_eos_version_no_build(self):
+        self.drv._eos_version = None
+        self.drv._server.runCmds.return_value = [{'version': '4.13'}]
+        self.drv._check_eos_version()
+        cmds = ['show version']
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self.assertEqual(self.drv._eos_version, (4, 13, 0))
+
+    def test__check_eos_version_no_minor(self):
+        self.drv._eos_version = None
+        self.drv._server.runCmds.return_value = [{'version': '4'}]
+        self.drv._check_eos_version()
+        cmds = ['show version']
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self.assertEqual(self.drv._eos_version, (4, 0, 0))
+
+    def test__check_eos_version_invalid(self):
+        self.drv._eos_version = None
+        self.drv._server.runCmds.return_value = [{'version': 'invalid.ver'}]
+        self.drv._check_eos_version()
+        cmds = ['show version']
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self.assertIsNone(self.drv._eos_version)
+
+    @mock.patch.object(arista_ml2.AristaRPCWrapper, '_check_eos_version')
+    def test_check_cli_commands(self, mock__check_eos_version):
         self.drv.check_cli_commands()
         cmds = ['show openstack config region RegionOne timestamp']
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        mock__check_eos_version.assert_called_once_with()
 
     def test_register_with_eos(self):
         self.drv.register_with_eos()
@@ -546,6 +619,29 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'region %s' % self.region,
                 auth_cmd,
                 'sync interval %d' % cfg.CONF.ml2_arista.sync_interval,
+                'exit',
+                'exit',
+                'exit',
+                ]
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+
+    def test_register_with_eos_v_4_13_10(self):
+        self.drv._eos_version = (4, 13, 10)
+        self.drv.register_with_eos()
+        auth = fake_keystone_info_class()
+        keystone_url = '%s://%s:%s/v2.0/' % (auth.auth_protocol,
+                                             auth.auth_host,
+                                             auth.auth_port)
+        auth_cmd = ('auth url %s user %s password %s' % (
+                    keystone_url,
+                    auth.admin_user,
+                    auth.admin_password))
+        cmds = ['enable',
+                'configure',
+                'cvx',
+                'service openstack',
+                'region %s' % self.region,
+                auth_cmd,
                 'exit',
                 'exit',
                 'exit',
@@ -793,6 +889,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
            This test verifies a scenario when the sync is required.
         """
+        self.rpc._check_min_eos_version.return_value = True
         region_updated_time = {
             'regionName': 'RegionOne',
             'regionTimestamp': '12345'
@@ -815,6 +912,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.get_region_updated_time(),
+            mock.call._check_min_eos_version(4, 13, 11),
             mock.call._run_openstack_cmds(['sync start']),
             mock.call.register_with_eos(),
             mock.call.get_tenants(),
@@ -824,7 +922,54 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                   'segmentation_id': segmentation_id,
                   'network_name': '',
                   'shared': False}]),
+            mock.call._check_min_eos_version(4, 13, 11),
             mock.call._run_openstack_cmds(['sync end']),
+            mock.call.get_region_updated_time()
+        ]
+        assert self.rpc.mock_calls == expected_calls
+
+        db_lib.forget_network(tenant_id, network_id)
+        db_lib.forget_tenant(tenant_id)
+
+    def test_synchronize_required_v_4_13_10(self):
+        """Tests whether synchronize() sends the right commands.
+
+           This test verifies a scenario when the EOS software does not
+           support the sync command.
+        """
+        self.rpc._check_min_eos_version.return_value = False
+        region_updated_time = {
+            'regionName': 'RegionOne',
+            'regionTimestamp': '12345'
+        }
+        self.rpc.get_region_updated_time.return_value = region_updated_time
+        self.sync_service._region_updated_time = {
+            'regionName': 'RegionOne',
+            'regionTimestamp': '0',
+        }
+
+        tenant_id = 'tenant-1'
+        network_id = 'net-1'
+        segmentation_id = 42
+        db_lib.remember_tenant(tenant_id)
+        db_lib.remember_network(tenant_id, network_id, segmentation_id)
+
+        self.rpc.get_tenants.return_value = {}
+
+        self.sync_service.do_synchronize()
+
+        expected_calls = [
+            mock.call.get_region_updated_time(),
+            mock.call._check_min_eos_version(4, 13, 11),
+            mock.call.register_with_eos(),
+            mock.call.get_tenants(),
+            mock.call.create_network_bulk(
+                tenant_id,
+                [{'network_id': network_id,
+                  'segmentation_id': segmentation_id,
+                  'network_name': '',
+                  'shared': False}]),
+            mock.call._check_min_eos_version(4, 13, 11),
             mock.call.get_region_updated_time()
         ]
         assert self.rpc.mock_calls == expected_calls
@@ -837,6 +982,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
            This test verifies a scenario when the sync is not required.
         """
+        self.rpc._check_min_eos_version.return_value = True
         region_updated_time = {
             'regionName': 'RegionOne',
             'regionTimestamp': '424242'
@@ -852,7 +998,34 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         # If the timestamps do match, then the sync should not be executed.
         expected_calls = [
             mock.call.get_region_updated_time(),
+            mock.call._check_min_eos_version(4, 13, 11),
             mock.call._run_openstack_cmds(['sync end']),
+        ]
+        assert self.rpc.mock_calls == expected_calls
+
+    def test_synchronize_not_required_v_4_13_10(self):
+        """Tests whether synchronize() sends the right commands.
+
+           This test verifies a scenario when the sync is not required with a
+           version of EOS that does not support the sync command.
+        """
+        self.rpc._check_min_eos_version.return_value = False
+        region_updated_time = {
+            'regionName': 'RegionOne',
+            'regionTimestamp': '424242'
+        }
+        self.rpc.get_region_updated_time.return_value = region_updated_time
+        self.sync_service._region_updated_time = {
+            'regionName': 'RegionOne',
+            'regionTimestamp': '424242',
+        }
+
+        self.sync_service.do_synchronize()
+
+        # If the timestamps do match, then the sync should not be executed.
+        expected_calls = [
+            mock.call.get_region_updated_time(),
+            mock.call._check_min_eos_version(4, 13, 11),
         ]
         assert self.rpc.mock_calls == expected_calls
 
@@ -875,6 +1048,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         db_lib.remember_network(tenant_2_id, tenant_2_net_1_id,
                                 tenant_2_net_1_seg_id)
 
+        self.rpc._check_min_eos_version.return_value = True
         self.rpc.get_tenants.return_value = {
             tenant_1_id: {
                 'tenantVmInstances': {},
@@ -894,6 +1068,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.get_region_updated_time(),
+            mock.call._check_min_eos_version(4, 13, 11),
             mock.call._run_openstack_cmds(['sync start']),
             mock.call.register_with_eos(),
             mock.call.get_tenants(),
@@ -903,6 +1078,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                   'segmentation_id': tenant_2_net_1_seg_id,
                   'network_name': '',
                   'shared': False}]),
+            mock.call._check_min_eos_version(4, 13, 11),
             mock.call._run_openstack_cmds(['sync end']),
             mock.call.get_region_updated_time()
         ]
@@ -938,12 +1114,14 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         db_lib.remember_network(tenant_2_id, tenant_2_net_1_id,
                                 tenant_2_net_1_seg_id)
 
+        self.rpc._check_min_eos_version.return_value = True
         self.rpc.get_tenants.return_value = {}
 
         self.sync_service.do_synchronize()
 
         expected_calls = [
             mock.call.get_region_updated_time(),
+            mock.call._check_min_eos_version(4, 13, 11),
             mock.call._run_openstack_cmds(['sync start']),
             mock.call.register_with_eos(),
             mock.call.get_tenants(),
@@ -959,6 +1137,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                   'segmentation_id': tenant_2_net_1_seg_id,
                   'network_name': '',
                   'shared': False}]),
+            mock.call._check_min_eos_version(4, 13, 11),
             mock.call._run_openstack_cmds(['sync end']),
             mock.call.get_region_updated_time()
         ]
@@ -966,7 +1145,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         # The create_network_bulk() can be called in different order. So split
         # it up. The first part checks if the initial set of methods are
         # invoked.
-        self.assertTrue(self.rpc.mock_calls[:4] == expected_calls[:4],
+        self.assertTrue(self.rpc.mock_calls[:5] == expected_calls[:5],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -974,7 +1153,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 1 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[4] in expected_calls[4:6],
+        self.assertTrue(self.rpc.mock_calls[5] in expected_calls[5:7],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -982,14 +1161,14 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 2 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[5] in expected_calls[4:6],
+        self.assertTrue(self.rpc.mock_calls[6] in expected_calls[5:7],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
                             )
                         )
         # Check if the sync end methods are invoked.
-        self.assertTrue(self.rpc.mock_calls[6:8] == expected_calls[6:8],
+        self.assertTrue(self.rpc.mock_calls[7:] == expected_calls[7:],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
