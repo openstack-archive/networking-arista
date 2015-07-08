@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import itertools
+import re
 
 import jsonrpclib
 from oslo.config import cfg
@@ -47,6 +48,10 @@ class AristaRPCWrapper(object):
         # The cli_commands dict stores the mapping between the CLI command key
         # and the actual CLI command.
         self.cli_commands = {}
+        # The version of EOS running on the switch, which is unknown at first.
+        # If not None, it will be set to a 3-tuple of ints of the form
+        # (<major>,<minor>,<build>). The final letter is currently ignored.
+        self._eos_version = None
         self.initialize_cli_commands()
 
     def _get_exit_mode_cmds(self, modes):
@@ -59,15 +64,60 @@ class AristaRPCWrapper(object):
     def initialize_cli_commands(self):
         self.cli_commands['timestamp'] = []
 
+    @staticmethod
+    def _eos_version_to_tuple(eos_version):
+        """Convert an EOS version string to a tuple.
+
+        The returned tuple will be of the form (<major>,<minor>,<build>).
+
+        :param eos_version: An EOS version string.
+        :returns: A version tuple, or None if the version could not be parsed.
+        """
+        # The version should be of the form <major>.<minor>.<build><letter>.
+        # Allow for missing minor or build versions - just in case.
+        version_re = r'(\d+)(\.(\d+)(\.(\d+)(\D+)?)?)?'
+        match = re.match(version_re, eos_version)
+        if match is None:
+            return None
+        major = int(match.group(1))
+        minor = int(match.group(3) or 0)
+        build = int(match.group(5) or 0)
+        return (major, minor, build)
+
+    def _check_eos_version(self):
+        """Check the EOS software version running on the switch."""
+        cmd = ['show version']
+        results = self._run_eos_cmds(cmd)
+        version = results[0]['version']
+        self._eos_version = self._eos_version_to_tuple(version)
+
+    def _check_min_eos_version(self, major, minor=0, build=0):
+        """Check whether a minimum EOS version is running on the switch.
+
+        :param major: The minimum major version of EOS.
+        :param minor: The minimum minor version of EOS.
+        :param minor: The minimum build version of EOS.
+        :returns: Whether the minimum version of EOS is running on the switch.
+        """
+        if self._eos_version is None:
+            return False
+        # Compare the major, minor and build numbers in turn.
+        for actual, minimum in zip(self._eos_version, (major, minor, build)):
+            if actual == minimum:
+                continue
+            return actual > minimum
+        return True
+
     def check_cli_commands(self):
         """Checks whether the CLI commands are vaild.
 
            This method tries to execute the commands on EOS and if it succeedes
            the command is stored.
         """
+        self._check_eos_version()
         cmd = ['show openstack config region %s timestamp' % self.region]
         try:
-            self._run_eos_cmds(cmd)
+            self._run_eos_cmds(cmd, log_errors=False)
             self.cli_commands['timestamp'] = cmd
         except arista_exc.AristaRpcError:
             self.cli_commands['timestamp'] = []
@@ -214,6 +264,9 @@ class AristaRPCWrapper(object):
         :param network_list: list of dicts containing network_id, network_name
                              and segmentation_id
         """
+        # FIXME: Actual version requirement not known, but it is higher than
+        # 4.13.10M.
+        supports_shared = self._check_min_eos_version(4, 13, 11)
         cmds = ['tenant %s' % tenant_id]
         # Create a reference to function to avoid name lookups in the loop
         append_cmd = cmds.append
@@ -228,8 +281,9 @@ class AristaRPCWrapper(object):
                 network['segmentation_id'] = DEFAULT_VLAN
             append_cmd('segment 1 type vlan id %d' %
                        network['segmentation_id'])
-            shared_cmd = 'shared' if network['shared'] else 'no shared'
-            append_cmd(shared_cmd)
+            if supports_shared:
+                shared_cmd = 'shared' if network['shared'] else 'no shared'
+                append_cmd(shared_cmd)
         cmds.extend(self._get_exit_mode_cmds(['segment', 'network', 'tenant']))
         self._run_openstack_cmds(cmds)
 
@@ -377,21 +431,35 @@ class AristaRPCWrapper(object):
         critical end-point information is registered with EOS.
         """
 
-        cmds = ['auth url %s user %s password %s tenant %s' % (
-                self._keystone_url(),
-                self.keystone_conf.admin_user,
-                self.keystone_conf.admin_password,
-                self.keystone_conf.admin_tenant_name)]
-
-        log_cmds = ['auth url %s user %s password %s tenant %s' % (
+        # FIXME: Actual version requirement not known, but it is higher than
+        # 4.13.10M.
+        if self._check_min_eos_version(4, 13, 11):
+            cmds = ['auth url %s user %s password %s tenant %s' % (
                     self._keystone_url(),
                     self.keystone_conf.admin_user,
-                    '******',
+                    self.keystone_conf.admin_password,
                     self.keystone_conf.admin_tenant_name)]
 
-        sync_interval_cmd = 'sync interval %d' % self.sync_interval
-        cmds.append(sync_interval_cmd)
-        log_cmds.append(sync_interval_cmd)
+            log_cmds = ['auth url %s user %s password %s tenant %s' % (
+                        self._keystone_url(),
+                        self.keystone_conf.admin_user,
+                        '******',
+                        self.keystone_conf.admin_tenant_name)]
+
+            sync_interval_cmd = 'sync interval %d' % self.sync_interval
+            cmds.append(sync_interval_cmd)
+            log_cmds.append(sync_interval_cmd)
+        else:
+            # Older EOS versions do not support the 'tenant <tenant>'
+            # arguments to the auth command or the 'sync' command.
+            cmds = ['auth url %s user %s password %s' %
+                    (self._keystone_url(),
+                     self.keystone_conf.admin_user,
+                     self.keystone_conf.admin_password)]
+
+            log_cmds = ['auth url %s user %s password ******' %
+                        (self._keystone_url(),
+                         self.keystone_conf.admin_user)]
 
         self._run_openstack_cmds(cmds, commands_to_log=log_cmds)
 
@@ -411,7 +479,7 @@ class AristaRPCWrapper(object):
             return self._run_eos_cmds(commands=timestamp_cmd)[0]
         return None
 
-    def _run_eos_cmds(self, commands, commands_to_log=None):
+    def _run_eos_cmds(self, commands, commands_to_log=None, log_errors=True):
         """Execute/sends a CAPI (Command API) command to EOS.
 
         In this method, list of commands is appended with prefix and
@@ -421,6 +489,9 @@ class AristaRPCWrapper(object):
         :param commands_to_log : This should be set to the command that is
                                  logged. If it is None, then the commands
                                  param is logged.
+        :param log_errors : Whether failures should be logged as error
+                            messages. Otherwise, they will be logged at info
+                            level.
         """
 
         log_cmds = commands
@@ -449,7 +520,10 @@ class AristaRPCWrapper(object):
                     'host': host})
             # Logging exception here can reveal passwords as the exception
             # contains the CLI command which contains the credentials.
-            LOG.error(msg)
+            if log_errors:
+                LOG.error(msg)
+            else:
+                LOG.info(msg)
             raise arista_exc.AristaRpcError(msg=msg)
 
         return ret
@@ -477,7 +551,8 @@ class AristaRPCWrapper(object):
                                                       'cvx']))
         return full_command
 
-    def _run_openstack_cmds(self, commands, commands_to_log=None):
+    def _run_openstack_cmds(self, commands, commands_to_log=None,
+                            log_errors=True):
         """Execute/sends a CAPI (Command API) command to EOS.
 
         In this method, list of commands is appended with prefix and
@@ -487,6 +562,9 @@ class AristaRPCWrapper(object):
         :param commands_to_logs : This should be set to the command that is
                                   logged. If it is None, then the commands
                                   param is logged.
+        :param log_errors : Whether failures should be logged as error
+                            messages. Otherwise, they will be logged at info
+                            level.
         """
 
         full_command = self._build_command(commands)
@@ -494,7 +572,7 @@ class AristaRPCWrapper(object):
             full_log_command = self._build_command(commands_to_log)
         else:
             full_log_command = None
-        self._run_eos_cmds(full_command, full_log_command)
+        self._run_eos_cmds(full_command, full_log_command, log_errors)
 
     def _eapi_host_url(self):
         self._validate_config()
@@ -664,6 +742,10 @@ class SyncService(object):
 
     def _sync_start(self):
         """Let EOS know that a sync in being initiated."""
+        # FIXME: Actual version requirement not known, but it is higher than
+        # 4.13.10M.
+        if not self._rpc._check_min_eos_version(4, 13, 11):
+            return True
         try:
             self._rpc._run_openstack_cmds(['sync start'])
             return True
@@ -673,6 +755,10 @@ class SyncService(object):
 
     def _sync_end(self):
         """Let EOS know that sync is complete."""
+        # FIXME: Actual version requirement not known, but it is higher than
+        # 4.13.10M.
+        if not self._rpc._check_min_eos_version(4, 13, 11):
+            return True
         try:
             self._rpc._run_openstack_cmds(['sync end'])
             return True
