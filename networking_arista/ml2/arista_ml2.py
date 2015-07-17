@@ -16,7 +16,7 @@
 import itertools
 
 import jsonrpclib
-from oslo.config import cfg
+from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron.common import constants as n_const

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import mock
-from oslo.config import cfg
+from oslo_config import cfg
 
 from neutron.common import constants as n_const
 from neutron.extensions import portbindings
@@ -701,7 +701,8 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
     def _get_network_context(self, tenant_id, net_id, seg_id):
         network = {'id': net_id,
                    'tenant_id': tenant_id}
-        network_segments = [{'segmentation_id': seg_id}]
+        network_segments = [{'segmentation_id': seg_id,
+                             'network_type': 'vlan'}]
         return FakeNetworkContext(network, network_segments, network)
 
     def _get_port_context(self, tenant_id, net_id, vm_id, network):

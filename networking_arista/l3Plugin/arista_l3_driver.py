@@ -17,7 +17,7 @@ import socket
 import struct
 
 import jsonrpclib
-from oslo.config import cfg
+from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron.i18n import _LI
