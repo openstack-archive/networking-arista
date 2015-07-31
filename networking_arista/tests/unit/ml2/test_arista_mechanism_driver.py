@@ -18,13 +18,13 @@ from oslo_config import cfg
 
 from neutron.common import constants as n_const
 from neutron.extensions import portbindings
-from neutron.plugins.ml2.drivers.arista import exceptions as arista_exc
-from neutron.plugins.ml2.drivers.arista import mechanism_arista
 from neutron.tests import base
 from neutron.tests.unit import testlib_api
 
 from networking_arista.common import db_lib
+from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_ml2
+from networking_arista.ml2 import mechanism_arista
 
 
 def setup_arista_wrapper_config(value=''):

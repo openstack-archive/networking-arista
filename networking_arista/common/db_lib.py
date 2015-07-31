@@ -16,7 +16,8 @@
 from neutron import context as nctx
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
-from neutron.plugins.ml2.drivers.arista import db as db_models
+
+from networking_arista.common import db as db_models
 
 VLAN_SEGMENTATION = 'vlan'
 
