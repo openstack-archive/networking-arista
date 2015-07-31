@@ -22,9 +22,9 @@ from oslo_log import log as logging
 from neutron.common import constants as n_const
 from neutron.i18n import _LI
 from neutron.i18n import _LW
-from neutron.plugins.ml2.drivers.arista import exceptions as arista_exc
 
 from networking_arista.common import db_lib
+from networking_arista.common import exceptions as arista_exc
 
 LOG = logging.getLogger(__name__)
 

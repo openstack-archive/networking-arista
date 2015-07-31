@@ -21,7 +21,8 @@ from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron.i18n import _LI
-from neutron.plugins.ml2.drivers.arista import exceptions as arista_exc
+
+from networking_arista.common import exceptions as arista_exc
 
 LOG = logging.getLogger(__name__)
 
