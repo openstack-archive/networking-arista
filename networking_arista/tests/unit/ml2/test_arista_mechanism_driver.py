@@ -236,7 +236,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'region RegionOne',
                 'tenant ten-1', 'vm id vm-1 hostid host',
                 'port id 123 name "123-port" network-id net-id',
-                'exit', 'exit', 'exit', 'exit', 'exit']
+                ]
 
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
@@ -254,7 +254,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'region RegionOne',
                 'tenant ten-1', 'network id net-id',
                 'dhcp id vm-1 hostid host port-id 123 name "123-port"',
-                'exit', 'exit', 'exit', 'exit']
+                ]
 
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
@@ -270,7 +270,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'region RegionOne',
                 'tenant ten-1', 'vm id vm-1 hostid host',
                 'no port id 123',
-                'exit', 'exit', 'exit', 'exit', 'exit']
+                ]
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_unplug_dhcp_port_from_network(self):
@@ -286,7 +286,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'region RegionOne',
                 'tenant ten-1', 'network id net-id',
                 'no dhcp id vm-1 port-id 123',
-                'exit', 'exit', 'exit', 'exit']
+                ]
 
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
@@ -304,7 +304,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'tenant ten-1', 'network id net-id name "net-name"',
                 'segment 1 type vlan id 123',
                 'no shared',
-                'exit', 'exit', 'exit', 'exit', 'exit', 'exit']
+                ]
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_create_shared_network(self):
@@ -320,7 +320,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'tenant ten-1', 'network id net-id name "net-name"',
                 'segment 1 type vlan id 123',
                 'shared',
-                'exit', 'exit', 'exit', 'exit', 'exit', 'exit']
+                ]
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_create_network_bulk(self):
@@ -347,8 +347,6 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
             cmds.append('segment 1 type vlan id %d' % net_id)
             cmds.append('shared')
 
-        cmds.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
-                                              'cvx', 'configure', 'enable']))
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_delete_network(self):
@@ -358,7 +356,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         cmds = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'no network id net-id',
-                'exit', 'exit', 'exit', 'exit', 'exit']
+                ]
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_delete_network_bulk(self):
@@ -381,8 +379,6 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         for net_id in range(1, num_networks):
             cmds.append('no network id net-id-%d' % net_id)
 
-        cmds.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
-                                              'cvx', 'configure']))
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_delete_vm(self):
@@ -392,7 +388,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         cmds = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'no vm id vm-id',
-                'exit', 'exit', 'exit', 'exit', 'exit']
+                ]
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_delete_vm_bulk(self):
@@ -411,8 +407,6 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         for vm_id in range(1, num_vms):
             cmds.append('no vm id vm-id-%d' % vm_id)
 
-        cmds.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
-                                              'cvx', 'configure']))
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_create_vm_port_bulk(self):
@@ -471,8 +465,6 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                                 port_id, port_name, network_id))
                 net_count += 1
 
-        cmds.extend(self._get_exit_mode_cmds(['tenant', 'region',
-                                              'openstack', 'cvx']))
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_delete_tenant(self):
@@ -480,7 +472,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         self.drv.delete_tenant(tenant_id)
         cmds = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne', 'no tenant ten-1',
-                'exit', 'exit', 'exit', 'exit']
+                ]
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_delete_tenant_bulk(self):
@@ -495,8 +487,6 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         for ten_id in range(1, num_tenants):
             cmds.append('no tenant ten-%d' % ten_id)
 
-        cmds.extend(self._get_exit_mode_cmds(['region', 'openstack',
-                                              'cvx', 'configure']))
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_get_network_info_returns_none_when_no_such_net(self):
@@ -524,9 +514,21 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                          ('Must return network info for a valid net'))
 
     def test_check_cli_commands(self):
+        self.drv._get_random_name = mock.MagicMock()
+        self.drv._get_random_name.return_value = 'RegionOne'
         self.drv.check_cli_commands()
-        cmds = ['show openstack config region RegionOne timestamp']
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        timestamp_cmd = ['show openstack config region RegionOne timestamp']
+        sync_lock_cmd = ['enable', 'configure', 'cvx', 'service openstack',
+                         'region RegionOne', 'sync lock clientid requestid',
+                         'exit', 'region RegionOne sync', 'sync end', 'exit']
+        delete_region_cmd = ['enable', 'configure', 'cvx', 'service openstack',
+                             'no region RegionOne']
+        expected_calls = [
+            mock.call.runCmds(cmds=timestamp_cmd, version=1),
+            mock.call.runCmds(cmds=sync_lock_cmd, version=1),
+            mock.call.runCmds(cmds=delete_region_cmd, version=1),
+        ]
+        assert self.drv._server.mock_calls == expected_calls
 
     def test_register_with_eos(self):
         self.drv.register_with_eos()
@@ -546,10 +548,169 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'region %s' % self.region,
                 auth_cmd,
                 'sync interval %d' % cfg.CONF.ml2_arista.sync_interval,
-                'exit',
-                'exit',
-                'exit',
                 ]
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+
+    def _enable_sync_cmds(self):
+        self.drv.cli_commands[
+            arista_ml2.CMD_REGION_SYNC] = 'region RegionOne sync'
+        self.drv.cli_commands[arista_ml2.CMD_SYNC_HEARTBEAT] = 'sync heartbeat'
+
+    def test_create_network_bulk_during_sync(self):
+        self._enable_sync_cmds()
+        tenant_id = 'ten-10'
+        num_networks = 101
+        networks = [{
+            'network_id': 'net-id-%d' % net_id,
+            'network_name': 'net-name-%d' % net_id,
+            'segmentation_id': net_id,
+            'shared': True,
+            } for net_id in range(1, num_networks + 1)
+        ]
+
+        self.drv.create_network_bulk(tenant_id, networks, sync=True)
+        cmds = ['enable',
+                'configure',
+                'cvx',
+                'service openstack',
+                'region RegionOne sync',
+                'tenant ten-10']
+
+        # Send 100 create network commands
+        for net_id in range(1, 101):
+            cmds.append('network id net-id-%d name "net-name-%d"' %
+                        (net_id, net_id))
+            cmds.append('segment 1 type vlan id %d' % net_id)
+            cmds.append('shared')
+
+        # Send heartbeat
+        cmds.append('sync heartbeat')
+        # Send the remaining network
+        cmds.append('network id net-id-101 name "net-name-101"')
+        cmds.append('segment 1 type vlan id 101')
+        cmds.append('shared')
+        # Send the final heartbeat
+        cmds.append('sync heartbeat')
+
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+
+    def test_delete_network_bulk_during_sync(self):
+        self._enable_sync_cmds()
+        tenant_id = 'ten-10'
+        num_networks = 101
+        networks = ['nid-%d' % net_id for net_id in range(1, num_networks + 1)]
+
+        self.drv.delete_network_bulk(tenant_id, networks, sync=True)
+        cmds = ['enable',
+                'configure',
+                'cvx',
+                'service openstack',
+                'region RegionOne sync',
+                'tenant ten-10']
+
+        # Send 100 create network commands
+        for net_id in range(1, 101):
+            cmds.append('no network id nid-%d' % (net_id))
+
+        # Send heartbeat
+        cmds.append('sync heartbeat')
+        # Send the remaining network
+        cmds.append('no network id nid-101')
+        # Send the final heartbeat
+        cmds.append('sync heartbeat')
+
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+
+    def test_delete_vm_bulk_during_sync(self):
+        self._enable_sync_cmds()
+        tenant_id = 'ten-2'
+        num_vms = 101
+        vm_ids = ['vm-id-%d' % vm_id for vm_id in range(1, num_vms + 1)]
+        self.drv.delete_vm_bulk(tenant_id, vm_ids, sync=True)
+
+        cmds = ['enable',
+                'configure',
+                'cvx',
+                'service openstack',
+                'region RegionOne sync',
+                'tenant ten-2']
+
+        for vm_id in range(1, 101):
+            cmds.append('no vm id vm-id-%d' % vm_id)
+
+        # Send heartbeat
+        cmds.append('sync heartbeat')
+        # Send the remaining vm
+        cmds.append('no vm id vm-id-101')
+        # Send the final heartbeat
+        cmds.append('sync heartbeat')
+
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+
+    def test_create_vm_port_bulk_during_sync(self):
+        self._enable_sync_cmds()
+        tenant_id = 'ten-3'
+        num_vms = 101
+
+        vms = dict(
+            ('vm-id-%d' % vm_id, {
+                'vmId': 'vm-id-%d' % vm_id,
+                'host': 'host_%d' % vm_id,
+            }
+            ) for vm_id in range(1, num_vms + 1)
+        )
+
+        vm_port_list = []
+
+        for vm_id in range(1, num_vms + 1):
+            port = {
+                'id': 'pid-%d' % vm_id,
+                'device_id': 'vm-id-%d' % vm_id,
+                'device_owner': 'compute',
+                'network_id': 'nid-%d' % vm_id,
+                'name': 'pname-%d' % vm_id,
+            }
+            vm_port_list.append(port)
+
+        self.drv.create_vm_port_bulk(tenant_id, vm_port_list, vms, sync=True)
+        cmds = ['enable',
+                'configure',
+                'cvx',
+                'service openstack',
+                'region RegionOne sync',
+                'tenant ten-3']
+
+        for vm_count in range(1, 101):
+            vm_id = 'vm-id-%d' % vm_count
+            cmds.append('vm id vm-id-%d hostid host_%d' % (vm_count, vm_count))
+            cmds.append('port id pid-%d name "pname-%d" network-id nid-%s' % (
+                        vm_count, vm_count, vm_count))
+
+        # Send heartbeat
+        cmds.append('sync heartbeat')
+        # Send the remaining vm port
+        cmds.append('vm id vm-id-101 hostid host_101')
+        cmds.append('port id pid-101 name "pname-101" network-id nid-101')
+        # Send the final heartbeat
+        cmds.append('sync heartbeat')
+
+        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+
+    def test_delete_tenant_bulk_during_sync(self):
+        self._enable_sync_cmds()
+        num_tenants = 101
+        tenant_list = ['ten-%d' % t_id for t_id in range(1, num_tenants + 1)]
+        self.drv.delete_tenant_bulk(tenant_list, sync=True)
+        cmds = ['enable',
+                'configure',
+                'cvx',
+                'service openstack',
+                'region RegionOne sync']
+        for ten_id in range(1, num_tenants + 1):
+            cmds.append('no tenant ten-%d' % ten_id)
+
+        cmds.append('sync heartbeat')
+
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
 
@@ -811,20 +972,24 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         self.rpc.get_tenants.return_value = {}
 
+        self.rpc.sync_start.return_value = True
+        self.rpc.sync_end.return_value = True
+
         self.sync_service.do_synchronize()
 
         expected_calls = [
             mock.call.get_region_updated_time(),
-            mock.call._run_openstack_cmds(['sync start']),
-            mock.call.register_with_eos(),
+            mock.call.sync_start(),
+            mock.call.register_with_eos(sync=True),
             mock.call.get_tenants(),
             mock.call.create_network_bulk(
                 tenant_id,
                 [{'network_id': network_id,
                   'segmentation_id': segmentation_id,
                   'network_name': '',
-                  'shared': False}]),
-            mock.call._run_openstack_cmds(['sync end']),
+                  'shared': False}],
+                sync=True),
+            mock.call.sync_end(),
             mock.call.get_region_updated_time()
         ]
         assert self.rpc.mock_calls == expected_calls
@@ -847,14 +1012,16 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             'regionTimestamp': '424242',
         }
 
+        self.rpc.sync_start.return_value = True
+        self.rpc.sync_end.return_value = True
+
         self.sync_service.do_synchronize()
 
         # If the timestamps do match, then the sync should not be executed.
         expected_calls = [
             mock.call.get_region_updated_time(),
-            mock.call._run_openstack_cmds(['sync end']),
         ]
-        assert self.rpc.mock_calls == expected_calls
+        self.assertTrue(self.rpc.method_calls == expected_calls)
 
     def test_synchronize_one_network(self):
         """Test to ensure that only the required resources are sent to EOS."""
@@ -890,20 +1057,24 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             }
         }
 
+        self.rpc.sync_start.return_value = True
+        self.rpc.sync_end.return_value = True
+
         self.sync_service.do_synchronize()
 
         expected_calls = [
             mock.call.get_region_updated_time(),
-            mock.call._run_openstack_cmds(['sync start']),
-            mock.call.register_with_eos(),
+            mock.call.sync_start(),
+            mock.call.register_with_eos(sync=True),
             mock.call.get_tenants(),
             mock.call.create_network_bulk(
                 tenant_2_id,
                 [{'network_id': tenant_2_net_1_id,
                   'segmentation_id': tenant_2_net_1_seg_id,
                   'network_name': '',
-                  'shared': False}]),
-            mock.call._run_openstack_cmds(['sync end']),
+                  'shared': False}],
+                sync=True),
+            mock.call.sync_end(),
             mock.call.get_region_updated_time()
         ]
 
@@ -940,26 +1111,31 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         self.rpc.get_tenants.return_value = {}
 
+        self.rpc.sync_start.return_value = True
+        self.rpc.sync_end.return_value = True
+
         self.sync_service.do_synchronize()
 
         expected_calls = [
             mock.call.get_region_updated_time(),
-            mock.call._run_openstack_cmds(['sync start']),
-            mock.call.register_with_eos(),
+            mock.call.sync_start(),
+            mock.call.register_with_eos(sync=True),
             mock.call.get_tenants(),
-            mock.call.create_network_bulk(
-                tenant_1_id,
-                [{'network_id': tenant_1_net_1_id,
-                  'segmentation_id': tenant_1_net_1_seg_id,
-                  'network_name': '',
-                  'shared': False}]),
             mock.call.create_network_bulk(
                 tenant_2_id,
                 [{'network_id': tenant_2_net_1_id,
                   'segmentation_id': tenant_2_net_1_seg_id,
                   'network_name': '',
-                  'shared': False}]),
-            mock.call._run_openstack_cmds(['sync end']),
+                  'shared': False}],
+                sync=True),
+            mock.call.create_network_bulk(
+                tenant_1_id,
+                [{'network_id': tenant_1_net_1_id,
+                  'segmentation_id': tenant_1_net_1_seg_id,
+                  'network_name': '',
+                  'shared': False}],
+                sync=True),
+            mock.call.sync_end(),
             mock.call.get_region_updated_time()
         ]
 
