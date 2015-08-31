@@ -211,7 +211,13 @@ class AristaDriver(driver_api.MechanismDriver):
             if not tenant_id:
                 tenant_id = context._plugin_context.tenant_id
             with self.eos_sync_lock:
-                if not db_lib.is_network_provisioned(tenant_id, network_id):
+                # If network does not exist under this tenant,
+                # it may be a shared network. Get shared network owner Id
+                net_provisioned = (
+                    db_lib.is_network_provisioned(tenant_id, network_id) or
+                    self.ndb.get_shared_network_owner_id(network_id)
+                )
+                if not net_provisioned:
                     # Ignore this request if network is not provisioned
                     return
                 db_lib.remember_tenant(tenant_id)
