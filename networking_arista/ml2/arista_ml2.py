@@ -40,7 +40,9 @@ class AristaRPCWrapper(object):
     Command API - JSON RPC API provided by Arista EOS
     """
     def __init__(self):
-        self._server = jsonrpclib.Server(self._eapi_host_url())
+        self._validate_config()
+        self._server = None
+        self._server_ip = None
         self.keystone_conf = cfg.CONF.keystone_authtoken
         self.region = cfg.CONF.ml2_arista.region_name
         self.sync_interval = cfg.CONF.ml2_arista.sync_interval
@@ -423,6 +425,12 @@ class AristaRPCWrapper(object):
                                  param is logged.
         """
 
+        if self._server is None:
+            self._server_ip = self._get_eos_master()
+            if self._server_ip is None or self._server is None:
+                msg = "Failed to identify EOS master"
+                raise arista_exc.AristaRpcError(msg=msg)
+
         log_cmds = commands
         if commands_to_log:
             log_cmds = commands_to_log
@@ -434,7 +442,6 @@ class AristaRPCWrapper(object):
             # full_command list
             ret = self._server.runCmds(version=1, cmds=commands)
         except Exception as error:
-            host = cfg.CONF.ml2_arista.eapi_host
             error_msg_str = unicode(error)
             if commands_to_log:
                 # The command might contain sensitive information. If the
@@ -446,7 +453,13 @@ class AristaRPCWrapper(object):
                      'commands %(cmd)s on EOS %(host)s') %
                    {'err': error_msg_str,
                     'cmd': commands_to_log,
-                    'host': host})
+                    'host': self._server_ip})
+
+            # Reset the server as we failed communicating with it;
+            # there might just be another master
+            self._server = None
+            self._server_ip = None
+
             # Logging exception here can reveal passwords as the exception
             # contains the CLI command which contains the credentials.
             LOG.error(msg)
@@ -496,12 +509,33 @@ class AristaRPCWrapper(object):
             full_log_command = None
         self._run_eos_cmds(full_command, full_log_command)
 
-    def _eapi_host_url(self):
-        self._validate_config()
+    def _get_eos_master(self):
+        hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
+        # Use guarded command to figure out if this is the master
+        cmd = ['show openstack agent uuid']
 
+        # Identify which host is currently the master
+        for host in hosts:
+            self._server = None
+            self._server = jsonrpclib.Server(self._eapi_host_url(host.strip()))
+            try:
+                self._run_eos_cmds(cmd)
+                return host
+            except Exception:
+                msg = (_LI('EOS %(host)s is not the current master') %
+                       {'host': host.strip()})
+                LOG.info(msg)
+                continue  # Try another instance in case of error
+
+        # Couldn't find a host that is the leader and so returning none
+        self._server = None
+        msg = "Failed to identify EOS master"
+        LOG.error(msg)
+        return None
+
+    def _eapi_host_url(self, host=""):
         user = cfg.CONF.ml2_arista.eapi_username
         pwd = cfg.CONF.ml2_arista.eapi_password
-        host = cfg.CONF.ml2_arista.eapi_host
 
         eapi_server_url = ('https://%s:%s@%s/command-api' %
                            (user, pwd, host))
