@@ -14,7 +14,8 @@
 # limitations under the License.
 
 import mock
-from oslo.config import cfg
+from mock import patch
+from oslo_config import cfg
 
 from neutron.common import constants as n_const
 from neutron.extensions import portbindings
@@ -32,6 +33,7 @@ def setup_arista_wrapper_config(value=''):
     cfg.CONF.set_override('eapi_host', value, "ml2_arista")
     cfg.CONF.set_override('eapi_username', value, "ml2_arista")
     cfg.CONF.set_override('sync_interval', 10, "ml2_arista")
+    cfg.CONF.set_override('conn_timeout', 20, "ml2_arista")
 
 
 def setup_valid_config():
@@ -213,16 +215,30 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         super(PositiveRPCWrapperValidConfigTestCase, self).setUp()
         setup_valid_config()
         self.drv = arista_ml2.AristaRPCWrapper()
+        self.drv._server_ip = "10.11.12.13"
         self.region = 'RegionOne'
-        self.drv._server = mock.MagicMock()
 
     def _get_exit_mode_cmds(self, modes):
         return ['exit'] * len(modes)
 
+    def _verify_send_eapi_request_calls(self, mock_send_eapi_req, cmds):
+        # Need this method as unfortunately, a direct comparison between
+        # Mock calls and expected call objects doesn't compare the list of
+        # commands that have been sent
+        for cmd in cmds:
+            found = False
+            for call in mock_send_eapi_req.mock_calls:
+                if cmd == call[2]['cmds']:
+                    found = True
+                    break
+            if not found:
+                assert 0, "Failed to find a command that should've been called"
+
     def test_no_exception_on_correct_configuration(self):
         self.assertIsNotNone(self.drv)
 
-    def test_plug_host_into_network(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_plug_host_into_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-1'
         port_id = 123
@@ -232,15 +248,16 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self.drv.plug_host_into_network(vm_id, host, port_id,
                                         network_id, tenant_id, port_name)
-        cmds = ['enable', 'configure', 'cvx', 'service openstack',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'vm id vm-1 hostid host',
                 'port id 123 name "123-port" network-id net-id',
                 'exit', 'exit', 'exit', 'exit', 'exit']
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
-
-    def test_plug_dhcp_port_into_network(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_plug_dhcp_port_into_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-1'
         port_id = 123
@@ -250,15 +267,16 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self.drv.plug_dhcp_port_into_network(vm_id, host, port_id,
                                              network_id, tenant_id, port_name)
-        cmds = ['enable', 'configure', 'cvx', 'service openstack',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'network id net-id',
                 'dhcp id vm-1 hostid host port-id 123 name "123-port"',
                 'exit', 'exit', 'exit', 'exit']
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
-
-    def test_unplug_host_from_network(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_unplug_host_from_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-1'
         port_id = 123
@@ -266,14 +284,16 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         host = 'host'
         self.drv.unplug_host_from_network(vm_id, host, port_id,
                                           network_id, tenant_id)
-        cmds = ['enable', 'configure', 'cvx', 'service openstack',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'vm id vm-1 hostid host',
                 'no port id 123',
                 'exit', 'exit', 'exit', 'exit', 'exit']
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_unplug_dhcp_port_from_network(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_unplug_dhcp_port_from_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-1'
         port_id = 123
@@ -282,15 +302,16 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self.drv.unplug_dhcp_port_from_network(vm_id, host, port_id,
                                                network_id, tenant_id)
-        cmds = ['enable', 'configure', 'cvx', 'service openstack',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'network id net-id',
                 'no dhcp id vm-1 port-id 123',
                 'exit', 'exit', 'exit', 'exit']
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
-
-    def test_create_network(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_create_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         network = {
             'network_id': 'net-id',
@@ -299,15 +320,17 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
             'shared': False,
             }
         self.drv.create_network(tenant_id, network)
-        cmds = ['enable', 'configure', 'cvx', 'service openstack',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'network id net-id name "net-name"',
                 'segment 1 type vlan id 123',
                 'no shared',
                 'exit', 'exit', 'exit', 'exit', 'exit', 'exit']
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_create_shared_network(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_create_shared_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         network = {
             'network_id': 'net-id',
@@ -315,15 +338,17 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
             'segmentation_id': 123,
             'shared': True}
         self.drv.create_network(tenant_id, network)
-        cmds = ['enable', 'configure', 'cvx', 'service openstack',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'network id net-id name "net-name"',
                 'segment 1 type vlan id 123',
                 'shared',
                 'exit', 'exit', 'exit', 'exit', 'exit', 'exit']
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_create_network_bulk(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_create_network_bulk(self, mock_send_eapi_req):
         tenant_id = 'ten-2'
         num_networks = 10
         networks = [{
@@ -335,33 +360,36 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         ]
 
         self.drv.create_network_bulk(tenant_id, networks)
-        cmds = ['enable',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable',
                 'configure',
                 'cvx',
                 'service openstack',
                 'region RegionOne',
                 'tenant ten-2']
         for net_id in range(1, num_networks):
-            cmds.append('network id net-id-%d name "net-name-%d"' %
+            cmd2.append('network id net-id-%d name "net-name-%d"' %
                         (net_id, net_id))
-            cmds.append('segment 1 type vlan id %d' % net_id)
-            cmds.append('shared')
-
-        cmds.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
+            cmd2.append('segment 1 type vlan id %d' % net_id)
+            cmd2.append('shared')
+        cmd2.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
                                               'cvx', 'configure', 'enable']))
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_delete_network(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_delete_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         network_id = 'net-id'
         self.drv.delete_network(tenant_id, network_id)
-        cmds = ['enable', 'configure', 'cvx', 'service openstack',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'no network id net-id',
                 'exit', 'exit', 'exit', 'exit', 'exit']
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_delete_network_bulk(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_delete_network_bulk(self, mock_send_eapi_req):
         tenant_id = 'ten-2'
         num_networks = 10
         networks = [{
@@ -372,36 +400,40 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         networks = ['net-id-%d' % net_id for net_id in range(1, num_networks)]
         self.drv.delete_network_bulk(tenant_id, networks)
-        cmds = ['enable',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable',
                 'configure',
                 'cvx',
                 'service openstack',
                 'region RegionOne',
                 'tenant ten-2']
         for net_id in range(1, num_networks):
-            cmds.append('no network id net-id-%d' % net_id)
-
-        cmds.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
+            cmd2.append('no network id net-id-%d' % net_id)
+        cmd2.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
                                               'cvx', 'configure']))
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_delete_vm(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_delete_vm(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-id'
         self.drv.delete_vm(tenant_id, vm_id)
-        cmds = ['enable', 'configure', 'cvx', 'service openstack',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
                 'tenant ten-1', 'no vm id vm-id',
                 'exit', 'exit', 'exit', 'exit', 'exit']
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_delete_vm_bulk(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_delete_vm_bulk(self, mock_send_eapi_req):
         tenant_id = 'ten-2'
         num_vms = 10
         vm_ids = ['vm-id-%d' % vm_id for vm_id in range(1, num_vms)]
         self.drv.delete_vm_bulk(tenant_id, vm_ids)
 
-        cmds = ['enable',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable',
                 'configure',
                 'cvx',
                 'service openstack',
@@ -409,13 +441,13 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'tenant ten-2']
 
         for vm_id in range(1, num_vms):
-            cmds.append('no vm id vm-id-%d' % vm_id)
-
-        cmds.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
+            cmd2.append('no vm id vm-id-%d' % vm_id)
+        cmd2.extend(self._get_exit_mode_cmds(['tenant', 'region', 'openstack',
                                               'cvx', 'configure']))
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_create_vm_port_bulk(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_create_vm_port_bulk(self, mock_send_eapi_req):
         tenant_id = 'ten-3'
         num_vms = 10
         num_ports_per_vm = 2
@@ -445,7 +477,8 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 net_count += 1
 
         self.drv.create_vm_port_bulk(tenant_id, vm_port_list, vms)
-        cmds = ['enable',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable',
                 'configure',
                 'cvx',
                 'service openstack',
@@ -462,42 +495,46 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 network_id = 'network-id-%d' % net_count
                 port_id = 'port-id-%d-%d' % (vm_count, port_count)
                 if device_owner == 'network:dhcp':
-                    cmds.append('network id %s' % network_id)
-                    cmds.append('dhcp id %s hostid %s port-id %s name %s' % (
+                    cmd2.append('network id %s' % network_id)
+                    cmd2.append('dhcp id %s hostid %s port-id %s name %s' % (
                                 vm_id, host, port_id, port_name))
                 elif device_owner == 'compute':
-                    cmds.append('vm id %s hostid %s' % (vm_id, host))
-                    cmds.append('port id %s name %s network-id %s' % (
+                    cmd2.append('vm id %s hostid %s' % (vm_id, host))
+                    cmd2.append('port id %s name %s network-id %s' % (
                                 port_id, port_name, network_id))
                 net_count += 1
 
-        cmds.extend(self._get_exit_mode_cmds(['tenant', 'region',
+        cmd2.extend(self._get_exit_mode_cmds(['tenant', 'region',
                                               'openstack', 'cvx']))
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_delete_tenant(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_delete_tenant(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         self.drv.delete_tenant(tenant_id)
-        cmds = ['enable', 'configure', 'cvx', 'service openstack',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne', 'no tenant ten-1',
                 'exit', 'exit', 'exit', 'exit']
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def test_delete_tenant_bulk(self):
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_delete_tenant_bulk(self, mock_send_eapi_req):
         num_tenants = 10
         tenant_list = ['ten-%d' % t_id for t_id in range(1, num_tenants)]
         self.drv.delete_tenant_bulk(tenant_list)
-        cmds = ['enable',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable',
                 'configure',
                 'cvx',
                 'service openstack',
                 'region RegionOne']
         for ten_id in range(1, num_tenants):
-            cmds.append('no tenant ten-%d' % ten_id)
+            cmd2.append('no tenant ten-%d' % ten_id)
 
-        cmds.extend(self._get_exit_mode_cmds(['region', 'openstack',
+        cmd2.extend(self._get_exit_mode_cmds(['region', 'openstack',
                                               'cvx', 'configure']))
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
     def test_get_network_info_returns_none_when_no_such_net(self):
         expected = []
@@ -523,12 +560,27 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         self.assertEqual(net_info, valid_net_info,
                          ('Must return network info for a valid net'))
 
-    def test_check_cli_commands(self):
-        self.drv.check_cli_commands()
-        cmds = ['show openstack config region RegionOne timestamp']
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_check_cli_commands(self, mock_send_eapi_req):
+        self.drv._get_random_name = mock.MagicMock()
+        self.drv._get_random_name.return_value = 'RegionOne'
 
-    def test_register_with_eos(self):
+        self.drv.check_cli_commands()
+
+        timestamp_cmd = ['show openstack config region RegionOne timestamp']
+        cmds = [timestamp_cmd]
+
+        for cmd in cmds:
+            found = False
+            for call in mock_send_eapi_req.mock_calls:
+                if cmd == call[2]['cmds']:
+                    found = True
+                    break
+            if not found:
+                assert 0, "Failed to find a command that should've been called"
+
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    def test_register_with_eos(self, mock_send_eapi_req):
         self.drv.register_with_eos()
         auth = fake_keystone_info_class()
         keystone_url = '%s://%s:%s/v2.0/' % (auth.auth_protocol,
@@ -539,7 +591,8 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                     auth.admin_user,
                     auth.admin_password,
                     auth.admin_tenant_name))
-        cmds = ['enable',
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable',
                 'configure',
                 'cvx',
                 'service openstack',
@@ -550,7 +603,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'exit',
                 'exit',
                 ]
-        self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
 
 class AristaRPCWrapperInvalidConfigTestCase(base.BaseTestCase):
@@ -894,6 +947,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.get_region_updated_time(),
+            mock.call.get_region_updated_time().__nonzero__(),
             mock.call._run_openstack_cmds(['sync start']),
             mock.call.register_with_eos(),
             mock.call.get_tenants(),
@@ -944,6 +998,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.get_region_updated_time(),
+            mock.call.get_region_updated_time().__nonzero__(),
             mock.call._run_openstack_cmds(['sync start']),
             mock.call.register_with_eos(),
             mock.call.get_tenants(),
@@ -966,7 +1021,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         # The create_network_bulk() can be called in different order. So split
         # it up. The first part checks if the initial set of methods are
         # invoked.
-        self.assertTrue(self.rpc.mock_calls[:4] == expected_calls[:4],
+        self.assertTrue(self.rpc.mock_calls[:5] == expected_calls[:5],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -974,7 +1029,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 1 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[4] in expected_calls[4:6],
+        self.assertTrue(self.rpc.mock_calls[5] in expected_calls[5:7],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -982,14 +1037,14 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 2 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[5] in expected_calls[4:6],
+        self.assertTrue(self.rpc.mock_calls[6] in expected_calls[5:7],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
                             )
                         )
         # Check if the sync end methods are invoked.
-        self.assertTrue(self.rpc.mock_calls[6:8] == expected_calls[6:8],
+        self.assertTrue(self.rpc.mock_calls[7:9] == expected_calls[7:9],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
