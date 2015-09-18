@@ -587,6 +587,12 @@ class SyncService(object):
         # operations fail, then force_sync is set to true
         self._force_sync = False
 
+        # Create a dict of networks keyed by id.
+        neutron_nets = dict(
+            (network['id'], network) for network in
+            self._ndb.get_all_networks()
+        )
+
         # To support shared networks, split the sync loop in two parts:
         # In first loop, delete unwanted VM and networks and update networks
         # In second loop, update VMs. This is done to ensure that networks for
@@ -621,12 +627,6 @@ class SyncService(object):
                 if nets_to_delete:
                     self._rpc.delete_network_bulk(tenant, nets_to_delete)
                 if nets_to_update:
-                    # Create a dict of networks keyed by id.
-                    neutron_nets = dict(
-                        (network['id'], network) for network in
-                        self._ndb.get_all_networks_for_tenant(tenant)
-                    )
-
                     networks = [{
                         'network_id': net_id,
                         'segmentation_id':

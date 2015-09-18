@@ -38,7 +38,9 @@ class AristaProvisionedNets(model_base.BASEV2, models_v2.HasId,
     def eos_network_representation(self, segmentation_type):
         return {u'networkId': self.network_id,
                 u'segmentationTypeId': self.segmentation_id,
-                u'segmentationType': segmentation_type}
+                u'segmentationType': segmentation_type,
+                u'tenantId': self.tenant_id,
+                }
 
 
 class AristaProvisionedVms(model_base.BASEV2, models_v2.HasId,
