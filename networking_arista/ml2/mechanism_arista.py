@@ -459,13 +459,14 @@ class AristaDriver(driver_api.MechanismDriver):
 
     def _cleanup_db(self):
         """Clean up any uncessary entries in our DB."""
-        db_tenants = db_lib.get_tenants()
-        for tenant in db_tenants:
-            neutron_nets = self.ndb.get_all_networks_for_tenant(tenant)
-            neutron_nets_id = []
-            for net in neutron_nets:
-                neutron_nets_id.append(net['id'])
-            db_nets = db_lib.get_networks(tenant)
-            for net_id in db_nets.keys():
-                if net_id not in neutron_nets_id:
-                    db_lib.forget_network(tenant, net_id)
+        neutron_nets = self.ndb.get_all_networks()
+        arista_db_nets = db_lib.get_networks(tenant_id='any')
+        neutron_net_ids = set()
+        for net in neutron_nets:
+            neutron_net_ids.add(net['id'])
+
+        # Remove networks from the Arista DB if the network does not exist in
+        # Neutron DB
+        for net_id in set(arista_db_nets.keys()).difference(neutron_net_ids):
+            tenant_network = arista_db_nets[net_id]
+            db_lib.forget_network(tenant_network['tenantId'], net_id)
