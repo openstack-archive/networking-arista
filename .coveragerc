@@ -4,4 +4,4 @@ source = networking-arista
 omit = networking-arista/tests/*,networking-arista/openstack/*
 
 [report]
-ignore-errors = True
+ignore_errors = True
