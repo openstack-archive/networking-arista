@@ -60,7 +60,7 @@ class AristaRPCWrapper(object):
         self.cli_commands['timestamp'] = []
 
     def check_cli_commands(self):
-        """Checks whether the CLI commands are vaild.
+        """Checks whether the CLI commands are valid.
 
            This method tries to execute the commands on EOS and if it succeedes
            the command is stored.
@@ -95,7 +95,7 @@ class AristaRPCWrapper(object):
 
     def plug_port_into_network(self, vm_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner):
-        """Genric routine plug a port of a VM instace into network.
+        """Generic routine plug a port of a VM instace into network.
 
         :param vm_id: globally unique identifier for VM instance
         :param host: ID of the host where the VM is placed

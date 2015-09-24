@@ -159,7 +159,7 @@ class AristaDriver(driver_api.MechanismDriver):
                                  ' in Arista DB'), network_id)
 
     def delete_network_precommit(self, context):
-        """Delete the network infromation from the DB."""
+        """Delete the network information from the DB."""
         network = context.current
         network_id = network['id']
         tenant_id = network['tenant_id']
@@ -192,7 +192,7 @@ class AristaDriver(driver_api.MechanismDriver):
                 raise ml2_exc.MechanismDriverError()
 
     def create_port_precommit(self, context):
-        """Remember the infromation about a VM and its ports
+        """Remember the information about a VM and its ports
 
         A VM information, along with the physical host information
         is saved.
