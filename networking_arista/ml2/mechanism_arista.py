@@ -33,6 +33,7 @@ from networking_arista.ml2 import arista_ml2
 LOG = logging.getLogger(__name__)
 
 EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
+INTERNAL_TENANT_ID = 'INTERNAL-TENANT-ID'
 
 
 class AristaDriver(driver_api.MechanismDriver):
@@ -75,9 +76,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # If network type is not VLAN, do nothing
             return
         network_id = network['id']
-        tenant_id = network['tenant_id']
-        if not tenant_id:
-            tenant_id = context._plugin_context.tenant_id
+        tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
         segmentation_id = segments[0]['segmentation_id']
         with self.eos_sync_lock:
             db_lib.remember_tenant(tenant_id)
@@ -91,9 +90,7 @@ class AristaDriver(driver_api.MechanismDriver):
         network = context.current
         network_id = network['id']
         network_name = network['name']
-        tenant_id = network['tenant_id']
-        if not tenant_id:
-            tenant_id = context._plugin_context.tenant_id
+        tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
         segments = context.network_segments
         vlan_id = segments[0]['segmentation_id']
         shared_net = network['shared']
@@ -137,9 +134,7 @@ class AristaDriver(driver_api.MechanismDriver):
            (new_network['shared'] != orig_network['shared'])):
             network_id = new_network['id']
             network_name = new_network['name']
-            tenant_id = new_network['tenant_id']
-            if not tenant_id:
-                tenant_id = context._plugin_context.tenant_id
+            tenant_id = new_network['tenant_id'] or INTERNAL_TENANT_ID
             vlan_id = new_network['provider:segmentation_id']
             shared_net = new_network['shared']
             with self.eos_sync_lock:
@@ -162,7 +157,7 @@ class AristaDriver(driver_api.MechanismDriver):
         """Delete the network infromation from the DB."""
         network = context.current
         network_id = network['id']
-        tenant_id = network['tenant_id']
+        tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
         if not tenant_id:
             tenant_id = context._plugin_context.tenant_id
         with self.eos_sync_lock:
@@ -177,9 +172,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # If networtk type is not VLAN, do nothing
             return
         network_id = network['id']
-        tenant_id = network['tenant_id']
-        if not tenant_id:
-            tenant_id = context._plugin_context.tenant_id
+        tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
         with self.eos_sync_lock:
 
             # Succeed deleting network in case EOS is not accessible.
@@ -209,9 +202,7 @@ class AristaDriver(driver_api.MechanismDriver):
         if host and is_vm_boot:
             port_id = port['id']
             network_id = port['network_id']
-            tenant_id = port['tenant_id']
-            if not tenant_id:
-                tenant_id = context._plugin_context.tenant_id
+            tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
             with self.eos_sync_lock:
                 # If network does not exist under this tenant,
                 # it may be a shared network. Get shared network owner Id
@@ -243,9 +234,7 @@ class AristaDriver(driver_api.MechanismDriver):
             port_id = port['id']
             port_name = port['name']
             network_id = port['network_id']
-            tenant_id = port['tenant_id']
-            if not tenant_id:
-                tenant_id = context._plugin_context.tenant_id
+            tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
             with self.eos_sync_lock:
                 hostname = self._host_name(host)
                 vm_provisioned = db_lib.is_vm_provisioned(device_id,
@@ -297,9 +286,7 @@ class AristaDriver(driver_api.MechanismDriver):
         if host and host != orig_port['binding:host_id'] and is_vm_boot:
             port_id = new_port['id']
             network_id = new_port['network_id']
-            tenant_id = new_port['tenant_id']
-            if not tenant_id:
-                tenant_id = context._plugin_context.tenant_id
+            tenant_id = new_port['tenant_id'] or INTERNAL_TENANT_ID
             with self.eos_sync_lock:
                 db_lib.update_vm_host(device_id, host, port_id,
                                       network_id, tenant_id)
@@ -322,9 +309,7 @@ class AristaDriver(driver_api.MechanismDriver):
             port_id = port['id']
             port_name = port['name']
             network_id = port['network_id']
-            tenant_id = port['tenant_id']
-            if not tenant_id:
-                tenant_id = context._plugin_context.tenant_id
+            tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
             with self.eos_sync_lock:
                 hostname = self._host_name(host)
                 segmentation_id = db_lib.get_segmentation_id(tenant_id,
@@ -369,9 +354,7 @@ class AristaDriver(driver_api.MechanismDriver):
 
         host_id = context.host
         device_id = port['device_id']
-        tenant_id = port['tenant_id']
-        if not tenant_id:
-            tenant_id = context._plugin_context.tenant_id
+        tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
         network_id = port['network_id']
         port_id = port['id']
         with self.eos_sync_lock:
@@ -388,9 +371,7 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         port = context.current
         host = context.host
-        tenant_id = port['tenant_id']
-        if not tenant_id:
-            tenant_id = context._plugin_context.tenant_id
+        tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
 
         with self.eos_sync_lock:
             self._delete_port(port, host, tenant_id)
