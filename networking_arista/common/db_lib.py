@@ -249,9 +249,15 @@ def get_networks(tenant_id):
         # hack for pep8 E711: comparison to None should be
         # 'if cond is not None'
         none = None
-        all_nets = (session.query(model).
-                    filter(model.tenant_id == tenant_id,
-                           model.segmentation_id != none))
+        all_nets = []
+        if tenant_id != 'any':
+            all_nets = (session.query(model).
+                        filter(model.tenant_id == tenant_id,
+                               model.segmentation_id != none))
+        else:
+            all_nets = (session.query(model).
+                        filter(model.segmentation_id != none))
+
         res = dict(
             (net.network_id, net.eos_network_representation(
                 VLAN_SEGMENTATION))
@@ -345,6 +351,9 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
         filters = {'tenant_id': [tenant_id]}
         return super(NeutronNets,
                      self).get_networks(self.admin_ctx, filters=filters) or []
+
+    def get_all_networks(self):
+        return super(NeutronNets, self).get_networks(self.admin_ctx) or []
 
     def get_all_ports_for_tenant(self, tenant_id):
         filters = {'tenant_id': [tenant_id]}

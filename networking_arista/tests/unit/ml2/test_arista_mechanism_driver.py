@@ -17,6 +17,7 @@ import mock
 from oslo_config import cfg
 
 from neutron.common import constants as n_const
+import neutron.db.api as db
 from neutron.extensions import portbindings
 from neutron.tests import base
 from neutron.tests.unit import testlib_api
@@ -698,9 +699,39 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
                          'There should be %d '
                          'VMs, not %d' % (expected_vms, provisioned_vms))
 
+    def test_cleanup_on_start(self):
+        """Ensures that the driver cleans up the arista database on startup."""
+        ndb = db_lib.NeutronNets()
+
+        # Create some networks in neutron db
+        n1_context = self._get_network_context('t1', 'n1', 10)
+        ndb.create_network(n1_context, {'network': n1_context.current})
+        n2_context = self._get_network_context('t2', 'n2', 20)
+        ndb.create_network(n2_context, {'network': n2_context.current})
+        n3_context = self._get_network_context('', 'ha-network', 100)
+        ndb.create_network(n3_context, {'network': n3_context.current})
+
+        # Create some networks in Arista db
+        db_lib.remember_network('t1', 'n1', 10)
+        db_lib.remember_network('t2', 'n2', 20)
+        db_lib.remember_network('admin', 'ha-network', 100)
+        db_lib.remember_network('t3', 'n3', 30)
+
+        # Initialize the driver which should clean up the extra networks
+        self.drv.initialize()
+
+        adb_networks = db_lib.get_networks(tenant_id='any')
+
+        # 'n3' should now be deleted from the Arista DB
+        assert(set(('n1', 'n2', 'ha-network')) == set(adb_networks.keys()))
+
     def _get_network_context(self, tenant_id, net_id, seg_id):
         network = {'id': net_id,
-                   'tenant_id': tenant_id}
+                   'tenant_id': tenant_id,
+                   'name': net_id,
+                   'admin_state_up': True,
+                   'shared': False,
+                   }
         network_segments = [{'segmentation_id': seg_id,
                              'network_type': 'vlan'}]
         return FakeNetworkContext(network, network_segments, network)
@@ -723,6 +754,9 @@ class FakeNetworkContext(object):
         self._network = network
         self._original_network = original_network
         self._segments = segments
+        self.is_admin = False
+        self.tenant_id = network['tenant_id']
+        self.session = db.get_session()
 
     @property
     def current(self):

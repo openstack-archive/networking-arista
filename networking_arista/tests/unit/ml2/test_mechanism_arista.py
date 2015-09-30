@@ -58,6 +58,28 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
 
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+        self.drv.create_network_precommit(network_context)
+
+        expected_calls += [
+            mock.call.remember_tenant(tenant_id),
+            mock.call.remember_network(tenant_id,
+                                       network_id,
+                                       segmentation_id)
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
     def test_create_network_postcommit(self):
         tenant_id = 'ten-1'
         network_id = 'net1-id'
@@ -85,6 +107,35 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
 
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
+        network = network_context.current
+        segments = network_context.network_segments
+        net_dict = {
+            'network_id': network['id'],
+            'segmentation_id': segments[0]['segmentation_id'],
+            'network_name': network['name'],
+            'shared': network['shared']}
+
+        self.drv.create_network_postcommit(network_context)
+
+        expected_calls += [
+            mock.call.is_network_provisioned(tenant_id, network_id),
+            mock.call.create_network(tenant_id, net_dict),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
     def test_delete_network_precommit(self):
         tenant_id = 'ten-1'
         network_id = 'net1-id'
@@ -106,6 +157,29 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
 
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
+        mechanism_arista.db_lib.num_nets_provisioned.return_value = 0
+        mechanism_arista.db_lib.num_vms_provisioned.return_value = 0
+        self.drv.delete_network_precommit(network_context)
+
+        expected_calls += [
+            mock.call.is_network_provisioned(tenant_id, network_id),
+            mock.call.forget_network(tenant_id, network_id),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
     def test_delete_network_postcommit(self):
         tenant_id = 'ten-1'
         network_id = 'net1-id'
@@ -116,9 +190,38 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                                     segmentation_id,
                                                     False)
 
+        mechanism_arista.db_lib.num_nets_provisioned.return_value = 0
+        mechanism_arista.db_lib.num_vms_provisioned.return_value = 0
         self.drv.delete_network_postcommit(network_context)
         expected_calls = [
             mock.call.delete_network(tenant_id, network_id),
+            mock.call.num_nets_provisioned(tenant_id),
+            mock.call.num_vms_provisioned(tenant_id),
+            mock.call.forget_tenant(tenant_id),
+            mock.call.delete_tenant(tenant_id),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+
+        self.drv.delete_network_postcommit(network_context)
+        expected_calls += [
+            mock.call.delete_network(tenant_id, network_id),
+            mock.call.num_nets_provisioned(tenant_id),
+            mock.call.num_vms_provisioned(tenant_id),
+            mock.call.forget_tenant(tenant_id),
+            mock.call.delete_tenant(tenant_id),
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
@@ -138,16 +241,48 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                               network_id,
                                               vm_id,
                                               network_context)
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
         host_id = port_context.current['binding:host_id']
         port_id = port_context.current['id']
         self.drv.create_port_precommit(port_context)
 
         expected_calls = [
+            mock.call.is_network_provisioned(tenant_id, network_id),
             mock.call.remember_tenant(tenant_id),
             mock.call.remember_vm(vm_id, host_id, port_id,
                                   network_id, tenant_id)
         ]
 
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+        vm_id = 'vm2'
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+
+        port_context = self._get_port_context(tenant_id,
+                                              network_id,
+                                              vm_id,
+                                              network_context)
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
+        host_id = port_context.current['binding:host_id']
+        port_id = port_context.current['id']
+        self.drv.create_port_precommit(port_context)
+
+        expected_calls += [
+            mock.call.is_network_provisioned(tenant_id, network_id),
+            mock.call.remember_tenant(tenant_id),
+            mock.call.remember_vm(vm_id, host_id, port_id,
+                                  network_id, tenant_id)
+        ]
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
 
     def test_create_port_postcommit(self):
@@ -178,6 +313,46 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.create_port_postcommit(port_context)
 
         expected_calls = [
+            mock.call.is_vm_provisioned(device_id, host_id, port_id,
+                                        network_id, tenant_id),
+            mock.call.is_network_provisioned(tenant_id, network_id),
+            mock.call.plug_port_into_network(device_id, host_id, port_id,
+                                             network_id, tenant_id,
+                                             port_name, device_owner)
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+        vm_id = 'vm2'
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+        port_context = self._get_port_context(tenant_id,
+                                              network_id,
+                                              vm_id,
+                                              network_context)
+        mechanism_arista.db_lib.is_vm_provisioned.return_value = True
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
+        mechanism_arista.db_lib.get_shared_network_owner_id.return_value = 1
+
+        port = port_context.current
+        device_id = port['device_id']
+        device_owner = port['device_owner']
+        host_id = port['binding:host_id']
+        port_id = port['id']
+        port_name = port['name']
+
+        self.drv.create_port_postcommit(port_context)
+
+        expected_calls += [
             mock.call.is_vm_provisioned(device_id, host_id, port_id,
                                         network_id, tenant_id),
             mock.call.is_network_provisioned(tenant_id, network_id),
@@ -220,6 +395,39 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
 
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+        vm_id = 'vm2'
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+
+        port_context = self._get_port_context(tenant_id,
+                                              network_id,
+                                              vm_id,
+                                              network_context)
+        mechanism_arista.db_lib.is_vm_provisioned.return_value = True
+        mechanism_arista.db_lib.num_nets_provisioned.return_value = 0
+        mechanism_arista.db_lib.num_vms_provisioned.return_value = 0
+        self.drv.delete_port_precommit(port_context)
+
+        host_id = port_context.current['binding:host_id']
+        port_id = port_context.current['id']
+        expected_calls += [
+            mock.call.is_vm_provisioned(vm_id, host_id, port_id,
+                                        network_id, tenant_id),
+            mock.call.forget_vm(vm_id, host_id, port_id,
+                                network_id, tenant_id),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
     def test_delete_port_postcommit(self):
         tenant_id = 'ten-1'
         network_id = 'net1-id'
@@ -234,6 +442,9 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                               network_id,
                                               vm_id,
                                               network_context)
+        mechanism_arista.db_lib.num_nets_provisioned.return_value = 0
+        mechanism_arista.db_lib.num_vms_provisioned.return_value = 0
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
         port = port_context.current
         device_id = port['device_id']
         host_id = port['binding:host_id']
@@ -242,8 +453,48 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.delete_port_postcommit(port_context)
 
         expected_calls = [
+            mock.call.is_network_provisioned(tenant_id, network_id),
             mock.call.unplug_host_from_network(device_id, host_id, port_id,
-                                               network_id, tenant_id)
+                                               network_id, tenant_id),
+            mock.call.num_nets_provisioned(tenant_id),
+            mock.call.num_vms_provisioned(tenant_id),
+            mock.call.forget_tenant(tenant_id),
+            mock.call.delete_tenant(tenant_id),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+        vm_id = 'vm2'
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+        port_context = self._get_port_context(tenant_id,
+                                              network_id,
+                                              vm_id,
+                                              network_context)
+        port = port_context.current
+        device_id = port['device_id']
+        host_id = port['binding:host_id']
+        port_id = port['id']
+
+        self.drv.delete_port_postcommit(port_context)
+
+        expected_calls += [
+            mock.call.is_network_provisioned(tenant_id, network_id),
+            mock.call.unplug_host_from_network(device_id, host_id, port_id,
+                                               network_id, tenant_id),
+            mock.call.num_nets_provisioned(tenant_id),
+            mock.call.num_vms_provisioned(tenant_id),
+            mock.call.forget_tenant(tenant_id),
+            mock.call.delete_tenant(tenant_id),
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
@@ -269,6 +520,35 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.update_port_precommit(port_context)
 
         expected_calls = [
+            mock.call.update_vm_host(vm_id, host_id, port_id,
+                                     network_id, tenant_id)
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+        vm_id = 'vm2'
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+
+        port_context = self._get_port_context(tenant_id,
+                                              network_id,
+                                              vm_id,
+                                              network_context)
+        host_id = port_context.current['binding:host_id']
+        port_context.original['binding:host_id'] = 'ubuntu0'
+        port_id = port_context.current['id']
+        self.drv.update_port_precommit(port_context)
+
+        expected_calls += [
             mock.call.update_vm_host(vm_id, host_id, port_id,
                                      network_id, tenant_id)
         ]
@@ -327,6 +607,59 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
 
+        # If there is no tenant id associated with the network, then the
+        # network should be created under the tenant id in the context.
+        tenant_id = 'ten-2'
+        network_id = 'net2-id'
+        segmentation_id = 1002
+        vm_id = 'vm2'
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        network_context.current['tenant_id'] = ''
+        port_context = self._get_port_context(tenant_id,
+                                              network_id,
+                                              vm_id,
+                                              network_context)
+
+        mechanism_arista.db_lib.is_vm_provisioned.return_value = True
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
+        mechanism_arista.db_lib.get_shared_network_owner_id.return_value = 1
+        mechanism_arista.db_lib.get_segmentation_id.return_value = 1002
+        mechanism_arista.db_lib.num_nets_provisioned.return_value = 1
+        mechanism_arista.db_lib.num_vms_provisioned.return_value = 1
+
+        port = port_context.current
+        device_id = port['device_id']
+        device_owner = port['device_owner']
+        host_id = port['binding:host_id']
+        orig_host_id = 'ubuntu0'
+        port_context.original['binding:host_id'] = orig_host_id
+        port_id = port['id']
+        port_name = port['name']
+
+        self.drv.update_port_postcommit(port_context)
+
+        expected_calls += [
+            mock.call.get_segmentation_id(tenant_id, network_id),
+            mock.call.is_vm_provisioned(device_id, host_id, port_id,
+                                        network_id, tenant_id),
+            mock.call.is_network_provisioned(tenant_id, network_id,
+                                             segmentation_id),
+            mock.call.is_network_provisioned(tenant_id, network_id),
+            mock.call.unplug_host_from_network(device_id, orig_host_id,
+                                               port_id, network_id, tenant_id),
+            mock.call.num_nets_provisioned(tenant_id),
+            mock.call.num_vms_provisioned(tenant_id),
+            mock.call.plug_port_into_network(device_id, host_id, port_id,
+                                             network_id, tenant_id,
+                                             port_name, device_owner)
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
     def _get_network_context(self, tenant_id, net_id, seg_id, shared):
         network = {'id': net_id,
                    'tenant_id': tenant_id,
@@ -334,7 +667,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                    'shared': shared}
         network_segments = [{'segmentation_id': seg_id,
                              'network_type': 'vlan'}]
-        return FakeNetworkContext(network, network_segments, network)
+        return FakeNetworkContext(tenant_id, network, network_segments,
+                                  network)
 
     def _get_port_context(self, tenant_id, net_id, vm_id, network):
         port = {'device_id': vm_id,
@@ -364,10 +698,12 @@ class fake_keystone_info_class(object):
 class FakeNetworkContext(object):
     """To generate network context for testing purposes only."""
 
-    def __init__(self, network, segments=None, original_network=None):
+    def __init__(self, tenant_id, network, segments=None,
+                 original_network=None):
         self._network = network
         self._original_network = original_network
         self._segments = segments
+        self._plugin_context = FakePluginContext(tenant_id)
 
     @property
     def current(self):
@@ -409,3 +745,10 @@ class FakePortContext(object):
     @property
     def original_host(self):
         return self._original_port.get(portbindings.HOST_ID)
+
+
+class FakePluginContext(object):
+    """Plugin context for testing purposes only."""
+
+    def __init__(self, tenant_id):
+        self.tenant_id = tenant_id
