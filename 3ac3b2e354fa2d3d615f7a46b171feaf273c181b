@@ -1,0 +1,8 @@
+Verified+2: Jenkins
+Code-Review+2: Sukhdev Kapur <sukhdev@aristanetworks.com>
+Workflow+1: Sukhdev Kapur <sukhdev@aristanetworks.com>
+Submitted-by: Jenkins
+Submitted-at: Wed, 30 Sep 2015 23:41:41 +0000
+Reviewed-on: https://review.openstack.org/229576
+Project: openstack/networking-arista
+Branch: refs/heads/master
