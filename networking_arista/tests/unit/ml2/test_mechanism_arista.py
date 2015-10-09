@@ -683,7 +683,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
 
 class fake_keystone_info_class(object):
-    """To generate fake Keystone Authentification token information
+    """To generate fake Keystone Authentication token information
 
     Arista Driver expects Keystone auth info. This fake information
     is for testing only
