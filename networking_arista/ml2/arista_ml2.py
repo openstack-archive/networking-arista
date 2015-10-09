@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 import itertools
+import os
 
 import jsonrpclib
 from oslo_config import cfg
@@ -26,10 +28,18 @@ from neutron.i18n import _LW
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 
+import socket
+
 LOG = logging.getLogger(__name__)
 
 EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
 DEFAULT_VLAN = 1
+# Insert a heartbeat command every 100 commands
+HEARTBEAT_INTERVAL = 100
+
+# Commands dict keys
+CMD_SYNC_HEARTBEAT = 'SYNC_HEARTBEAT'
+CMD_REGION_SYNC = 'REGION_SYNC'
 
 
 class AristaRPCWrapper(object):
@@ -58,8 +68,14 @@ class AristaRPCWrapper(object):
         """
         return ['exit'] * len(modes)
 
+    def _get_random_name(self, length=10):
+        """Returns a base64 encoded name."""
+        return base64.b64encode(os.urandom(10)).translate(None, '=+/')
+
     def initialize_cli_commands(self):
         self.cli_commands['timestamp'] = []
+        self.cli_commands[CMD_REGION_SYNC] = ''
+        self.cli_commands[CMD_SYNC_HEARTBEAT] = ''
 
     def check_cli_commands(self):
         """Checks whether the CLI commands are vaild.
@@ -76,12 +92,44 @@ class AristaRPCWrapper(object):
             LOG.warn(_LW("'timestamp' command '%s' is not available on EOS"),
                      cmd)
 
+        # Test the CLI command against a random region to ensure that multiple
+        # neutron servers trying to execute the same command do not interpret
+        # the lock errors differently.
+        test_region_name = self._get_random_name()
+        sync_command = [
+            'enable',
+            'configure',
+            'cvx',
+            'service openstack',
+            'region %s' % test_region_name,
+            'sync lock clientid requestid',
+            'exit',
+            'region %s sync' % test_region_name,
+            'sync end',
+            'exit',
+        ]
+        try:
+            self._run_eos_cmds(sync_command)
+            self.cli_commands[CMD_REGION_SYNC] = 'region %s sync' % self.region
+            self.cli_commands[CMD_SYNC_HEARTBEAT] = 'sync heartbeat'
+        except arista_exc.AristaRpcError:
+            self.cli_commands[CMD_REGION_SYNC] = ''
+            LOG.warn(_LW("'region sync' command is not available on EOS"))
+        finally:
+            cmd = ['enable', 'configure', 'cvx', 'service openstack',
+                   'no region %s' % test_region_name]
+            self._run_eos_cmds(cmd)
+
     def _keystone_url(self):
         keystone_auth_url = ('%s://%s:%s/v2.0/' %
                              (self.keystone_conf.auth_protocol,
                               self.keystone_conf.auth_host,
                               self.keystone_conf.auth_port))
         return keystone_auth_url
+
+    def _heartbeat_required(self, sync, counter=0):
+        return (sync and self.cli_commands[CMD_SYNC_HEARTBEAT] and
+                (counter % HEARTBEAT_INTERVAL) == 0)
 
     def get_tenants(self):
         """Returns dict of all tenants known by EOS.
@@ -141,8 +189,6 @@ class AristaRPCWrapper(object):
         else:
             cmds.append('port id %s network-id %s' %
                         (port_id, network_id))
-        cmds.append('exit')
-        cmds.append('exit')
         self._run_openstack_cmds(cmds)
 
     def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
@@ -164,7 +210,6 @@ class AristaRPCWrapper(object):
         else:
             cmds.append('dhcp id %s hostid %s port-id %s' %
                         (dhcp_id, host, port_id))
-        cmds.append('exit')
         self._run_openstack_cmds(cmds)
 
     def unplug_host_from_network(self, vm_id, host, port_id,
@@ -180,8 +225,7 @@ class AristaRPCWrapper(object):
         cmds = ['tenant %s' % tenant_id,
                 'vm id %s hostid %s' % (vm_id, host),
                 'no port id %s' % port_id,
-                'exit',
-                'exit']
+                ]
         self._run_openstack_cmds(cmds)
 
     def unplug_dhcp_port_from_network(self, dhcp_id, host, port_id,
@@ -197,7 +241,7 @@ class AristaRPCWrapper(object):
         cmds = ['tenant %s' % tenant_id,
                 'network id %s' % network_id,
                 'no dhcp id %s port-id %s' % (dhcp_id, port_id),
-                'exit']
+                ]
         self._run_openstack_cmds(cmds)
 
     def create_network(self, tenant_id, network):
@@ -209,17 +253,20 @@ class AristaRPCWrapper(object):
         """
         self.create_network_bulk(tenant_id, [network])
 
-    def create_network_bulk(self, tenant_id, network_list):
+    def create_network_bulk(self, tenant_id, network_list, sync=False):
         """Creates a network on Arista Hardware
 
         :param tenant_id: globally unique neutron tenant identifier
         :param network_list: list of dicts containing network_id, network_name
                              and segmentation_id
+        :param sync: This flags indicates that the region is being synced.
         """
         cmds = ['tenant %s' % tenant_id]
         # Create a reference to function to avoid name lookups in the loop
         append_cmd = cmds.append
+        counter = 0
         for network in network_list:
+            counter += 1
             try:
                 append_cmd('network id %s name "%s"' %
                            (network['network_id'], network['network_name']))
@@ -232,8 +279,13 @@ class AristaRPCWrapper(object):
                        network['segmentation_id'])
             shared_cmd = 'shared' if network['shared'] else 'no shared'
             append_cmd(shared_cmd)
-        cmds.extend(self._get_exit_mode_cmds(['segment', 'network', 'tenant']))
-        self._run_openstack_cmds(cmds)
+            if self._heartbeat_required(sync, counter):
+                append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
+
+        if self._heartbeat_required(sync):
+            append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
+
+        self._run_openstack_cmds(cmds, sync=sync)
 
     def create_network_segments(self, tenant_id, network_id,
                                 network_name, segments):
@@ -256,9 +308,6 @@ class AristaRPCWrapper(object):
                 cmds.append('segment %d type %s id %d' % (seg_num,
                             seg['network_type'], seg['segmentation_id']))
                 seg_num += 1
-            cmds.append('exit')  # exit for segment mode
-            cmds.append('exit')  # exit for network mode
-            cmds.append('exit')  # exit for tenant mode
 
             self._run_openstack_cmds(cmds)
 
@@ -270,18 +319,25 @@ class AristaRPCWrapper(object):
         """
         self.delete_network_bulk(tenant_id, [network_id])
 
-    def delete_network_bulk(self, tenant_id, network_id_list):
+    def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
         """Deletes the network ids specified for a tenant
 
         :param tenant_id: globally unique neutron tenant identifier
         :param network_id_list: list of globally unique neutron network
                                 identifiers
+        :param sync: This flags indicates that the region is being synced.
         """
         cmds = ['tenant %s' % tenant_id]
+        counter = 0
         for network_id in network_id_list:
+            counter += 1
             cmds.append('no network id %s' % network_id)
-        cmds.extend(self._get_exit_mode_cmds(['network', 'tenant']))
-        self._run_openstack_cmds(cmds)
+            if self._heartbeat_required(sync, counter):
+                cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
+
+        if self._heartbeat_required(sync):
+            cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
+        self._run_openstack_cmds(cmds, sync=sync)
 
     def delete_vm(self, tenant_id, vm_id):
         """Deletes a VM from EOS for a given tenant
@@ -291,29 +347,39 @@ class AristaRPCWrapper(object):
         """
         self.delete_vm_bulk(tenant_id, [vm_id])
 
-    def delete_vm_bulk(self, tenant_id, vm_id_list):
+    def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
         """Deletes VMs from EOS for a given tenant
 
         :param tenant_id : globally unique neutron tenant identifier
         :param vm_id_list : ids of VMs that needs to be deleted.
+        :param sync: This flags indicates that the region is being synced.
         """
         cmds = ['tenant %s' % tenant_id]
+        counter = 0
         for vm_id in vm_id_list:
+            counter += 1
             cmds.append('no vm id %s' % vm_id)
-        cmds.extend(self._get_exit_mode_cmds(['vm', 'tenant']))
-        self._run_openstack_cmds(cmds)
+            if self._heartbeat_required(sync, counter):
+                cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
 
-    def create_vm_port_bulk(self, tenant_id, vm_port_list, vms):
+        if self._heartbeat_required(sync):
+            cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
+        self._run_openstack_cmds(cmds, sync=sync)
+
+    def create_vm_port_bulk(self, tenant_id, vm_port_list, vms, sync=False):
         """Sends a bulk request to create ports.
 
         :param tenant_id: globaly unique neutron tenant identifier
         :param vm_port_list: list of ports that need to be created.
         :param vms: list of vms to which the ports will be attached to.
+        :param sync: This flags indicates that the region is being synced.
         """
         cmds = ['tenant %s' % tenant_id]
         # Create a reference to function to avoid name lookups in the loop
         append_cmd = cmds.append
+        counter = 0
         for port in vm_port_list:
+            counter += 1
             try:
                 vm = vms[port['device_id']]
             except KeyError:
@@ -336,9 +402,13 @@ class AristaRPCWrapper(object):
             else:
                 LOG.warn(_LW("Unknown device owner: %s"), port['device_owner'])
                 continue
+            if self._heartbeat_required(sync, counter):
+                append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
 
-        append_cmd('exit')
-        self._run_openstack_cmds(cmds)
+        if self._heartbeat_required(sync):
+            append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
+
+        self._run_openstack_cmds(cmds, sync=sync)
 
     def delete_tenant(self, tenant_id):
         """Deletes a given tenant and all its networks and VMs from EOS.
@@ -347,18 +417,20 @@ class AristaRPCWrapper(object):
         """
         self.delete_tenant_bulk([tenant_id])
 
-    def delete_tenant_bulk(self, tenant_list):
+    def delete_tenant_bulk(self, tenant_list, sync=False):
         """Sends a bulk request to delete the tenants.
 
         :param tenant_list: list of globaly unique neutron tenant ids which
                             need to be deleted.
+        :param sync: This flags indicates that the region is being synced.
         """
 
         cmds = []
         for tenant in tenant_list:
             cmds.append('no tenant %s' % tenant)
-        cmds.append('exit')
-        self._run_openstack_cmds(cmds)
+        if self._heartbeat_required(sync):
+            cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
+        self._run_openstack_cmds(cmds, sync=sync)
 
     def delete_this_region(self):
         """Deleted the region data from EOS."""
@@ -367,16 +439,16 @@ class AristaRPCWrapper(object):
                 'cvx',
                 'service openstack',
                 'no region %s' % self.region,
-                'exit',
-                'exit',
-                'exit']
+                ]
         self._run_eos_cmds(cmds)
 
-    def register_with_eos(self):
+    def register_with_eos(self, sync=False):
         """This is the registration request with EOS.
 
         This the initial handshake between Neutron and EOS.
         critical end-point information is registered with EOS.
+
+        :param sync: This flags indicates that the region is being synced.
         """
 
         cmds = ['auth url %s user %s password %s tenant %s' % (
@@ -395,7 +467,7 @@ class AristaRPCWrapper(object):
         cmds.append(sync_interval_cmd)
         log_cmds.append(sync_interval_cmd)
 
-        self._run_openstack_cmds(cmds, commands_to_log=log_cmds)
+        self._run_openstack_cmds(cmds, commands_to_log=log_cmds, sync=sync)
 
     def clear_region_updated_time(self):
         # TODO(shashank): Remove this once the call is removed from the ML2
@@ -412,6 +484,51 @@ class AristaRPCWrapper(object):
         if timestamp_cmd:
             return self._run_eos_cmds(commands=timestamp_cmd)[0]
         return None
+
+    def _check_sync_lock(self, client):
+        """Check if the lock is owned by this client.
+
+        :param client: Returns true only if the lock owner matches the expected
+                       client.
+        """
+        cmds = ['show sync lock']
+        ret = self._run_openstack_cmds(cmds, sync=True)
+        for r in ret:
+            if 'owner' in r:
+                lock_owner = r['owner']
+                LOG.info(_LI('Lock requested by: %s'), client)
+                LOG.info(_LI('Lock owner: %s'), lock_owner)
+                return lock_owner == client
+        return False
+
+    def sync_start(self):
+        """Let EOS know that a sync in being initiated."""
+        try:
+            cmds = []
+            if self.cli_commands[CMD_REGION_SYNC]:
+                # Locking the region during sync is supported.
+                client_id = socket.gethostname().split('.')[0]
+                request_id = self._get_random_name()
+                cmds = ['sync lock %s %s' % (client_id, request_id)]
+                self._run_openstack_cmds(cmds)
+                # Check whether the lock was acquired.
+                return self._check_sync_lock(client_id)
+            else:
+                cmds = ['sync start']
+                self._run_openstack_cmds(cmds)
+            return True
+        except arista_exc.AristaRpcError:
+            return False
+
+    def sync_end(self):
+        """Let EOS know that sync is complete."""
+        try:
+            # 'sync end' can be sent only when the region has been entered in
+            # the sync mode
+            self._run_openstack_cmds(['sync end'], sync=True)
+            return True
+        except arista_exc.AristaRpcError:
+            return False
 
     def _run_eos_cmds(self, commands, commands_to_log=None):
         """Execute/sends a CAPI (Command API) command to EOS.
@@ -467,7 +584,7 @@ class AristaRPCWrapper(object):
 
         return ret
 
-    def _build_command(self, cmds):
+    def _build_command(self, cmds, sync=False):
         """Build full EOS's openstack CLI command.
 
         Helper method to add commands to enter and exit from openstack
@@ -475,22 +592,24 @@ class AristaRPCWrapper(object):
 
         :param cmds: The openstack CLI commands that need to be executed
                      in the openstack config mode.
+        :param sync: This flags indicates that the region is being synced.
         """
+
+        region_cmd = 'region %s' % self.region
+        if sync and self.cli_commands[CMD_REGION_SYNC]:
+            region_cmd = self.cli_commands[CMD_REGION_SYNC]
 
         full_command = [
             'enable',
             'configure',
             'cvx',
             'service openstack',
-            'region %s' % self.region,
+            region_cmd,
         ]
         full_command.extend(cmds)
-        full_command.extend(self._get_exit_mode_cmds(['region',
-                                                      'openstack',
-                                                      'cvx']))
         return full_command
 
-    def _run_openstack_cmds(self, commands, commands_to_log=None):
+    def _run_openstack_cmds(self, commands, commands_to_log=None, sync=False):
         """Execute/sends a CAPI (Command API) command to EOS.
 
         In this method, list of commands is appended with prefix and
@@ -500,14 +619,15 @@ class AristaRPCWrapper(object):
         :param commands_to_logs : This should be set to the command that is
                                   logged. If it is None, then the commands
                                   param is logged.
+        :param sync: This flags indicates that the region is being synced.
         """
 
-        full_command = self._build_command(commands)
+        full_command = self._build_command(commands, sync=sync)
         if commands_to_log:
-            full_log_command = self._build_command(commands_to_log)
+            full_log_command = self._build_command(commands_to_log, sync=sync)
         else:
             full_log_command = None
-        self._run_eos_cmds(full_command, full_log_command)
+        return self._run_eos_cmds(full_command, full_log_command)
 
     def _get_eos_master(self):
         hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
@@ -579,13 +699,16 @@ class SyncService(object):
             return
 
         # Send 'sync start' marker.
-        if not self._sync_start():
+        if not self._rpc.sync_start():
+            self._force_sync = True
             return
 
         # Perform the actual synchronization.
         self.synchronize()
+
         # Send 'sync end' marker.
-        if not self._sync_end():
+        if not self._rpc.sync_end():
+            self._force_sync = True
             return
 
         self._set_region_updated_time()
@@ -596,7 +719,7 @@ class SyncService(object):
         LOG.info(_LI('Syncing Neutron <-> EOS'))
         try:
             # Register with EOS to ensure that it has correct credentials
-            self._rpc.register_with_eos()
+            self._rpc.register_with_eos(sync=True)
             eos_tenants = self._rpc.get_tenants()
         except arista_exc.AristaRpcError:
             LOG.warning(EOS_UNREACHABLE_MSG)
@@ -611,7 +734,7 @@ class SyncService(object):
 
         if tenants_to_delete:
             try:
-                self._rpc.delete_tenant_bulk(tenants_to_delete)
+                self._rpc.delete_tenant_bulk(tenants_to_delete, sync=True)
             except arista_exc.AristaRpcError:
                 LOG.warning(EOS_UNREACHABLE_MSG)
                 self._force_sync = True
@@ -657,9 +780,10 @@ class SyncService(object):
 
             try:
                 if vms_to_delete:
-                    self._rpc.delete_vm_bulk(tenant, vms_to_delete)
+                    self._rpc.delete_vm_bulk(tenant, vms_to_delete, sync=True)
                 if nets_to_delete:
-                    self._rpc.delete_network_bulk(tenant, nets_to_delete)
+                    self._rpc.delete_network_bulk(tenant, nets_to_delete,
+                                                  sync=True)
                 if nets_to_update:
                     networks = [{
                         'network_id': net_id,
@@ -673,7 +797,7 @@ class SyncService(object):
                         }
                         for net_id in nets_to_update
                     ]
-                    self._rpc.create_network_bulk(tenant, networks)
+                    self._rpc.create_network_bulk(tenant, networks, sync=True)
             except arista_exc.AristaRpcError:
                 LOG.warning(EOS_UNREACHABLE_MSG)
                 self._force_sync = True
@@ -691,28 +815,11 @@ class SyncService(object):
                 ]
                 if vm_ports:
                     db_vms = db_lib.get_vms(tenant)
-                    self._rpc.create_vm_port_bulk(tenant, vm_ports, db_vms)
+                    self._rpc.create_vm_port_bulk(tenant, vm_ports, db_vms,
+                                                  sync=True)
             except arista_exc.AristaRpcError:
                 LOG.warning(EOS_UNREACHABLE_MSG)
                 self._force_sync = True
-
-    def _sync_start(self):
-        """Let EOS know that a sync in being initiated."""
-        try:
-            self._rpc._run_openstack_cmds(['sync start'])
-            return True
-        except arista_exc.AristaRpcError:
-            self._force_sync = True
-            return False
-
-    def _sync_end(self):
-        """Let EOS know that sync is complete."""
-        try:
-            self._rpc._run_openstack_cmds(['sync end'])
-            return True
-        except arista_exc.AristaRpcError:
-            self._force_sync = True
-            return False
 
     def _region_in_sync(self):
         """Checks if the region is in sync with EOS.
@@ -733,7 +840,8 @@ class SyncService(object):
             # perform a complete sync.
             if not self._force_sync and self._region_in_sync():
                 LOG.info(_LI('OpenStack and EOS are in sync!'))
-                self._sync_end()
+                if not self._rpc.cli_commands[CMD_REGION_SYNC]:
+                    self._rpc.sync_end()
                 return False
         except arista_exc.AristaRpcError:
             LOG.warning(EOS_UNREACHABLE_MSG)
