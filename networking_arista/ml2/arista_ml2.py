@@ -121,11 +121,14 @@ class AristaRPCWrapper(object):
             self._run_eos_cmds(cmd)
 
     def _keystone_url(self):
-        keystone_auth_url = ('%s://%s:%s/v2.0/' %
-                             (self.keystone_conf.auth_protocol,
-                              self.keystone_conf.auth_host,
-                              self.keystone_conf.auth_port))
-        return keystone_auth_url
+        if self.keystone_conf.auth_uri:
+            auth_uri = self.keystone_conf.auth_uri.rstrip('/')
+        else:
+            auth_uri = ('%(protocol)s://%(host)s:%(port)s' %
+                {'protocol': self.keystone_conf.auth_protocol,
+                 'host': self.keystone_conf.auth_host,
+                 'port': self.keystone_conf.auth_port})
+        return '%s/v2.0/' % auth_uri
 
     def _heartbeat_required(self, sync, counter=0):
         return (sync and self.cli_commands[CMD_SYNC_HEARTBEAT] and
