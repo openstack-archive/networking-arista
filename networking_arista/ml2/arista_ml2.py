@@ -22,12 +22,14 @@ from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron.common import constants as n_const
+from neutron.extensions import portbindings
 from neutron.i18n import _LI
 from neutron.i18n import _LW
 
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 
+import json
 import socket
 
 LOG = logging.getLogger(__name__)
@@ -74,11 +76,12 @@ class AristaRPCWrapper(object):
 
     def initialize_cli_commands(self):
         self.cli_commands['timestamp'] = []
+        self.cli_commands['baremetal'] = ''
         self.cli_commands[CMD_REGION_SYNC] = ''
         self.cli_commands[CMD_SYNC_HEARTBEAT] = ''
 
     def check_cli_commands(self):
-        """Checks whether the CLI commands are valid.
+        """Checks whether the CLI commands are vaild.
 
            This method tries to execute the commands on EOS and if it succeedes
            the command is stored.
@@ -91,6 +94,26 @@ class AristaRPCWrapper(object):
             self.cli_commands['timestamp'] = []
             LOG.warn(_LW("'timestamp' command '%s' is not available on EOS"),
                      cmd)
+
+        # See if baremetal support is available in EOS running on CVX
+        bm_cmds = [
+            'enable',
+            'configure',
+            'cvx',
+            'service openstack',
+        ]
+        bm_cmd = bm_cmds + ['host-id test-host']
+        try:
+            self._run_eos_cmds(bm_cmd)
+            self.cli_commands['baremetal'] = 'baremetal'
+        except arista_exc.AristaRpcError:
+            self.cli_commands['baremetal'] = ''
+            LOG.warn(_LW(" Baremeral service is not available on EOS"))
+
+        if self.cli_commands['baremetal']:
+            # Remove this host, if it was created as a part of this test
+            bm_cmd = bm_cmds + ['no host-id test-host']
+            self._run_eos_cmds(bm_cmd)
 
         # Test the CLI command against a random region to ensure that multiple
         # neutron servers trying to execute the same command do not interpret
@@ -144,8 +167,9 @@ class AristaRPCWrapper(object):
         return tenants
 
     def plug_port_into_network(self, vm_id, host_id, port_id,
-                               net_id, tenant_id, port_name, device_owner):
-        """Generic routine plug a port of a VM instace into network.
+                               net_id, tenant_id, port_name, device_owner,
+                               vnic_type, profile=None):
+        """Genric routine plug a port of a VM instace into network.
 
         :param vm_id: globally unique identifier for VM instance
         :param host: ID of the host where the VM is placed
@@ -162,16 +186,20 @@ class AristaRPCWrapper(object):
                                              net_id,
                                              tenant_id,
                                              port_name)
-        elif device_owner.startswith('compute'):
+        elif (device_owner.startswith('compute:None') or
+              device_owner.startswith('baremetal')):
             self.plug_host_into_network(vm_id,
                                         host_id,
                                         port_id,
                                         net_id,
                                         tenant_id,
-                                        port_name)
+                                        port_name,
+                                        vnic_type,
+                                        profile)
 
     def plug_host_into_network(self, vm_id, host, port_id,
-                               network_id, tenant_id, port_name):
+                               network_id, tenant_id, port_name,
+                               vnic_type, profile=None):
         """Creates VLAN between TOR and compute host.
 
         :param vm_id: globally unique identifier for VM instance
@@ -181,14 +209,43 @@ class AristaRPCWrapper(object):
         :param tenant_id: globally unique neutron tenant identifier
         :param port_name: Name of the port - for display purposes
         """
-        cmds = ['tenant %s' % tenant_id,
-                'vm id %s hostid %s' % (vm_id, host)]
+        # For baremetal, add host to the topology
+        if profile and vnic_type == portbindings.VNIC_BAREMETAL:
+            cmds = ['host-id %s' % host]
+            for p in profile:
+                if not p:
+                    # skip all empty entries
+                    continue
+                cmds.append('switch-id %s' % p['switch_id'])
+                cmds.append('switchport %s' % p['port_id'])
+                cmds.append('exit')
+            cmds.append('exit')
+
+            # Following is a temporary code for native VLANs - to be removed
+            vlan_id = db_lib.get_segmentation_id(tenant_id, network_id)
+            # remember to renmove it - as it will be created dynamically anyway
+            cmds.append('vlan %s' % vlan_id)
+            cmds.append('interface %s' % p['port_id'])
+            cmds.append('switchport trunk native vlan %s' % vlan_id)
+            self._run_openstack_cmds(cmds)
+
+        port_cmd = ''
         if port_name:
-            cmds.append('port id %s name "%s" network-id %s' %
-                        (port_id, port_name, network_id))
+            port_cmd += ('port id %s name "%s" network-id %s' %
+                         (port_id, port_name, network_id))
         else:
-            cmds.append('port id %s network-id %s' %
-                        (port_id, network_id))
+            port_cmd += ('port id %s network-id %s' %
+                         (port_id, network_id))
+
+        if vnic_type != portbindings.VNIC_BAREMETAL:
+            cmds = ['tenant %s' % tenant_id,
+                    'vm id %s hostid %s' % (vm_id, host)]
+        else:
+            cmds = ['tenant %s' % tenant_id,
+                    'instance id %s hostid %s type baremetal' % (vm_id, host)]
+            port_cmd += ' type native'
+
+        cmds.append(port_cmd)
         self._run_openstack_cmds(cmds)
 
     def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
@@ -213,7 +270,8 @@ class AristaRPCWrapper(object):
         self._run_openstack_cmds(cmds)
 
     def unplug_host_from_network(self, vm_id, host, port_id,
-                                 network_id, tenant_id):
+                                 network_id, tenant_id, vnic_type,
+                                 profile=None):
         """Removes previously configured VLAN between TOR and a host.
 
         :param vm_id: globally unique identifier for VM instance
@@ -222,10 +280,27 @@ class AristaRPCWrapper(object):
         :param network_id: globally unique neutron network identifier
         :param tenant_id: globally unique neutron tenant identifier
         """
-        cmds = ['tenant %s' % tenant_id,
-                'vm id %s hostid %s' % (vm_id, host),
-                'no port id %s' % port_id,
-                ]
+        # Following is a temporary code for native VLANs - should be removed
+        vlan_id = db_lib.get_segmentation_id(tenant_id, network_id)
+        if vnic_type != portbindings.VNIC_BAREMETAL:
+            cmds = ['tenant %s' % tenant_id,
+                    'vm id %s hostid %s' % (vm_id, host),
+                    'no port id %s' % port_id,
+                    'exit',
+                    'exit']
+        else:
+            cmds = ['tenant %s' % tenant_id,
+                    'instance id %s hostid %s type baremetal' % (vm_id, host),
+                    'no port id %s' % port_id,
+                    'exit',
+                    'exit']
+            for p in profile:
+                if not p:
+                    # skip all empty entries
+                    continue
+                cmds.append('interface %s' % p['port_id'])
+                cmds.append('no switchport trunk native vlan %s' % vlan_id)
+            cmds.append('no vlan %s' % vlan_id)
         self._run_openstack_cmds(cmds)
 
     def unplug_dhcp_port_from_network(self, dhcp_id, host, port_id,
@@ -347,7 +422,8 @@ class AristaRPCWrapper(object):
         """
         self.delete_vm_bulk(tenant_id, [vm_id])
 
-    def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
+    def delete_vm_bulk(self, tenant_id, vm_id_list,
+                       bm_host_list=None, sync=False):
         """Deletes VMs from EOS for a given tenant
 
         :param tenant_id : globally unique neutron tenant identifier
@@ -358,7 +434,19 @@ class AristaRPCWrapper(object):
         counter = 0
         for vm_id in vm_id_list:
             counter += 1
-            cmds.append('no vm id %s' % vm_id)
+            # Temporary fix for sync faliure is to skip the dhcp entries
+            # This needs to be fixed
+            if vm_id.startswith('dhcp'):
+                continue
+            if self.cli_commands['baremetal']:
+                cmds.append('no instance id %s' % vm_id)
+                # Delete the corresponding host as well
+                if bm_host_list:
+                    for h in bm_host_list:
+                        if h['port_id'] == vm_id:
+                            cmds.append('no host-id %s' % h['host_id'])
+            else:
+                cmds.append('no vm id %s' % vm_id)
             if self._heartbeat_required(sync, counter):
                 cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
 
@@ -395,9 +483,14 @@ class AristaRPCWrapper(object):
                 append_cmd('network id %s' % port['network_id'])
                 append_cmd('dhcp id %s hostid %s port-id %s %s' %
                            (vm['vmId'], vm['host'], port['id'], port_name))
-            elif port['device_owner'].startswith('compute'):
+            elif (port['device_owner'].startswith('compute:None')):
                 append_cmd('vm id %s hostid %s' % (vm['vmId'], vm['host']))
                 append_cmd('port id %s %s network-id %s' %
+                           (port['id'], port_name, port['network_id']))
+            elif (port['device_owner'].startswith('baremetal')):
+                append_cmd('instance id %s hostid %s type baremetal' %
+                           (vm['vmId'], vm['host']))
+                append_cmd('port id %s %s network-id %s type native' %
                            (port['id'], port_name, port['network_id']))
             else:
                 LOG.warn(_LW("Unknown device owner: %s"), port['device_owner'])
@@ -441,6 +534,48 @@ class AristaRPCWrapper(object):
                 'no region %s' % self.region,
                 ]
         self._run_eos_cmds(cmds)
+
+    def create_bm_hosts_bulk(self, bm_ports, bm_port_profiles, sync=False):
+        """Sends a bulk request to create baremetal hosts.
+
+        :param bm_ports: List of ports associated with BM hosts
+        :param bm_port_profiles: list of port profiles for the BM hosts
+        :param sync: This flags indicates that the region is being synced.
+        """
+        for bm_port in bm_ports:
+            # hp = [p for p in bm_port_profiles
+            #     if p.port_id in bm_port['id']]
+
+            hp = None
+            for p in bm_port_profiles:
+                if p['port_id'] in bm_port['id']:
+                    hp = p
+                    break
+            if hp:
+                cmds = ['host-id %s' % hp['host_id']]
+                profile = json.loads(hp['profile'])
+                link_info = profile['local_link_information']
+                for l in link_info:
+                    if not l:
+                        # skip all empty entries
+                        continue
+                    cmds.append('switch-id %s' % l['switch_id'])
+                    cmds.append('switchport %s' % l['port_id'])
+
+                # Following is a temporary code for native VLANs-to be removed
+                vlan_id = db_lib.get_segmentation_id(bm_port['tenant_id'],
+                                                     bm_port['network_id'])
+                # remember to renmove it - as it will be created dynamically
+                cmds.append('vlan %s' % vlan_id)
+                cmds.append('interface %s' % l['port_id'])
+                cmds.append('switchport trunk native vlan %s' % vlan_id)
+
+                # TODO(Sukhdev) undo the following comment once host-id
+                # moves under region mode
+                # if self._heartbeat_required(sync):
+                #    cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
+
+            self._run_openstack_cmds(cmds, sync=sync)
 
     def register_with_eos(self, sync=False):
         """This is the registration request with EOS.
@@ -750,6 +885,9 @@ class SyncService(object):
             self._ndb.get_all_networks()
         )
 
+        # Get Baremetal port profiles, if any
+        bm_port_profiles = db_lib.get_all_baremetal_ports()
+
         # To support shared networks, split the sync loop in two parts:
         # In first loop, delete unwanted VM and networks and update networks
         # In second loop, update VMs. This is done to ensure that networks for
@@ -759,28 +897,32 @@ class SyncService(object):
             db_nets = db_lib.get_networks(tenant)
             db_vms = db_lib.get_vms(tenant)
             eos_nets = self._get_eos_networks(eos_tenants, tenant)
-            eos_vms = self._get_eos_vms(eos_tenants, tenant)
+            eos_vms, eos_bms = self._get_eos_vms(eos_tenants, tenant)
 
             db_nets_key_set = frozenset(db_nets.keys())
             db_vms_key_set = frozenset(db_vms.keys())
             eos_nets_key_set = frozenset(eos_nets.keys())
             eos_vms_key_set = frozenset(eos_vms.keys())
+            eos_bms_key_set = frozenset(eos_bms.keys())
+            eos_delete_candidate_vms = (eos_vms_key_set | eos_bms_key_set)
 
             # Find the networks that are present on EOS, but not in Neutron DB
             nets_to_delete = eos_nets_key_set.difference(db_nets_key_set)
 
             # Find the VMs that are present on EOS, but not in Neutron DB
-            vms_to_delete = eos_vms_key_set.difference(db_vms_key_set)
+            vms_to_delete = eos_delete_candidate_vms.difference(db_vms_key_set)
 
             # Find the Networks that are present in Neutron DB, but not on EOS
             nets_to_update = db_nets_key_set.difference(eos_nets_key_set)
 
             # Find the VMs that are present in Neutron DB, but not on EOS
-            vms_to_update[tenant] = db_vms_key_set.difference(eos_vms_key_set)
+            vms_to_update[tenant] = db_vms_key_set.difference(eos_vms_key_set |
+                                                              eos_bms_key_set)
 
             try:
                 if vms_to_delete:
-                    self._rpc.delete_vm_bulk(tenant, vms_to_delete, sync=True)
+                    self._rpc.delete_vm_bulk(tenant, vms_to_delete,
+                                             bm_host_list=bm_port_profiles, sync=True)
                 if nets_to_delete:
                     self._rpc.delete_network_bulk(tenant, nets_to_delete,
                                                   sync=True)
@@ -813,6 +955,16 @@ class SyncService(object):
                     port for port in self._ndb.get_all_ports_for_tenant(
                         tenant) if port['device_id'] in vms_to_update[tenant]
                 ]
+
+                # Create Baremetal hosts
+                bm_ports = [
+                    port for port in vm_ports
+                    if port['device_owner'].startswith('baremetal')
+                ]
+                if bm_ports and bm_port_profiles:
+                    self._rpc.create_bm_hosts_bulk(bm_ports, bm_port_profiles,
+                                                   sync=True)
+
                 if vm_ports:
                     db_vms = db_lib.get_vms(tenant)
                     self._rpc.create_vm_port_bulk(tenant, vm_ports, db_vms,
@@ -865,6 +1017,10 @@ class SyncService(object):
 
     def _get_eos_vms(self, eos_tenants, tenant):
         vms = {}
+        bms = {}
         if eos_tenants and tenant in eos_tenants:
             vms = eos_tenants[tenant]['tenantVmInstances']
-        return vms
+            if self._rpc.cli_commands['baremetal']:
+                # Check if baremetal service is supported
+                bms = eos_tenants[tenant]['tenantBaremetalInstances']
+        return vms, bms
