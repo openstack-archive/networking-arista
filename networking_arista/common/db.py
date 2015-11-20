@@ -57,11 +57,15 @@ class AristaProvisionedVms(model_base.BASEV2, models_v2.HasId,
     port_id = sa.Column(sa.String(UUID_LEN))
     network_id = sa.Column(sa.String(UUID_LEN))
 
-    def eos_vm_representation(self):
-        return {u'vmId': self.vm_id,
-                u'host': self.host_id,
-                u'ports': {self.port_id: [{u'portId': self.port_id,
-                                          u'networkId': self.network_id}]}}
+    def eos_vm_representation(self, vm):
+        return {u'vmId': vm.vm_id,
+                u'baremetal_instance': False,
+                u'ports': [self.eos_one_port_representation(vm)]}
+
+    def eos_one_port_representation(self, vm):
+        return {vm.port_id: {u'portId': vm.port_id,
+                             u'host': vm.host_id,
+                             u'networkId': vm.network_id}}
 
     def eos_port_representation(self):
         return {u'vmId': self.vm_id,
