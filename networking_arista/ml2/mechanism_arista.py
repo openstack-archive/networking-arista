@@ -19,6 +19,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron.common import constants as n_const
+from neutron.extensions import portbindings
 from neutron.i18n import _LI
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.common import exceptions as ml2_exc
@@ -201,25 +202,47 @@ class AristaDriver(driver_api.MechanismDriver):
         device_owner = port['device_owner']
         host = context.host
 
-        # device_id and device_owner are set on VM boot
         is_vm_boot = device_id and device_owner
-        if host and is_vm_boot:
+        # device_id and device_owner are set on VM boot
+        if is_vm_boot:
             port_id = port['id']
             network_id = port['network_id']
             tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+            # Ensure that we tenant Id for the network Owner
+            tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
             with self.eos_sync_lock:
-                # If network does not exist under this tenant,
-                # it may be a shared network. Get shared network owner Id
-                net_provisioned = (
-                    db_lib.is_network_provisioned(tenant_id, network_id) or
-                    self.ndb.get_shared_network_owner_id(network_id)
-                )
-                if not net_provisioned:
+                if not db_lib.is_network_provisioned(tenant_id, network_id):
                     # Ignore this request if network is not provisioned
                     return
                 db_lib.remember_tenant(tenant_id)
                 db_lib.remember_vm(device_id, host, port_id,
                                    network_id, tenant_id)
+
+    def bind_port(self, context):
+        """Bind baremetal port to a network.
+
+        Provisioning request to Arista Hardware to plug a host
+        into appropriate network is done when the port is created
+        this simply tells the ML2 Plugin that we are binding the port
+        """
+        port = context.current
+        vnic_type = port['binding:vnic_type']
+        if vnic_type != portbindings.VNIC_BAREMETAL:
+            # We are only interested in bining baremetal ports.
+            return
+
+        vif_type = portbindings.VIF_TYPE_OTHER
+        vif_details = {portbindings.VIF_DETAILS_VLAN: True}
+        for segment in context.segments_to_bind:
+            vif_details[portbindings.VIF_DETAILS_VLAN] = (
+                str(segment[driver_api.SEGMENTATION_ID]))
+            context.set_binding(segment[driver_api.ID],
+                                vif_type,
+                                vif_details)
+            LOG.debug("AristaDriver: bound port info- port ID %(id)s "
+                      "on network %(network)s",
+                      {'id': port['id'],
+                       'network': context.network.current['id']})
 
     def create_port_postcommit(self, context):
         """Plug a physical host into a network.
@@ -232,6 +255,12 @@ class AristaDriver(driver_api.MechanismDriver):
         device_owner = port['device_owner']
         host = context.host
 
+        profile = []
+        vnic_type = port['binding:vnic_type']
+        binding_profile = port['binding:profile']
+        if binding_profile:
+            profile = binding_profile['local_link_information']
+
         # device_id and device_owner are set on VM boot
         is_vm_boot = device_id and device_owner
         if host and is_vm_boot:
@@ -239,6 +268,8 @@ class AristaDriver(driver_api.MechanismDriver):
             port_name = port['name']
             network_id = port['network_id']
             tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+            # Ensure that we tenant Id for the network Owner
+            tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
             with self.eos_sync_lock:
                 hostname = self._host_name(host)
                 port_provisioned = db_lib.is_port_provisioned(port_id)
@@ -256,13 +287,25 @@ class AristaDriver(driver_api.MechanismDriver):
                                                         network_id,
                                                         tenant_id,
                                                         port_name,
-                                                        device_owner)
+                                                        device_owner,
+                                                        vnic_type,
+                                                        profile=profile)
                     except arista_exc.AristaRpcError:
                         LOG.info(EOS_UNREACHABLE_MSG)
                         raise ml2_exc.MechanismDriverError()
                 else:
                     LOG.info(_LI('VM %s is not created as it is not found in '
                                  'Arista DB'), device_id)
+
+    def _network_owner_tenant(self, context, network_id, tenant_id):
+        tid = tenant_id
+        if network_id and tenant_id:
+            network_owner = self.ndb.get_network_from_net_id(network_id)
+            if network_owner and network_owner[0]['tenant_id'] != tenant_id:
+                tid = network_owner[0]['tenant_id'] or tenant_id
+            if not tid:
+                tid = context._plugin_context.tenant_id
+        return tid
 
     def update_port_precommit(self, context):
         """Update the name of a given port.
@@ -284,6 +327,8 @@ class AristaDriver(driver_api.MechanismDriver):
         port_id = new_port['id']
         network_id = new_port['network_id']
         tenant_id = new_port['tenant_id'] or INTERNAL_TENANT_ID
+        # Ensure that we tenant Id for the network Owner
+        tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
 
         with self.eos_sync_lock:
             port_provisioned = db_lib.is_port_provisioned(port_id)
@@ -308,13 +353,29 @@ class AristaDriver(driver_api.MechanismDriver):
 
         device_id = port['device_id']
         device_owner = port['device_owner']
+        if (device_owner.startswith('compute:probe') or
+           device_owner.startswith('network:router_interface')):
+            return
         host = context.host
         is_vm_boot = device_id and device_owner
+
+        vnic_type = port['binding:vnic_type']
+        binding_profile = port['binding:profile']
+        profile = []
+        if binding_profile:
+            profile = binding_profile['local_link_information']
 
         port_id = port['id']
         port_name = port['name']
         network_id = port['network_id']
         tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+
+        network_owner = self.ndb.get_network_from_net_id(network_id)
+        if network_owner and network_owner[0]['tenant_id'] != tenant_id:
+            tenant_id = network_owner[0]['tenant_id'] or tenant_id
+        if not tenant_id:
+            tenant_id = context._plugin_context.tenant_id
+
         with self.eos_sync_lock:
             hostname = self._host_name(host)
             segmentation_id = db_lib.get_segmentation_id(tenant_id,
@@ -334,7 +395,8 @@ class AristaDriver(driver_api.MechanismDriver):
                         # The port moved to a different host or the VM
                         # connected to the port was deleted. So delete the
                         # old port on the old host.
-                        self._delete_port(orig_port, orig_host, tenant_id)
+                        self._delete_port(orig_port, orig_host, tenant_id,
+                                          vnic_type, profile)
                     except ml2_exc.MechanismDriverError:
                         # If deleting a port fails, then not much can be done
                         # about it. Log a warning and move on.
@@ -349,7 +411,12 @@ class AristaDriver(driver_api.MechanismDriver):
                                                     network_id,
                                                     tenant_id,
                                                     port_name,
-                                                    device_owner)
+                                                    device_owner,
+                                                    vnic_type,
+                                                    profile=profile)
+                else:
+                    LOG.info(_LI('Instance %s is not updated as it is not '
+                                 'found in Arista DB'), device_id)
             except arista_exc.AristaRpcError:
                 LOG.info(EOS_UNREACHABLE_MSG)
                 raise ml2_exc.MechanismDriverError()
@@ -372,16 +439,28 @@ class AristaDriver(driver_api.MechanismDriver):
         port = context.current
         host = context.host
         tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+        network_id = port['network_id']
+        vnic_type = port['binding:vnic_type']
+        binding_profile = port['binding:profile']
+        profile = []
+        if binding_profile:
+            profile = binding_profile['local_link_information']
+
+        network_owner = self.ndb.get_network_from_net_id(network_id)
+        if network_owner and network_owner[0]['tenant_id'] != tenant_id:
+            tenant_id = network_owner[0]['tenant_id'] or tenant_id
+        if not tenant_id:
+            tenant_id = context._plugin_context.tenant_id
 
         with self.eos_sync_lock:
             try:
-                self._delete_port(port, host, tenant_id)
+                self._delete_port(port, host, tenant_id, vnic_type, profile)
             except ml2_exc.MechanismDriverError:
                 # Can't do much if deleting a port failed.
                 # Log a warning and continue.
                 LOG.warn(UNABLE_TO_DELETE_PORT_MSG)
 
-    def _delete_port(self, port, host, tenant_id):
+    def _delete_port(self, port, host, tenant_id, vnic_type, profile):
         """Deletes the port from EOS.
 
         param port: Port which is to be deleted
@@ -400,13 +479,7 @@ class AristaDriver(driver_api.MechanismDriver):
             return
 
         try:
-            # If network does not exist under this tenant,
-            # it may be a shared network. Get shared network owner Id
-            net_provisioned = (
-                db_lib.is_network_provisioned(tenant_id, network_id) or
-                self.ndb.get_shared_network_owner_id(network_id)
-            )
-            if not net_provisioned:
+            if not db_lib.is_network_provisioned(tenant_id, network_id):
                 # If we do not have network associated with this, ignore it
                 return
             hostname = self._host_name(host)
@@ -421,7 +494,9 @@ class AristaDriver(driver_api.MechanismDriver):
                                                   hostname,
                                                   port_id,
                                                   network_id,
-                                                  tenant_id)
+                                                  tenant_id,
+                                                  vnic_type,
+                                                  profile=profile)
             # if necessary, delete tenant as well.
             self.delete_tenant(tenant_id)
         except arista_exc.AristaRpcError:

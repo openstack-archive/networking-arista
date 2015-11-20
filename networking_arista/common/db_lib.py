@@ -19,6 +19,7 @@ from neutron.db import db_base_plugin_v2
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import db as ml2_db
 from neutron.plugins.ml2 import driver_api
+from neutron.plugins.ml2 import models as ml2_models
 
 from networking_arista.common import db as db_models
 
@@ -342,6 +343,24 @@ def get_tenants():
         return res
 
 
+def _make_bm_port_dict(record):
+    """Make a dict from the BM profile DB record."""
+    return {'port_id': record.port_id,
+            'host_id': record.host,
+            'vnic_type': record.vnic_type,
+            'profile': record.profile}
+
+
+def get_all_baremetal_ports():
+    """Returns a list of all ports that belong to baremetal hosts."""
+    session = db.get_session()
+    with session.begin():
+        querry = session.query(ml2_models.PortBinding)
+        bm_ports = querry.filter_by(vnic_type='baremetal').all()
+
+        return [_make_bm_port_dict(bm_port) for bm_port in bm_ports]
+
+
 class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
     """Access to Neutron DB.
 
@@ -370,6 +389,9 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
     def get_all_networks(self):
         return super(NeutronNets, self).get_networks(self.admin_ctx) or []
 
+    def get_all_ports(self):
+        return super(NeutronNets, self).get_ports(self.admin_ctx) or []
+
     def get_all_ports_for_tenant(self, tenant_id):
         filters = {'tenant_id': [tenant_id]}
         return super(NeutronNets,
@@ -385,6 +407,11 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
         if (nets[0]['shared'] and
            segments[0][driver_api.NETWORK_TYPE] == p_const.TYPE_VLAN):
             return nets[0]['tenant_id']
+
+    def get_network_from_net_id(self, network_id):
+        filters = {'id': [network_id]}
+        return super(NeutronNets,
+                     self).get_networks(self.admin_ctx, filters=filters) or []
 
     def _get_network(self, tenant_id, network_id):
         filters = {'tenant_id': [tenant_id],
