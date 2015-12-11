@@ -49,12 +49,18 @@ ARISTA_DRIVER_OPTS = [
                        'This is optional. If not set, a value of "True" '
                        'is assumed.')),
     cfg.IntOpt('sync_interval',
-               default=180,
+               default=30,
                help=_('Sync interval in seconds between Neutron plugin and '
                       'EOS. This interval defines how often the '
                       'synchronization is performed. This is an optional '
-                      'field. If not set, a value of 180 seconds is '
+                      'field. If not set, a value of 30 seconds is '
                       'assumed.')),
+    cfg.IntOpt('conn_timeout',
+               default=10,
+               help=_('Connection timeout interval in seconds. This interval '
+                      'defines how long an EAPI request from the driver to '
+                      'EOS waits before timing out. If not set, a value of 10 '
+                      'seconds is assumed.')),
     cfg.StrOpt('region_name',
                default='RegionOne',
                help=_('Defines Region Name that is assigned to this OpenStack '

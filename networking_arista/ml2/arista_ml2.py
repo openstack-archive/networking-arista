@@ -1,4 +1,4 @@
-# Copyright (c) 2013 OpenStack Foundation
+# Copyright (c) 2014 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,12 +14,12 @@
 # limitations under the License.
 
 import base64
-import itertools
+import json
 import os
 
-import jsonrpclib
 from oslo_config import cfg
 from oslo_log import log as logging
+import requests
 
 from neutron.common import constants as n_const
 from neutron.i18n import _LI
@@ -34,12 +34,16 @@ LOG = logging.getLogger(__name__)
 
 EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
 DEFAULT_VLAN = 1
+
 # Insert a heartbeat command every 100 commands
 HEARTBEAT_INTERVAL = 100
 
 # Commands dict keys
 CMD_SYNC_HEARTBEAT = 'SYNC_HEARTBEAT'
 CMD_REGION_SYNC = 'REGION_SYNC'
+
+# EAPI error messages of interest
+ERR_CVX_NOT_LEADER = 'only available on cluster leader'
 
 
 class AristaRPCWrapper(object):
@@ -51,15 +55,84 @@ class AristaRPCWrapper(object):
     """
     def __init__(self):
         self._validate_config()
-        self._server = None
         self._server_ip = None
         self.keystone_conf = cfg.CONF.keystone_authtoken
         self.region = cfg.CONF.ml2_arista.region_name
         self.sync_interval = cfg.CONF.ml2_arista.sync_interval
+        self.conn_timeout = cfg.CONF.ml2_arista.conn_timeout
+        self.eapi_hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
+
         # The cli_commands dict stores the mapping between the CLI command key
         # and the actual CLI command.
         self.cli_commands = {}
         self.initialize_cli_commands()
+
+    def _send_eapi_req(self, cmds):
+        # This method handles all EAPI requests (using the requests library)
+        # and returns either None or response.json()['result'] from the EAPI
+        # request.
+        #
+        # Exceptions related to failures in connecting/ timeouts are caught
+        # here and logged. Other unexpected exceptions are logged and raised
+
+        request_headers = {}
+        request_headers['Content-Type'] = 'application/json'
+        request_headers['Accept'] = 'application/json'
+        url = self._eapi_host_url(host=self._server_ip)
+
+        params = {}
+        params['timestamps'] = "false"
+        params['format'] = "json"
+        params['version'] = 1
+        params['cmds'] = cmds
+
+        data = {}
+        data['id'] = "Arista ML2 driver"
+        data['method'] = "runCmds"
+        data['jsonrpc'] = "2.0"
+        data['params'] = params
+
+        response = None
+
+        try:
+            msg = (_('EAPI request to %(ip)s contains %(cmd)s') %
+                   {'ip': self._server_ip, 'cmd': json.dumps(data)})
+            LOG.info(msg)
+            response = requests.post(url, timeout=self.conn_timeout,
+                                     verify=False, data=json.dumps(data))
+            LOG.info(_LI('EAPI response contains: %s'), response.json())
+            try:
+                return response.json()['result']
+            except KeyError:
+                if (response.json()['error']['code'] == 1002 and
+                    ERR_CVX_NOT_LEADER in
+                   response.json()['error']['data'][0]['errors'][0]):
+                    msg = unicode("%s is not the master" % self._server_ip)
+                    LOG.info(msg)
+                    return None
+                else:
+                    msg = "Unexpected EAPI error"
+                    LOG.info(msg)
+                    raise arista_exc.AristaRpcError(msg=msg)
+        except requests.exceptions.ConnectionError:
+            msg = (_('Error while trying to connect to %(ip)s') %
+                   {'ip': self._server_ip})
+            LOG.warn(msg)
+            return None
+        except requests.exceptions.ConnectTimeout:
+            msg = (_('Timed out while trying to connect to %(ip)s') %
+                   {'ip': self._server_ip})
+            LOG.warn(msg)
+            return None
+        except requests.exceptions.Timeout:
+            msg = (_('Timed out during an EAPI request to %(ip)s') %
+                   {'ip': self._server_ip})
+            LOG.warn(msg)
+            return None
+        except Exception as error:
+            msg = unicode(error)
+            LOG.warn(msg)
+            raise
 
     def _get_exit_mode_cmds(self, modes):
         """Returns a list of 'exit' commands for the modes.
@@ -486,8 +559,13 @@ class AristaRPCWrapper(object):
         """
         timestamp_cmd = self.cli_commands['timestamp']
         if timestamp_cmd:
-            return self._run_eos_cmds(commands=timestamp_cmd)[0]
-        return None
+            try:
+                return self._run_eos_cmds(commands=timestamp_cmd)[0]
+            except IndexError:
+                # EAPI request failed and so return none
+                msg = "Failed to get last sync timestamp; trigger full sync"
+                LOG.info(msg)
+                return None
 
     def _check_sync_lock(self, client):
         """Check if the lock is owned by this client.
@@ -546,47 +624,30 @@ class AristaRPCWrapper(object):
                                  param is logged.
         """
 
-        if self._server is None:
-            self._server_ip = self._get_eos_master()
-            if self._server_ip is None or self._server is None:
+        # Always figure out who is master (starting with the last known val)
+        try:
+            if self._get_eos_master() is None:
                 msg = "Failed to identify EOS master"
                 raise arista_exc.AristaRpcError(msg=msg)
+        except Exception:
+            raise
 
         log_cmds = commands
         if commands_to_log:
             log_cmds = commands_to_log
 
         LOG.info(_LI('Executing command on Arista EOS: %s'), log_cmds)
-
+        # this returns array of return values for every command in
+        # full_command list
         try:
-            # this returns array of return values for every command in
-            # full_command list
-            ret = self._server.runCmds(version=1, cmds=commands)
-        except Exception as error:
-            error_msg_str = unicode(error)
-            if commands_to_log:
-                # The command might contain sensitive information. If the
-                # command to log is different from the actual command, use
-                # that in the error message.
-                for cmd, log_cmd in itertools.izip(commands, log_cmds):
-                    error_msg_str = error_msg_str.replace(cmd, log_cmd)
-            msg = (_('Error %(err)s while trying to execute '
-                     'commands %(cmd)s on EOS %(host)s') %
-                   {'err': error_msg_str,
-                    'cmd': commands_to_log,
-                    'host': self._server_ip})
-
-            # Reset the server as we failed communicating with it;
-            # there might just be another master
-            self._server = None
-            self._server_ip = None
-
-            # Logging exception here can reveal passwords as the exception
-            # contains the CLI command which contains the credentials.
-            LOG.error(msg)
-            raise arista_exc.AristaRpcError(msg=msg)
-
-        return ret
+            response = self._send_eapi_req(cmds=commands)
+            if response is None:
+                # Reset the server as we failed communicating with it
+                self._server_ip = None
+                raise arista_exc.AristaRpcError(msg=msg)
+            return response
+        except arista_exc.AristaRpcError:
+            raise
 
     def _build_command(self, cmds, sync=False):
         """Build full EOS's openstack CLI command.
@@ -634,26 +695,31 @@ class AristaRPCWrapper(object):
         return self._run_eos_cmds(full_command, full_log_command)
 
     def _get_eos_master(self):
-        hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
         # Use guarded command to figure out if this is the master
         cmd = ['show openstack agent uuid']
 
-        # Identify which host is currently the master
-        for host in hosts:
-            self._server = None
-            self._server = jsonrpclib.Server(self._eapi_host_url(host.strip()))
-            try:
-                self._run_eos_cmds(cmd)
-                return host
-            except Exception:
-                msg = (_LI('EOS %(host)s is not the current master') %
-                       {'host': host.strip()})
-                LOG.info(msg)
-                continue  # Try another instance in case of error
+        cvx = []
+        if self._server_ip:
+            # If we know the master's IP, let's start with that
+            cvx.append(self._server_ip)
 
-        # Couldn't find a host that is the leader and so returning none
-        self._server = None
-        msg = "Failed to identify EOS master"
+        for h in self.eapi_hosts:
+            if h.strip() not in cvx:
+                cvx.append(h.strip())
+
+        # Identify which EOS instance is currently the master
+        for self._server_ip in cvx:
+            try:
+                if self._send_eapi_req(cmds=cmd) is not None:
+                    return self._server_ip
+                else:
+                    continue  # Try another EOS instance
+            except Exception:
+                raise
+
+        # Couldn't find an instance that is the leader and returning none
+        self._server_ip = None
+        msg = "Failed to reach the EOS master"
         LOG.error(msg)
         return None
 
@@ -832,9 +898,12 @@ class SyncService(object):
            timestamp stored locally.
         """
         eos_region_updated_times = self._rpc.get_region_updated_time()
-        return (self._region_updated_time and
-                (self._region_updated_time['regionTimestamp'] ==
-                 eos_region_updated_times['regionTimestamp']))
+        if eos_region_updated_times:
+            return (self._region_updated_time and
+                    (self._region_updated_time['regionTimestamp'] ==
+                     eos_region_updated_times['regionTimestamp']))
+        else:
+            return False
 
     def _sync_required(self):
         """"Check whether the sync is required."""
