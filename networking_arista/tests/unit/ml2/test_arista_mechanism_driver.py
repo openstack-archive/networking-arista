@@ -525,7 +525,8 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
     def test_check_cli_commands(self):
         self.drv.check_cli_commands()
-        cmds = ['show openstack config region RegionOne timestamp']
+        cmds = ['show openstack config region RegionOne timestamp',
+                'show openstack resource-pool vlan region RegionOne uuid']
         self.drv._server.runCmds.assert_called_once_with(version=1, cmds=cmds)
 
     def test_register_with_eos(self):

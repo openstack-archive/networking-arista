@@ -18,6 +18,7 @@ import itertools
 import jsonrpclib
 from oslo.config import cfg
 from oslo_log import log as logging
+from six import moves
 
 from neutron.common import constants as n_const
 from neutron.i18n import _LI
@@ -58,6 +59,7 @@ class AristaRPCWrapper(object):
 
     def initialize_cli_commands(self):
         self.cli_commands['timestamp'] = []
+        self.cli_commands['resource-pool'] = []
 
     def check_cli_commands(self):
         """Checks whether the CLI commands are vaild.
@@ -74,12 +76,55 @@ class AristaRPCWrapper(object):
             LOG.warn(_LW("'timestamp' command '%s' is not available on EOS"),
                      cmd)
 
+        cmd = ['show openstack resource-pool vlan region %s uuid'
+               % self.region]
+        try:
+            self._run_eos_cmds(cmd)
+            self.cli_commands['resource-pool'] = cmd
+        except arista_exc.AristaRpcError:
+            self.cli_commands['resource-pool'] = []
+            LOG.warn(
+                _LW("'resource-pool' command '%s' is not available on EOS"),
+                cmd)
+
     def _keystone_url(self):
         keystone_auth_url = ('%s://%s:%s/v2.0/' %
                              (self.keystone_conf.auth_protocol,
                               self.keystone_conf.auth_host,
                               self.keystone_conf.auth_port))
         return keystone_auth_url
+
+    def get_vlan_allocation_uuid(self):
+        vlan_uuid_cmd = self.cli_commands['resource-pool']
+        if vlan_uuid_cmd:
+            return self._run_eos_cmds(commands=vlan_uuid_cmd)[0]
+        return None
+
+    def parse_vlan_ranges(self, vlan_pool):
+        if not vlan_pool:
+            return set()
+        vlan_ids = set()
+        vlan_ranges = vlan_pool.split(',')
+        for vlan_range in vlan_ranges:
+            endpoints = vlan_range.split('-')
+            if len(endpoints) == 2:
+                vlan_min = int(endpoints[0])
+                vlan_max = int(endpoints[1])
+                vlan_ids |= set(moves.range(vlan_min, vlan_max + 1))
+            elif endpoints[0]:
+                vlan_ids.add(int(endpoints[0]))
+        return vlan_ids
+
+    def get_vlan_allocation(self):
+        if not self.cli_commands['resource-pool']:
+            return None
+        cmd = ['show openstack resource-pools region %s' % self.region]
+        command_output = self._run_eos_cmds(cmd)
+        if command_output:
+            phys_nets = command_output[0]['physicalNetwork']
+            if self.region in phys_nets.keys():
+                return phys_nets[self.region]['vlanPool']['default']
+        return None
 
     def get_tenants(self):
         """Returns dict of all tenants known by EOS.
