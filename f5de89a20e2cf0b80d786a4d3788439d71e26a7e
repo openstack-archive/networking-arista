@@ -1,0 +1,10 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Doug Wiegley <dougwig@parkside.io>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 13 Jan 2016 17:32:30 +0000
+Reviewed-on: https://review.openstack.org/258667
+Project: openstack/networking-arista
+Branch: refs/heads/stable/kilo
