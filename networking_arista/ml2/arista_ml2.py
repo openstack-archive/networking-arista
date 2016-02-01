@@ -117,21 +117,21 @@ class AristaRPCWrapper(object):
         except requests.exceptions.ConnectionError:
             msg = (_('Error while trying to connect to %(ip)s') %
                    {'ip': self._server_ip})
-            LOG.warn(msg)
+            LOG.warning(msg)
             return None
         except requests.exceptions.ConnectTimeout:
             msg = (_('Timed out while trying to connect to %(ip)s') %
                    {'ip': self._server_ip})
-            LOG.warn(msg)
+            LOG.warning(msg)
             return None
         except requests.exceptions.Timeout:
             msg = (_('Timed out during an EAPI request to %(ip)s') %
                    {'ip': self._server_ip})
-            LOG.warn(msg)
+            LOG.warning(msg)
             return None
         except Exception as error:
             msg = unicode(error)
-            LOG.warn(msg)
+            LOG.warning(msg)
             raise
 
     def _get_exit_mode_cmds(self, modes):
@@ -162,7 +162,7 @@ class AristaRPCWrapper(object):
             self.cli_commands['timestamp'] = cmd
         except arista_exc.AristaRpcError:
             self.cli_commands['timestamp'] = []
-            LOG.warn(_LW("'timestamp' command '%s' is not available on EOS"),
+            LOG.warning(_LW("'timestamp' command '%s' is not available on EOS"),
                      cmd)
 
         # Test the CLI command against a random region to ensure that multiple
@@ -187,7 +187,7 @@ class AristaRPCWrapper(object):
             self.cli_commands[CMD_SYNC_HEARTBEAT] = 'sync heartbeat'
         except arista_exc.AristaRpcError:
             self.cli_commands[CMD_REGION_SYNC] = ''
-            LOG.warn(_LW("'region sync' command is not available on EOS"))
+            LOG.warning(_LW("'region sync' command is not available on EOS"))
         finally:
             cmd = ['enable', 'configure', 'cvx', 'service openstack',
                    'no region %s' % test_region_name]
@@ -460,7 +460,7 @@ class AristaRPCWrapper(object):
             try:
                 vm = vms[port['device_id']]
             except KeyError:
-                LOG.warn(_LW("VM id %(vmid)s not found for port %(portid)s"),
+                LOG.warning(_LW("VM id %(vmid)s not found for port %(portid)s"),
                          {'vmid': port['device_id'], 'portid': port['id']})
                 continue
 
@@ -477,7 +477,7 @@ class AristaRPCWrapper(object):
                 append_cmd('port id %s %s network-id %s' %
                            (port['id'], port_name, port['network_id']))
             else:
-                LOG.warn(_LW("Unknown device owner: %s"), port['device_owner'])
+                LOG.warning(_LW("Unknown device owner: %s"), port['device_owner'])
                 continue
             if self._heartbeat_required(sync, counter):
                 append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
