@@ -47,12 +47,14 @@ ERR_CVX_NOT_LEADER = 'only available on cluster leader'
 
 
 class AristaRPCWrapper(object):
+
     """Wraps Arista JSON RPC.
 
     All communications between Neutron and EOS are over JSON RPC.
     EOS - operating system used on Arista hardware
     Command API - JSON RPC API provided by Arista EOS
     """
+
     def __init__(self):
         self._validate_config()
         self._server_ip = None
@@ -162,8 +164,9 @@ class AristaRPCWrapper(object):
             self.cli_commands['timestamp'] = cmd
         except arista_exc.AristaRpcError:
             self.cli_commands['timestamp'] = []
-            LOG.warning(_LW("'timestamp' command '%s' is not available on EOS"),
-                     cmd)
+            LOG.warning(
+                _LW("'timestamp' command '%s' is not available on EOS"),
+                cmd)
 
         # Test the CLI command against a random region to ensure that multiple
         # neutron servers trying to execute the same command do not interpret
@@ -460,8 +463,9 @@ class AristaRPCWrapper(object):
             try:
                 vm = vms[port['device_id']]
             except KeyError:
-                LOG.warning(_LW("VM id %(vmid)s not found for port %(portid)s"),
-                         {'vmid': port['device_id'], 'portid': port['id']})
+                LOG.warning(
+                    _LW("VM id %(vmid)s not found for port %(portid)s"),
+                    {'vmid': port['device_id'], 'portid': port['id']})
                 continue
 
             port_name = '' if 'name' not in port else 'name "%s"' % (
@@ -477,7 +481,8 @@ class AristaRPCWrapper(object):
                 append_cmd('port id %s %s network-id %s' %
                            (port['id'], port_name, port['network_id']))
             else:
-                LOG.warning(_LW("Unknown device owner: %s"), port['device_owner'])
+                LOG.warning(
+                    _LW("Unknown device owner: %s"), port['device_owner'])
                 continue
             if self._heartbeat_required(sync, counter):
                 append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
@@ -743,12 +748,14 @@ class AristaRPCWrapper(object):
 
 
 class SyncService(object):
+
     """Synchronization of information between Neutron and EOS
 
     Periodically (through configuration option), this service
     ensures that Networks and VMs configured on EOS/Arista HW
     are always in sync with Neutron DB.
     """
+
     def __init__(self, rpc_wrapper, neutron_db):
         self._rpc = rpc_wrapper
         self._ndb = neutron_db
@@ -858,13 +865,13 @@ class SyncService(object):
                     networks = [{
                         'network_id': net_id,
                         'segmentation_id':
-                            db_nets[net_id]['segmentationTypeId'],
+                        db_nets[net_id]['segmentationTypeId'],
                         'network_name':
-                            neutron_nets.get(net_id, {'name': ''})['name'],
+                        neutron_nets.get(net_id, {'name': ''})['name'],
                         'shared':
-                            neutron_nets.get(net_id,
-                                             {'shared': False})['shared'],
-                        }
+                        neutron_nets.get(net_id,
+                                         {'shared': False})['shared'],
+                    }
                         for net_id in nets_to_update
                     ]
                     self._rpc.create_network_bulk(tenant, networks, sync=True)
