@@ -1,3 +1,4 @@
+global:Registered-Users	Registered Users
 660920291e7cf2d7b2766c49cb8cf639bc896b3d	networking-arista-core
 a590185be17aea15cf967c29d5aae215b4e3bca3	neutron-stable-maint
 198912f7b5256e7b4957d207beebec7dae3c0961	neutron-release
