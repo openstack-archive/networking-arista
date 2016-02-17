@@ -29,8 +29,11 @@ def remember_tenant(tenant_id):
     """
     session = db.get_session()
     with session.begin():
-        tenant = db_models.AristaProvisionedTenants(tenant_id=tenant_id)
-        session.add(tenant)
+        tenant = (session.query(db_models.AristaProvisionedTenants).
+                  filter_by(tenant_id=tenant_id).first())
+        if not tenant:
+            tenant = db_models.AristaProvisionedTenants(tenant_id=tenant_id)
+            session.add(tenant)
 
 
 def forget_tenant(tenant_id):
@@ -79,8 +82,19 @@ def remember_vm(vm_id, host_id, port_id, network_id, tenant_id):
         session.add(vm)
 
 
-def update_vm_host(vm_id, host_id, port_id, network_id, tenant_id):
-    """Updates the VM host id in the database.
+def forget_vm_port(port_id):
+    """Removes all relevant information about a VM port from repository.
+
+    :param port_id: globally unique port ID that connects VM to network
+    """
+    session = db.get_session()
+    with session.begin():
+        (session.query(db_models.AristaProvisionedVms).
+         filter_by(port_id=port_id).delete())
+
+
+def update_port(vm_id, host_id, port_id, network_id, tenant_id):
+    """Updates the port details in the database.
 
     :param vm_id: globally unique identifier for VM instance
     :param host_id: ID of the new host where the VM is placed
@@ -90,29 +104,14 @@ def update_vm_host(vm_id, host_id, port_id, network_id, tenant_id):
     """
     session = db.get_session()
     with session.begin():
-        vm = session.query(db_models.AristaProvisionedVms).filter_by(
-            vm_id=vm_id, port_id=port_id, tenant_id=tenant_id,
-            network_id=network_id).first()
-        if vm:
+        port = session.query(db_models.AristaProvisionedVms).filter_by(
+            port_id=port_id).first()
+        if port:
             # Update the VM's host id
-            vm.host_id = host_id
-
-
-def forget_vm(vm_id, host_id, port_id, network_id, tenant_id):
-    """Removes all relevant information about a VM from repository.
-
-    :param vm_id: globally unique identifier for VM instance
-    :param host_id: ID of the host where the VM is placed
-    :param port_id: globally unique port ID that connects VM to network
-    :param network_id: globally unique neutron network identifier
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_session()
-    with session.begin():
-        (session.query(db_models.AristaProvisionedVms).
-         filter_by(vm_id=vm_id, host_id=host_id,
-                   port_id=port_id, tenant_id=tenant_id,
-                   network_id=network_id).delete())
+            port.host_id = host_id
+            port.vm_id = vm_id
+            port.network_id = network_id
+            port.tenant_id = tenant_id
 
 
 def remember_network(tenant_id, network_id, segmentation_id):
@@ -158,8 +157,7 @@ def get_segmentation_id(tenant_id, network_id):
         return net.segmentation_id if net else None
 
 
-def is_vm_provisioned(vm_id, host_id, port_id,
-                      network_id, tenant_id):
+def is_vm_provisioned(vm_id, host_id, port_id, network_id, tenant_id):
     """Checks if a VM is already known to EOS
 
     :returns: True, if yes; False otherwise.
@@ -172,11 +170,26 @@ def is_vm_provisioned(vm_id, host_id, port_id,
     session = db.get_session()
     with session.begin():
         num_vm = (session.query(db_models.AristaProvisionedVms).
-                  filter_by(tenant_id=tenant_id,
-                            vm_id=vm_id,
+                  filter_by(vm_id=vm_id,
+                            host_id=host_id,
                             port_id=port_id,
                             network_id=network_id,
-                            host_id=host_id).count())
+                            tenant_id=tenant_id).count())
+        return num_vm > 0
+
+
+def is_port_provisioned(port_id):
+    """Checks if a VM is already known to EOS
+
+    :returns: True, if yes; False otherwise.
+    :param vm_id: globally unique identifier for VM instance
+    :param port_id: globally unique port ID that connects VM to network
+    :param tenant_id: globally unique neutron tenant identifier
+    """
+    session = db.get_session()
+    with session.begin():
+        num_vm = (session.query(db_models.AristaProvisionedVms).
+                  filter_by(port_id=port_id).count())
         return num_vm > 0
 
 
