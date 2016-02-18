@@ -104,16 +104,18 @@ class AristaRPCWrapper(object):
             try:
                 return response.json()['result']
             except KeyError:
-                if (response.json()['error']['code'] == 1002 and
-                    ERR_CVX_NOT_LEADER in
-                   response.json()['error']['data'][0]['errors'][0]):
-                    msg = unicode("%s is not the master" % self._server_ip)
-                    LOG.info(msg)
-                    return None
-                else:
-                    msg = "Unexpected EAPI error"
-                    LOG.info(msg)
-                    raise arista_exc.AristaRpcError(msg=msg)
+                if response.json()['error']['code'] == 1002:
+                    for data in response.json()['error']['data']:
+                        if type(data) == dict and 'errors' in data:
+                            if ERR_CVX_NOT_LEADER in data['errors'][0]:
+                                msg = unicode("%s is not the master" % (
+                                              self._server_ip))
+                                LOG.info(msg)
+                                return None
+
+                msg = "Unexpected EAPI error"
+                LOG.info(msg)
+                raise arista_exc.AristaRpcError(msg=msg)
         except requests.exceptions.ConnectionError:
             msg = (_('Error while trying to connect to %(ip)s') %
                    {'ip': self._server_ip})
