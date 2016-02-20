@@ -103,7 +103,7 @@ class AristaProvisionedVlansStorageTestCase(testlib_api.SqlTestCase):
         host_id = 'ubuntu1'
 
         db_lib.remember_vm(vm_id, host_id, port_id, network_id, tenant_id)
-        db_lib.forget_vm(vm_id, host_id, port_id, network_id, tenant_id)
+        db_lib.forget_vm_port(port_id)
         vm_provisioned = db_lib.is_vm_provisioned(vm_id, host_id, port_id,
                                                   network_id, tenant_id)
         self.assertFalse(vm_provisioned, 'The vm should be deleted')
@@ -164,16 +164,18 @@ class AristaProvisionedVlansStorageTestCase(testlib_api.SqlTestCase):
     def test_num_vm_is_valid(self):
         tenant_id = 'test'
         network_id = '123'
-        port_id = 456
+        port_id_base = 'port-id'
         host_id = 'ubuntu1'
 
         vm_to_remember = ['vm1', 'vm2', 'vm3']
         vm_to_forget = ['vm2', 'vm1']
 
         for vm in vm_to_remember:
+            port_id = port_id_base + vm
             db_lib.remember_vm(vm, host_id, port_id, network_id, tenant_id)
         for vm in vm_to_forget:
-            db_lib.forget_vm(vm, host_id, port_id, network_id, tenant_id)
+            port_id = port_id_base + vm
+            db_lib.forget_vm_port(port_id)
 
         num_vms = len(db_lib.get_vms(tenant_id))
         expected = len(vm_to_remember) - len(vm_to_forget)
@@ -182,7 +184,7 @@ class AristaProvisionedVlansStorageTestCase(testlib_api.SqlTestCase):
                          'There should be %d records, '
                          'got %d records' % (expected, num_vms))
         # clean up afterwards
-        db_lib.forget_vm('vm3', host_id, port_id, network_id, tenant_id)
+        db_lib.forget_vm_port(port_id)
 
     def test_get_network_list_returns_eos_compatible_data(self):
         tenant = u'test-1'
