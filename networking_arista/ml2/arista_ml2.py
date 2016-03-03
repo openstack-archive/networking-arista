@@ -20,6 +20,7 @@ import os
 from oslo_config import cfg
 from oslo_log import log as logging
 import requests
+import simplejson
 
 from neutron.common import constants as n_const
 from neutron.i18n import _LI
@@ -116,6 +117,9 @@ class AristaRPCWrapper(object):
                 msg = "Unexpected EAPI error"
                 LOG.info(msg)
                 raise arista_exc.AristaRpcError(msg=msg)
+        except simplejson.decoder.JSONDecodeError:
+            LOG.info("Ignoring invalid JSON response")
+            return None
         except requests.exceptions.ConnectionError:
             msg = (_('Error while trying to connect to %(ip)s') %
                    {'ip': self._server_ip})
@@ -128,6 +132,11 @@ class AristaRPCWrapper(object):
             return None
         except requests.exceptions.Timeout:
             msg = (_('Timed out during an EAPI request to %(ip)s') %
+                   {'ip': self._server_ip})
+            LOG.warn(msg)
+            return None
+        except requests.exceptions.InvalidURL:
+            msg = (_('Ignore attempt to connect to invalid URL (IP) %(ip)s') %
                    {'ip': self._server_ip})
             LOG.warn(msg)
             return None
