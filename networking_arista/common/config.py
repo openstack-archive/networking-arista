@@ -129,6 +129,19 @@ ARISTA_L3_PLUGIN = [
                       'field. If not set, a value of 180 seconds is assumed'))
 ]
 
+
+ARISTA_TYPE_DRIVER_OPTS = [
+    cfg.IntOpt('sync_interval',
+               default=10,
+               help=_('VLAN Sync interval in seconds between Neutron plugin '
+                      'and EOS. This interval defines how often the VLAN '
+                      'synchronization is performed. This is an optional '
+                      'field. If not set, a value of 10 seconds is '
+                      'assumed.')),
+]
+
 cfg.CONF.register_opts(ARISTA_L3_PLUGIN, "l3_arista")
 
 cfg.CONF.register_opts(ARISTA_DRIVER_OPTS, "ml2_arista")
+
+cfg.CONF.register_opts(ARISTA_TYPE_DRIVER_OPTS, "arista_type_driver")

@@ -151,6 +151,7 @@ class AristaRPCWrapper(object):
         self.cli_commands['timestamp'] = []
         self.cli_commands[CMD_REGION_SYNC] = ''
         self.cli_commands[CMD_SYNC_HEARTBEAT] = ''
+        self.cli_commands['resource-pool'] = []
 
     def check_cli_commands(self):
         """Checks whether the CLI commands are valid.
@@ -195,6 +196,23 @@ class AristaRPCWrapper(object):
                    'no region %s' % test_region_name]
             self._run_eos_cmds(cmd)
 
+    def check_vlan_type_driver_commands(self):
+        """Checks the validity of CLI commands for Arista's VLAN type driver.
+
+           This method tries to execute the commands used exclusively by the
+           arista_vlan type driver and stores the commands if they succeed.
+        """
+        cmd = ['show openstack resource-pool vlan region %s uuid'
+               % self.region]
+        try:
+            self._run_eos_cmds(cmd)
+            self.cli_commands['resource-pool'] = cmd
+        except arista_exc.AristaRpcError:
+            self.cli_commands['resource-pool'] = []
+            LOG.warn(
+                _LW("'resource-pool' command '%s' is not available on EOS"),
+                cmd)
+
     def _keystone_url(self):
         if self.keystone_conf.auth_uri:
             auth_uri = self.keystone_conf.auth_uri.rstrip('/')
@@ -209,6 +227,34 @@ class AristaRPCWrapper(object):
     def _heartbeat_required(self, sync, counter=0):
         return (sync and self.cli_commands[CMD_SYNC_HEARTBEAT] and
                 (counter % HEARTBEAT_INTERVAL) == 0)
+
+    def get_vlan_assignment_uuid(self):
+        """Returns the UUID for the region's vlan assignment on CVX
+
+        :returns: string containing the region's vlan assignment UUID
+        """
+        vlan_uuid_cmd = self.cli_commands['resource-pool']
+        if vlan_uuid_cmd:
+            return self._run_eos_cmds(commands=vlan_uuid_cmd)[0]
+        return None
+
+    def get_vlan_allocation(self):
+        """Returns the status of the region's VLAN pool in CVX
+
+        :returns: dictionary containg the assigned, allocated and available
+                  VLANs for the region
+        """
+        if not self.cli_commands['resource-pool']:
+            LOG.warning(_('The version of CVX you are using does not support'
+                          'arista VLAN type driver.'))
+            return None
+        cmd = ['show openstack resource-pools region %s' % self.region]
+        command_output = self._run_eos_cmds(cmd)
+        if command_output:
+            phys_nets = command_output[0]['physicalNetwork']
+            if self.region in phys_nets.keys():
+                return phys_nets[self.region]['vlanPool']['default']
+        return None
 
     def get_tenants(self):
         """Returns dict of all tenants known by EOS.
