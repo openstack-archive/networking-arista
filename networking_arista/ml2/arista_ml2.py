@@ -131,6 +131,14 @@ class AristaRPCWrapper(object):
                    {'ip': self._server_ip})
             LOG.warn(msg)
             return None
+        except requests.exceptions.InvalidURL:
+            msg = (_('Ignore attempt to connect to invalid URL %(ip)s') %
+                   {'ip': self._server_ip})
+            LOG.warn(msg)
+            return None
+        except ValueError:
+            LOG.info("Ignoring invalid JSON response")
+            return None
         except Exception as error:
             msg = unicode(error)
             LOG.warn(msg)
@@ -646,6 +654,7 @@ class AristaRPCWrapper(object):
             if response is None:
                 # Reset the server as we failed communicating with it
                 self._server_ip = None
+                msg = "Failed to communicate with EOS master"
                 raise arista_exc.AristaRpcError(msg=msg)
             return response
         except arista_exc.AristaRpcError:
