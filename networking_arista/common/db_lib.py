@@ -16,6 +16,9 @@
 from neutron import context as nctx
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
+from neutron.plugins.common import constants as p_const
+from neutron.plugins.ml2 import db as ml2_db
+from neutron.plugins.ml2 import driver_api
 
 from networking_arista.common import db as db_models
 
@@ -375,9 +378,12 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
     def get_shared_network_owner_id(self, network_id):
         filters = {'id': [network_id]}
         nets = self.get_networks(self.admin_ctx, filters=filters) or []
-        if not nets:
+        segments = ml2_db.get_network_segments(self.admin_ctx.session,
+                                               network_id)
+        if not nets or not segments:
             return
-        if nets[0]['shared']:
+        if (nets[0]['shared'] and
+           segments[0][driver_api.NETWORK_TYPE] == p_const.TYPE_VLAN):
             return nets[0]['tenant_id']
 
     def _get_network(self, tenant_id, network_id):
