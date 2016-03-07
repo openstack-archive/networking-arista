@@ -1,0 +1,9 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Workflow+1: Kyle Mestery <mestery@mestery.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 07 Mar 2016 17:18:07 +0000
+Reviewed-on: https://review.openstack.org/288184
+Project: openstack/networking-arista
+Branch: refs/heads/stable/kilo
