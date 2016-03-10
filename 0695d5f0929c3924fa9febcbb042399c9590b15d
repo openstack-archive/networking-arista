@@ -1,0 +1,10 @@
+Code-Review+1: Sukhdev Kapur <sukhdev@aristanetworks.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 10 Mar 2016 17:50:01 +0000
+Reviewed-on: https://review.openstack.org/290788
+Project: openstack/networking-arista
+Branch: refs/heads/stable/liberty
