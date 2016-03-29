@@ -100,7 +100,7 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
     def create_router(self, context, router):
         """Create a new router entry in DB, and create it Arista HW."""
 
-        tenant_id = self._get_tenant_id_for_create(context, router['router'])
+        tenant_id = router['router']['tenant_id']
 
         # Add router to the DB
         with context.session.begin(subtransactions=True):
