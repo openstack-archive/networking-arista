@@ -150,10 +150,13 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         mechanism_arista.db_lib.is_network_provisioned.return_value = True
         mechanism_arista.db_lib.num_nets_provisioned.return_value = 0
         mechanism_arista.db_lib.num_vms_provisioned.return_value = 0
+        mechanism_arista.db_lib.are_ports_attached_to_network.return_value = (
+            False)
         self.drv.delete_network_precommit(network_context)
 
         expected_calls = [
             mock.call.is_network_provisioned(tenant_id, network_id),
+            mock.call.are_ports_attached_to_network(network_id),
             mock.call.forget_network(tenant_id, network_id),
         ]
 
@@ -173,11 +176,42 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         mechanism_arista.db_lib.is_network_provisioned.return_value = True
         mechanism_arista.db_lib.num_nets_provisioned.return_value = 0
         mechanism_arista.db_lib.num_vms_provisioned.return_value = 0
+        mechanism_arista.db_lib.are_ports_attached_to_network.return_value = (
+            False)
         self.drv.delete_network_precommit(network_context)
 
         expected_calls += [
             mock.call.is_network_provisioned(INTERNAL_TENANT_ID, network_id),
+            mock.call.are_ports_attached_to_network(network_id),
             mock.call.forget_network(INTERNAL_TENANT_ID, network_id),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+    def test_delete_network_precommit_with_ports(self):
+        tenant_id = 'ten-1'
+        network_id = 'net1-id'
+        segmentation_id = 1001
+
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
+        mechanism_arista.db_lib.num_nets_provisioned.return_value = 0
+        mechanism_arista.db_lib.num_vms_provisioned.return_value = 0
+        mechanism_arista.db_lib.are_ports_attached_to_network.return_value = (
+            True)
+        try:
+            self.drv.delete_network_precommit(network_context)
+        except Exception:
+            # exception is expeted in this case - as network is not
+            # deleted in this case and exception is raised
+            pass
+
+        expected_calls = [
+            mock.call.is_network_provisioned(tenant_id, network_id),
+            mock.call.are_ports_attached_to_network(network_id),
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)

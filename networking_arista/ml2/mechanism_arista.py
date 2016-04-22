@@ -166,7 +166,12 @@ class AristaDriver(driver_api.MechanismDriver):
         tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
         with self.eos_sync_lock:
             if db_lib.is_network_provisioned(tenant_id, network_id):
-                db_lib.forget_network(tenant_id, network_id)
+                if db_lib.are_ports_attached_to_network(network_id):
+                    LOG.info(_LI('Network %s can not be deleted as it '
+                                 'has ports attached to it'), network_id)
+                    raise ml2_exc.MechanismDriverError()
+                else:
+                    db_lib.forget_network(tenant_id, network_id)
 
     def delete_network_postcommit(self, context):
         """Send network delete request to Arista HW."""
@@ -474,3 +479,4 @@ class AristaDriver(driver_api.MechanismDriver):
         for net_id in set(arista_db_nets.keys()).difference(neutron_net_ids):
             tenant_network = arista_db_nets[net_id]
             db_lib.forget_network(tenant_network['tenantId'], net_id)
+            db_lib.forget_all_ports_for_network(net_id)
