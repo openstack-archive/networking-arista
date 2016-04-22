@@ -96,6 +96,17 @@ def forget_vm_port(port_id):
          filter_by(port_id=port_id).delete())
 
 
+def forget_all_ports_for_network(net_id):
+    """Removes all ports for a given network fron repository.
+
+    :param net_id: globally unique network ID
+    """
+    session = db.get_session()
+    with session.begin():
+        (session.query(db_models.AristaProvisionedVms).
+         filter_by(network_id=net_id).delete())
+
+
 def update_port(vm_id, host_id, port_id, network_id, tenant_id):
     """Updates the port details in the database.
 
@@ -301,6 +312,25 @@ def get_vms(tenant_id):
         res = dict(
             (vm.vm_id, vm.eos_vm_representation())
             for vm in all_vms
+        )
+        return res
+
+
+def get_all_ports_for_network(net_id):
+    """Returns all records associated with network in EOS-compatible format.
+
+    :param net_id: globally unique network ID
+    """
+    session = db.get_session()
+    with session.begin():
+        model = db_models.AristaProvisionedVms
+        # hack for pep8 E711: comparison to None should be
+        # 'if cond is not None'
+        all_ports = (session.query(model).
+                     filter(model.network_id == net_id))
+        res = dict(
+            (port.port_id, port.eos_port_representation())
+            for port in all_ports
         )
         return res
 
