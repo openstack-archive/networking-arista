@@ -1,6 +1,5 @@
-61bc46d043652f3b423d7dd5ac81d9da7cbdc9dc	Project Bootstrappers
-a590185be17aea15cf967c29d5aae215b4e3bca3	neutron-stable-maint
 global:Registered-Users	Registered Users
-660920291e7cf2d7b2766c49cb8cf639bc896b3d	networking-arista-core
 global:Change-Owner	Change Owner
-198912f7b5256e7b4957d207beebec7dae3c0961	neutron-release
+660920291e7cf2d7b2766c49cb8cf639bc896b3d	networking-arista-core
+61bc46d043652f3b423d7dd5ac81d9da7cbdc9dc	Project Bootstrappers
+704cc335063e1a22dcab91c123f96c61c92c8c13	networking-arista-release
