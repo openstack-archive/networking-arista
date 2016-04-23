@@ -100,6 +100,31 @@ def update_vm_host(vm_id, host_id, port_id, network_id, tenant_id):
             vm.host_id = host_id
 
 
+def forget_all_ports_for_network(net_id):
+    """Removes all ports for a given network fron repository.
+
+    :param net_id: globally unique network ID
+    """
+    session = db.get_session()
+    with session.begin():
+        (session.query(db_models.AristaProvisionedVms).
+         filter_by(network_id=net_id).delete())
+
+
+def are_ports_attached_to_network(net_id):
+    """Returns all records associated with network in EOS-compatible format.
+
+    :param net_id: globally unique network ID
+    """
+    session = db.get_session()
+    with session.begin():
+        model = db_models.AristaProvisionedVms
+        num_ports = (session.query(model).
+                     filter(model.network_id == net_id).count())
+
+        return num_ports > 0
+
+
 def forget_vm(vm_id, host_id, port_id, network_id, tenant_id):
     """Removes all relevant information about a VM from repository.
 
