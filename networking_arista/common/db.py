@@ -64,8 +64,8 @@ class AristaProvisionedVms(model_base.BASEV2, models_v2.HasId,
                                           u'networkId': self.network_id}]}}
 
     def eos_port_representation(self):
-        return {u'vmId': self.vm_id,
-                u'host': self.host_id,
+        return {u'deviceId': self.vm_id,
+                u'hosts': [self.host_id],
                 u'portId': self.port_id,
                 u'networkId': self.network_id}
 

@@ -85,17 +85,6 @@ def remember_vm(vm_id, host_id, port_id, network_id, tenant_id):
         session.add(vm)
 
 
-def forget_vm_port(port_id):
-    """Removes all relevant information about a VM port from repository.
-
-    :param port_id: globally unique port ID that connects VM to network
-    """
-    session = db.get_session()
-    with session.begin():
-        (session.query(db_models.AristaProvisionedVms).
-         filter_by(port_id=port_id).delete())
-
-
 def forget_all_ports_for_network(net_id):
     """Removes all ports for a given network fron repository.
 
@@ -126,6 +115,19 @@ def update_port(vm_id, host_id, port_id, network_id, tenant_id):
             port.vm_id = vm_id
             port.network_id = network_id
             port.tenant_id = tenant_id
+
+
+def forget_port(port_id, host_id):
+    """Deletes the port from the database
+
+    :param port_id: globally unique port ID that connects VM to network
+    :param host_id: host to which the port is bound to
+    """
+    session = db.get_session()
+    with session.begin():
+        session.query(db_models.AristaProvisionedVms).filter_by(
+            port_id=port_id,
+            host_id=host_id).delete()
 
 
 def remember_network(tenant_id, network_id, segmentation_id):
@@ -193,16 +195,39 @@ def is_vm_provisioned(vm_id, host_id, port_id,
         return num_vm > 0
 
 
-def is_port_provisioned(port_id):
+def is_port_provisioned(port_id, host_id=None):
+    """Checks if a port is already known to EOS
+
+    :returns: True, if yes; False otherwise.
+    :param port_id: globally unique port ID that connects VM to network
+    :param host_id: host to which the port is bound to
+    """
+
+    filters = {
+        'port_id': port_id
+    }
+    if host_id:
+        filters['host_id'] = host_id
+
+    session = db.get_session()
+    with session.begin():
+        num_ports = (session.query(db_models.AristaProvisionedVms).
+                     filter_by(**filters).count())
+        return num_ports > 0
+
+
+def is_dvr_port_provisioned(port_id, host_id):
     """Checks if a VM is already known to EOS
 
     :returns: True, if yes; False otherwise.
     :param port_id: globally unique port ID that connects VM to network
+    :param host_id: host to which the port is bound to
     """
     session = db.get_session()
     with session.begin():
         num_ports = (session.query(db_models.AristaProvisionedVms).
-                     filter_by(port_id=port_id).count())
+                     filter_by(port_id=port_id,
+                               host_id=host_id).count())
         return num_ports > 0
 
 
@@ -347,11 +372,14 @@ def get_ports(tenant_id):
                             model.vm_id != none,
                             model.network_id != none,
                             model.port_id != none))
-        res = dict(
-            (port.port_id, port.eos_port_representation())
-            for port in all_ports
-        )
-        return res
+
+    ports = {}
+    for port in all_ports:
+        if port.port_id not in ports:
+            ports[port.port_id] = port.eos_port_representation()
+        ports[port.port_id]['hosts'].append(port.host_id)
+
+    return ports
 
 
 def get_tenants():
