@@ -41,9 +41,11 @@ HEARTBEAT_INTERVAL = 100
 # Commands dict keys
 CMD_SYNC_HEARTBEAT = 'SYNC_HEARTBEAT'
 CMD_REGION_SYNC = 'REGION_SYNC'
+CMD_INSTANCE = 'INSTANCE'
 
 # EAPI error messages of interest
 ERR_CVX_NOT_LEADER = 'only available on cluster leader'
+ERR_DVR_NOT_SUPPORTED = 'EOS version on CVX does not support DVR'
 
 
 class AristaRPCWrapper(object):
@@ -221,6 +223,27 @@ class AristaRPCWrapper(object):
                 _LW("'resource-pool' command '%s' is not available on EOS"),
                 cmd)
 
+        # Check if the instance command exists
+        instance_command = [
+            'enable',
+            'configure',
+            'cvx',
+            'service openstack',
+            'region %s' % test_region_name,
+            'tenant t1',
+            'instance id i1 type router',
+        ]
+        try:
+            self._run_eos_cmds(instance_command)
+            self.cli_commands[CMD_INSTANCE] = 'instance'
+        except arista_exc.AristaRpcError:
+            self.cli_commands[CMD_INSTANCE] = None
+            LOG.warn(_LW("'instance' command is not available on EOS"))
+        finally:
+            cmd = ['enable', 'configure', 'cvx', 'service openstack',
+                   'no region %s' % test_region_name]
+            self._run_eos_cmds(cmd)
+
     def _keystone_url(self):
         if self.keystone_conf.auth_uri:
             auth_uri = self.keystone_conf.auth_uri.rstrip('/')
@@ -276,32 +299,38 @@ class AristaRPCWrapper(object):
 
         return tenants
 
-    def plug_port_into_network(self, vm_id, host_id, port_id,
+    def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner):
         """Generic routine plug a port of a VM instace into network.
 
-        :param vm_id: globally unique identifier for VM instance
-        :param host: ID of the host where the VM is placed
-        :param port_id: globally unique port ID that connects VM to network
+        :param device_id: globally unique identifier for the device
+        :param host: ID of the host where the port is placed
+        :param port_id: globally unique port ID that connects port to network
         :param network_id: globally unique neutron network identifier
         :param tenant_id: globally unique neutron tenant identifier
         :param port_name: Name of the port - for display purposes
         :param device_owner: Device owner - e.g. compute or network:dhcp
         """
         if device_owner == n_const.DEVICE_OWNER_DHCP:
-            self.plug_dhcp_port_into_network(vm_id,
+            self.plug_dhcp_port_into_network(device_id,
                                              host_id,
                                              port_id,
                                              net_id,
                                              tenant_id,
                                              port_name)
         elif device_owner.startswith('compute'):
-            self.plug_host_into_network(vm_id,
+            self.plug_host_into_network(device_id,
                                         host_id,
                                         port_id,
                                         net_id,
                                         tenant_id,
                                         port_name)
+        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+            self.plug_distributed_router_port_into_network(device_id,
+                                                           host_id,
+                                                           port_id,
+                                                           net_id,
+                                                           tenant_id)
 
     def plug_host_into_network(self, vm_id, host, port_id,
                                network_id, tenant_id, port_name):
@@ -345,6 +374,54 @@ class AristaRPCWrapper(object):
                         (dhcp_id, host, port_id))
         self._run_openstack_cmds(cmds)
 
+    def plug_distributed_router_port_into_network(self, router_id, host,
+                                                  port_id, net_id, tenant_id):
+        """Creates a DVR port on a in EOS.
+
+        :param router_id: globally unique identifier for router instance
+        :param host: ID of the host where the DVR port is placed
+        :param port_id: globally unique port ID that connects port to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+
+        if not self.cli_commands[CMD_INSTANCE]:
+            LOG.info(ERR_DVR_NOT_SUPPORTED)
+            return
+
+        cmds = ['tenant %s' % tenant_id,
+                'instance id %s type router' % router_id,
+                'port id %s network-id %s hostid %s' % (port_id, net_id, host)]
+        self._run_openstack_cmds(cmds)
+
+    def unplug_port_from_network(self, device_id, device_owner, hostname,
+                                 port_id, network_id, tenant_id):
+        """Removes a port from the device
+
+        :param device_id: globally unique identifier for the device
+        :param host: ID of the host where the device is placed
+        :param port_id: globally unique port ID that connects device to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+        if device_owner == n_const.DEVICE_OWNER_DHCP:
+            self.unplug_dhcp_port_from_network(device_id,
+                                               hostname,
+                                               port_id,
+                                               network_id,
+                                               tenant_id)
+        elif device_owner.startswith('compute'):
+            self.unplug_host_from_network(device_id,
+                                          hostname,
+                                          port_id,
+                                          network_id,
+                                          tenant_id)
+        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+            self.unplug_distributed_router_port_from_network(device_id,
+                                                             port_id,
+                                                             hostname,
+                                                             tenant_id)
+
     def unplug_host_from_network(self, vm_id, host, port_id,
                                  network_id, tenant_id):
         """Removes previously configured VLAN between TOR and a host.
@@ -375,6 +452,25 @@ class AristaRPCWrapper(object):
                 'network id %s' % network_id,
                 'no dhcp id %s port-id %s' % (dhcp_id, port_id),
                 ]
+        self._run_openstack_cmds(cmds)
+
+    def unplug_distributed_router_port_from_network(self, router_id,
+                                                    port_id, host, tenant_id):
+        """Removes a DVR port from EOS.
+
+        :param router_id: globally unique identifier for router instance
+        :param port_id: globally unique port ID that connects port to network
+        :param host: ID of the host where the dhcp is hosted
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+
+        if not self.cli_commands[CMD_INSTANCE]:
+            LOG.info(ERR_DVR_NOT_SUPPORTED)
+            return
+
+        cmds = ['tenant %s' % tenant_id,
+                'instance id %s type router' % router_id,
+                'no port id %s hostid %s' % (port_id, host)]
         self._run_openstack_cmds(cmds)
 
     def create_network(self, tenant_id, network):
@@ -489,9 +585,9 @@ class AristaRPCWrapper(object):
         """
         cmds = ['tenant %s' % tenant_id]
         counter = 0
-        for vm_id in vm_id_list:
+        for vm in vm_id_list:
             counter += 1
-            cmds.append('no vm id %s' % vm_id)
+            cmds.append('no vm id %s' % vm)
             if self._heartbeat_required(sync, counter):
                 cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
 
@@ -499,41 +595,73 @@ class AristaRPCWrapper(object):
             cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
         self._run_openstack_cmds(cmds, sync=sync)
 
-    def create_vm_port_bulk(self, tenant_id, vm_port_list, vms, sync=False):
+    def delete_instance_bulk(self, tenant_id, instance_id_list, sync=False):
+        """Deletes instances from EOS for a given tenant
+
+        :param tenant_id : globally unique neutron tenant identifier
+        :param instance_id_list : ids of instances that needs to be deleted.
+        :param sync: This flags indicates that the region is being synced.
+        """
+        cmds = ['tenant %s' % tenant_id]
+        counter = 0
+        for instance in instance_id_list:
+            counter += 1
+            cmds.append('no instance id %s' % instance)
+            if self._heartbeat_required(sync, counter):
+                cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
+
+        if self._heartbeat_required(sync):
+            cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
+        self._run_openstack_cmds(cmds, sync=sync)
+
+    def create_port_bulk(self, tenant_id, port_list, ports, sync=False):
         """Sends a bulk request to create ports.
 
         :param tenant_id: globaly unique neutron tenant identifier
-        :param vm_port_list: list of ports that need to be created.
-        :param vms: list of vms to which the ports will be attached to.
+        :param port_list: list of neutron ports that need to be created.
+        :param ports: list of ports in the arista db.
         :param sync: This flags indicates that the region is being synced.
         """
         cmds = ['tenant %s' % tenant_id]
         # Create a reference to function to avoid name lookups in the loop
         append_cmd = cmds.append
         counter = 0
-        for port in vm_port_list:
+        for n_port in port_list:
             counter += 1
             try:
-                vm = vms[port['device_id']]
+                port = ports[n_port['id']]
             except KeyError:
-                LOG.warn(_LW("VM id %(vmid)s not found for port %(portid)s"),
-                         {'vmid': port['device_id'], 'portid': port['id']})
+                LOG.warn(_LW(
+                         "Device id %(device)s not found for port %(port)s"),
+                         {'device': n_port['device_id'],
+                          'port': n_port['id']})
                 continue
 
-            port_name = '' if 'name' not in port else 'name "%s"' % (
-                port['name']
+            port_name = '' if 'name' not in n_port else 'name "%s"' % (
+                n_port['name']
             )
 
-            if port['device_owner'] == n_const.DEVICE_OWNER_DHCP:
-                append_cmd('network id %s' % port['network_id'])
+            if n_port['device_owner'] == n_const.DEVICE_OWNER_DHCP:
+                append_cmd('network id %s' % n_port['network_id'])
                 append_cmd('dhcp id %s hostid %s port-id %s %s' %
-                           (vm['vmId'], vm['host'], port['id'], port_name))
-            elif port['device_owner'].startswith('compute'):
-                append_cmd('vm id %s hostid %s' % (vm['vmId'], vm['host']))
+                           (port['deviceId'], port['hosts'][0], n_port['id'],
+                            port_name))
+            elif n_port['device_owner'].startswith('compute'):
+                append_cmd('vm id %s hostid %s' % (port['deviceId'],
+                                                   port['hosts'][0]))
                 append_cmd('port id %s %s network-id %s' %
-                           (port['id'], port_name, port['network_id']))
+                           (n_port['id'], port_name, n_port['network_id']))
+            elif n_port['device_owner'] == n_const.DEVICE_OWNER_DVR_INTERFACE:
+                if not self.cli_commands[CMD_INSTANCE]:
+                    LOG.info(ERR_DVR_NOT_SUPPORTED)
+                    continue
+                append_cmd('instance id %s type router' % port['deviceId'])
+                for host in port['hosts']:
+                    append_cmd('port id %s network-id %s hostid %s' % (
+                               n_port['id'], n_port['network_id'], host))
             else:
-                LOG.warn(_LW("Unknown device owner: %s"), port['device_owner'])
+                LOG.warn(_LW("Unknown device owner: %s"),
+                         n_port['device_owner'])
                 continue
             if self._heartbeat_required(sync, counter):
                 append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
@@ -847,6 +975,8 @@ class SyncService(object):
         try:
             # Register with EOS to ensure that it has correct credentials
             self._rpc.register_with_eos(sync=True)
+            # Recheck whether the commands are still available
+            self._rpc.check_cli_commands()
             eos_tenants = self._rpc.get_tenants()
         except arista_exc.AristaRpcError:
             LOG.warning(EOS_UNREACHABLE_MSG)
@@ -881,33 +1011,52 @@ class SyncService(object):
         # In first loop, delete unwanted VM and networks and update networks
         # In second loop, update VMs. This is done to ensure that networks for
         # all tenats are updated before VMs are updated
-        vms_to_update = {}
-        for tenant in db_tenants:
+        ports_to_update = {}
+        for tenant in sorted(db_tenants.keys()):
             db_nets = db_lib.get_networks(tenant)
-            db_vms = db_lib.get_vms(tenant)
+            db_ports = db_lib.get_vms(tenant)
+
             eos_nets = self._get_eos_networks(eos_tenants, tenant)
             eos_vms = self._get_eos_vms(eos_tenants, tenant)
+            eos_routers = self._get_eos_routers(eos_tenants, tenant)
 
             db_nets_key_set = frozenset(db_nets.keys())
-            db_vms_key_set = frozenset(db_vms.keys())
+            db_ports_key_set = frozenset(db_ports.keys())
             eos_nets_key_set = frozenset(eos_nets.keys())
             eos_vms_key_set = frozenset(eos_vms.keys())
+            eos_routers_key_set = frozenset(eos_routers.keys())
+
+            eos_ports_key_set = (eos_vms_key_set | eos_routers_key_set)
 
             # Find the networks that are present on EOS, but not in Neutron DB
             nets_to_delete = eos_nets_key_set.difference(db_nets_key_set)
 
             # Find the VMs that are present on EOS, but not in Neutron DB
-            vms_to_delete = eos_vms_key_set.difference(db_vms_key_set)
+            ports_to_delete = eos_ports_key_set.difference(db_ports_key_set)
+
+            vms_to_delete = [
+                vm for vm in eos_vms_key_set if vm in ports_to_delete]
+            routers_to_delete = [
+                r for r in eos_routers_key_set if r in ports_to_delete]
 
             # Find the Networks that are present in Neutron DB, but not on EOS
             nets_to_update = db_nets_key_set.difference(eos_nets_key_set)
 
             # Find the VMs that are present in Neutron DB, but not on EOS
-            vms_to_update[tenant] = db_vms_key_set.difference(eos_vms_key_set)
+            ports_to_update[tenant] = db_ports_key_set.difference(
+                eos_ports_key_set)
 
             try:
                 if vms_to_delete:
                     self._rpc.delete_vm_bulk(tenant, vms_to_delete, sync=True)
+                if routers_to_delete:
+                    if self.cli_commands[CMD_INSTANCE]:
+                        self._rpc.delete_instance_bulk(tenant,
+                                                       routers_to_delete,
+                                                       sync=True)
+                    else:
+                        LOG.info(ERR_DVR_NOT_SUPPORTED)
+
                 if nets_to_delete:
                     self._rpc.delete_network_bulk(tenant, nets_to_delete,
                                                   sync=True)
@@ -930,20 +1079,20 @@ class SyncService(object):
                 self._force_sync = True
 
         # Now update the VMs
-        for tenant in vms_to_update:
-            if not vms_to_update[tenant]:
+        for tenant in ports_to_update:
+            if not ports_to_update[tenant]:
                 continue
             try:
                 # Filter the ports to only the vms that we are interested
                 # in.
-                vm_ports = [
+                relevant_ports = [
                     port for port in self._ndb.get_all_ports_for_tenant(
-                        tenant) if port['device_id'] in vms_to_update[tenant]
+                        tenant) if port['device_id'] in ports_to_update[tenant]
                 ]
-                if vm_ports:
-                    db_vms = db_lib.get_vms(tenant)
-                    self._rpc.create_vm_port_bulk(tenant, vm_ports, db_vms,
-                                                  sync=True)
+                if relevant_ports:
+                    db_ports = db_lib.get_ports(tenant)
+                    self._rpc.create_port_bulk(tenant, relevant_ports,
+                                               db_ports, sync=True)
             except arista_exc.AristaRpcError:
                 LOG.warning(EOS_UNREACHABLE_MSG)
                 self._force_sync = True
@@ -998,3 +1147,9 @@ class SyncService(object):
         if eos_tenants and tenant in eos_tenants:
             vms = eos_tenants[tenant]['tenantVmInstances']
         return vms
+
+    def _get_eos_routers(self, eos_tenants, tenant):
+        if eos_tenants and tenant in eos_tenants:
+            if 'tenantRouterInstances' in eos_tenants[tenant]:
+                return eos_tenants[tenant]['tenantRouterInstances']
+        return {}
