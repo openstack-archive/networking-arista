@@ -128,6 +128,19 @@ def update_port(vm_id, host_id, port_id, network_id, tenant_id):
             port.tenant_id = tenant_id
 
 
+def delete_port(port_id, host_id):
+    """Deletes the port from the database
+
+    :param port_id: globally unique port ID that connects VM to network
+    :param host_id: host to which the port is bound to
+    """
+    session = db.get_session()
+    with session.begin():
+        session.query(db_models.AristaProvisionedVms).filter_by(
+            port_id=port_id,
+            host_id=host_id).delete()
+
+
 def remember_network(tenant_id, network_id, segmentation_id):
     """Stores all relevant information about a Network in repository.
 
@@ -203,6 +216,21 @@ def is_port_provisioned(port_id):
     with session.begin():
         num_ports = (session.query(db_models.AristaProvisionedVms).
                      filter_by(port_id=port_id).count())
+        return num_ports > 0
+
+
+def is_dvr_port_provisioned(port_id, host_id):
+    """Checks if a VM is already known to EOS
+
+    :returns: True, if yes; False otherwise.
+    :param port_id: globally unique port ID that connects VM to network
+    :param host_id: host to which the port is bound to
+    """
+    session = db.get_session()
+    with session.begin():
+        num_ports = (session.query(db_models.AristaProvisionedVms).
+                     filter_by(port_id=port_id,
+                               host_id=host_id).count())
         return num_ports > 0
 
 
@@ -309,6 +337,7 @@ def get_vms(tenant_id):
                           model.vm_id != none,
                           model.network_id != none,
                           model.port_id != none))
+
         res = dict(
             (vm.vm_id, vm.eos_vm_representation())
             for vm in all_vms
@@ -347,11 +376,14 @@ def get_ports(tenant_id):
                             model.vm_id != none,
                             model.network_id != none,
                             model.port_id != none))
-        res = dict(
-            (port.port_id, port.eos_port_representation())
-            for port in all_ports
-        )
-        return res
+
+    result = {}
+    for port in all_ports:
+        if port.port_id not in result:
+            result[port.port_id] = port.eos_port_representation()
+        result[port.port_id]['hosts'].append(port.host_id)
+
+    return result
 
 
 def get_tenants():
