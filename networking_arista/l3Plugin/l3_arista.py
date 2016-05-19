@@ -67,7 +67,7 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
     def setup_rpc(self):
         # RPC support
         self.topic = topics.L3PLUGIN
-        self.conn = n_rpc.create_connection(new=True)
+        self.conn = n_rpc.create_connection()
         self.agent_notifiers.update(
             {n_const.AGENT_TYPE_L3: l3_rpc_agent_api.L3AgentNotifyAPI()})
         self.endpoints = [l3_rpc.L3RpcCallback()]
