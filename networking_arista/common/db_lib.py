@@ -16,9 +16,11 @@
 from neutron import context as nctx
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
+from neutron.db import securitygroups_db as sec_db
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import db as ml2_db
 from neutron.plugins.ml2 import driver_api
+from neutron.plugins.ml2 import models as ml2_models
 
 from networking_arista.common import db as db_models
 
@@ -313,17 +315,33 @@ def get_vms(tenant_id):
         # hack for pep8 E711: comparison to None should be
         # 'if cond is not None'
         none = None
-        all_vms = (session.query(model).
-                   filter(model.tenant_id == tenant_id,
-                          model.host_id != none,
-                          model.vm_id != none,
-                          model.network_id != none,
-                          model.port_id != none))
-        res = dict(
-            (vm.vm_id, vm.eos_vm_representation())
-            for vm in all_vms
-        )
-        return res
+        all_ports = (session.query(model).
+                     filter(model.tenant_id == tenant_id,
+                            model.host_id != none,
+                            model.vm_id != none,
+                            model.network_id != none,
+                            model.port_id != none))
+        ports = {}
+        for port in all_ports:
+            if port.port_id not in ports:
+                ports[port.port_id] = port.eos_port_representation()
+            else:
+                ports[port.port_id]['hosts'].append(port.host_id)
+
+        vm_dict = dict()
+
+        def eos_vm_representation(port):
+            return {u'vmId': port['deviceId'],
+                    u'baremetal_instance': False,
+                    u'ports': [port]}
+
+        for port in ports.values():
+            deviceId = port['deviceId']
+            if deviceId in vm_dict:
+                vm_dict[deviceId]['ports'].append(port)
+            else:
+                vm_dict[deviceId] = eos_vm_representation(port)
+        return vm_dict
 
 
 def are_ports_attached_to_network(net_id):
@@ -340,7 +358,7 @@ def are_ports_attached_to_network(net_id):
         return num_ports > 0
 
 
-def get_ports(tenant_id):
+def get_ports(tenant_id=None):
     """Returns all ports of VMs in EOS-compatible format.
 
     :param tenant_id: globally unique neutron tenant identifier
@@ -351,13 +369,20 @@ def get_ports(tenant_id):
         # hack for pep8 E711: comparison to None should be
         # 'if cond is not None'
         none = None
-        all_ports = (session.query(model).
-                     filter(model.tenant_id == tenant_id,
-                            model.host_id != none,
-                            model.vm_id != none,
-                            model.network_id != none,
-                            model.port_id != none))
-
+        if tenant_id:
+            all_ports = (session.query(model).
+                         filter(model.tenant_id == tenant_id,
+                                model.host_id != none,
+                                model.vm_id != none,
+                                model.network_id != none,
+                                model.port_id != none))
+        else:
+            all_ports = (session.query(model).
+                         filter(model.tenant_id != none,
+                                model.host_id != none,
+                                model.vm_id != none,
+                                model.network_id != none,
+                                model.port_id != none))
     ports = {}
     for port in all_ports:
         if port.port_id not in ports:
@@ -380,7 +405,27 @@ def get_tenants():
         return res
 
 
-class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
+def _make_bm_port_dict(record):
+    """Make a dict from the BM profile DB record."""
+    return {'port_id': record.port_id,
+            'host_id': record.host,
+            'vnic_type': record.vnic_type,
+            'profile': record.profile}
+
+
+def get_all_baremetal_ports():
+    """Returns a list of all ports that belong to baremetal hosts."""
+    session = db.get_session()
+    with session.begin():
+        querry = session.query(ml2_models.PortBinding)
+        bm_ports = querry.filter_by(vnic_type='baremetal').all()
+
+        return {bm_port.port_id: _make_bm_port_dict(bm_port)
+                for bm_port in bm_ports}
+
+
+class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
+                  sec_db.SecurityGroupDbMixin):
     """Access to Neutron DB.
 
     Provides access to the Neutron Data bases for all provisioned
@@ -424,6 +469,11 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
            segments[0][driver_api.NETWORK_TYPE] == p_const.TYPE_VLAN):
             return nets[0]['tenant_id']
 
+    def get_network_from_net_id(self, network_id):
+        filters = {'id': [network_id]}
+        return super(NeutronNets,
+                     self).get_networks(self.admin_ctx, filters=filters) or []
+
     def _get_network(self, tenant_id, network_id):
         filters = {'tenant_id': [tenant_id],
                    'id': [network_id]}
@@ -460,3 +510,30 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
     def get_port(self, port_id):
         return super(NeutronNets,
                      self).get_port(self.admin_ctx, port_id) or {}
+
+    def get_all_security_gp_to_port_bindings(self):
+        return super(NeutronNets, self)._get_port_security_group_bindings(
+            self.admin_ctx) or []
+
+    def get_security_gp_to_port_bindings(self, sec_gp_id):
+        filters = {'security_group_id': [sec_gp_id]}
+        return super(NeutronNets, self)._get_port_security_group_bindings(
+            self.admin_ctx, filters=filters) or []
+
+    def get_security_group(self, sec_gp_id):
+        return super(NeutronNets,
+                     self).get_security_group(self.admin_ctx, sec_gp_id) or []
+
+    def get_security_groups(self):
+        sgs = super(NeutronNets,
+                    self).get_security_groups(self.admin_ctx) or []
+        sgs_all = {}
+        if sgs:
+            for s in sgs:
+                sgs_all[s['id']] = s
+        return sgs_all
+
+    def get_security_group_rule(self, sec_gpr_id):
+        return super(NeutronNets,
+                     self).get_security_group_rule(self.admin_ctx,
+                                                   sec_gpr_id) or []
