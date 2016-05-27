@@ -19,6 +19,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron.common import constants as n_const
+from neutron.extensions import portbindings
 from neutron.i18n import _LI
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.common import exceptions as ml2_exc
@@ -29,6 +30,7 @@ from networking_arista.common import db
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_ml2
+from networking_arista.ml2 import sec_group_callback
 
 LOG = logging.getLogger(__name__)
 
@@ -58,11 +60,11 @@ class AristaDriver(driver_api.MechanismDriver):
     """
     def __init__(self, rpc=None):
 
-        self.rpc = rpc or arista_ml2.AristaRPCWrapper()
+        self.ndb = db_lib.NeutronNets()
+        self.rpc = rpc or arista_ml2.AristaRPCWrapper(self.ndb)
         self.db_nets = db.AristaProvisionedNets()
         self.db_vms = db.AristaProvisionedVms()
         self.db_tenants = db.AristaProvisionedTenants()
-        self.ndb = db_lib.NeutronNets()
 
         confg = cfg.CONF.ml2_arista
         self.segmentation_type = db_lib.VLAN_SEGMENTATION
@@ -79,6 +81,7 @@ class AristaDriver(driver_api.MechanismDriver):
         # to force an initial sync
         self.rpc.clear_region_updated_time()
         self._synchronization_thread()
+        self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
 
     def create_network_precommit(self, context):
         """Remember the tenant, and network information."""
@@ -215,12 +218,19 @@ class AristaDriver(driver_api.MechanismDriver):
 
         pretty_log("create_port_precommit:", port)
 
+        if device_owner == 'compute:probe':
+            return
+
         # device_id and device_owner are set on VM boot
         is_vm_boot = device_id and device_owner
         if host and is_vm_boot:
             port_id = port['id']
             network_id = port['network_id']
             tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+            # Ensure that we use tenant Id for the network owner
+            tenant_id = self._network_owner_tenant(context,
+                                                   network_id,
+                                                   tenant_id)
             with self.eos_sync_lock:
                 # If network does not exist under this tenant,
                 # it may be a shared network. Get shared network owner Id
@@ -230,6 +240,33 @@ class AristaDriver(driver_api.MechanismDriver):
                 db_lib.remember_tenant(tenant_id)
                 db_lib.remember_vm(device_id, host, port_id,
                                    network_id, tenant_id)
+
+    def bind_port(self, context):
+        """Bind baremetal port to a network.
+
+        Provisioning request to Arista Hardware to plug a host
+        into appropriate network is done when the port is created
+        this simply tells the ML2 Plugin that we are binding the port
+        """
+        port = context.current
+        vnic_type = port['binding:vnic_type']
+        if vnic_type != portbindings.VNIC_BAREMETAL:
+            # We are only interested in bining baremetal ports.
+            return
+
+        vif_type = portbindings.VIF_TYPE_OTHER
+        vif_details = {portbindings.VIF_DETAILS_VLAN: True}
+        for segment in context.segments_to_bind:
+            vif_details[portbindings.VIF_DETAILS_VLAN] = (
+                str(segment[driver_api.SEGMENTATION_ID]))
+            context.set_binding(segment[driver_api.ID],
+                                vif_type,
+                                vif_details,
+                                p_const.ACTIVE)
+            LOG.debug("AristaDriver: bound port info- port ID %(id)s "
+                      "on network %(network)s",
+                      {'id': port['id'],
+                       'network': context.network.current['id']})
 
     def create_port_postcommit(self, context):
         """Plug a physical host into a network.
@@ -242,7 +279,15 @@ class AristaDriver(driver_api.MechanismDriver):
         device_owner = port['device_owner']
         host = context.host
 
+        profile = []
+        vnic_type = port['binding:vnic_type']
+        binding_profile = port['binding:profile']
+        if binding_profile:
+            profile = binding_profile['local_link_information']
+
         pretty_log("create_port_postcommit:", port)
+
+        sg = port['security_groups']
 
         # device_id and device_owner are set on VM boot
         is_vm_boot = device_id and device_owner
@@ -251,6 +296,10 @@ class AristaDriver(driver_api.MechanismDriver):
             port_name = port['name']
             network_id = port['network_id']
             tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+            # Ensure that we use tenant Id for the network owner
+            tenant_id = self._network_owner_tenant(context,
+                                                   network_id,
+                                                   tenant_id)
             with self.eos_sync_lock:
                 hostname = self._host_name(host)
                 port_provisioned = db_lib.is_port_provisioned(port_id)
@@ -265,13 +314,26 @@ class AristaDriver(driver_api.MechanismDriver):
                                                         network_id,
                                                         tenant_id,
                                                         port_name,
-                                                        device_owner)
+                                                        device_owner,
+                                                        sg, [],
+                                                        vnic_type,
+                                                        profile=profile)
                     except arista_exc.AristaRpcError:
                         LOG.info(EOS_UNREACHABLE_MSG)
                         raise ml2_exc.MechanismDriverError()
                 else:
                     LOG.info(_LI('VM %s is not created as it is not found in '
                                  'Arista DB'), device_id)
+
+    def _network_owner_tenant(self, context, network_id, tenant_id):
+        tid = tenant_id
+        if network_id and tenant_id:
+            network_owner = self.ndb.get_network_from_net_id(network_id)
+            if network_owner and network_owner[0]['tenant_id'] != tenant_id:
+                tid = network_owner[0]['tenant_id'] or tenant_id
+            if not tid:
+                tid = context._plugin_context.tenant_id
+        return tid
 
     def update_port_precommit(self, context):
         """Update the name of a given port.
@@ -292,10 +354,15 @@ class AristaDriver(driver_api.MechanismDriver):
         pretty_log("update_port_precommit: new", new_port)
         pretty_log("update_port_precommit: orig", orig_port)
 
+        if new_port['device_owner'] == 'compute:probe':
+            return
+
         # device_id and device_owner are set on VM boot
         port_id = new_port['id']
         network_id = new_port['network_id']
         tenant_id = new_port['tenant_id'] or INTERNAL_TENANT_ID
+        # Ensure that we use tenant Id for the network owner
+        tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
 
         if not self._network_provisioned(tenant_id, network_id):
             # If the Arista driver does not know about the network, ignore the
@@ -368,10 +435,18 @@ class AristaDriver(driver_api.MechanismDriver):
         host = context.host
         is_vm_boot = device_id and device_owner
 
+        vnic_type = port['binding:vnic_type']
+        binding_profile = port['binding:profile']
+        profile = []
+        if binding_profile:
+            profile = binding_profile['local_link_information']
+
         port_id = port['id']
         port_name = port['name']
         network_id = port['network_id']
         tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+        sg = port['security_groups']
+        orig_sg = orig_port['security_groups']
 
         pretty_log("update_port_postcommit: new", port)
         pretty_log("update_port_postcommit: orig", orig_port)
@@ -422,7 +497,10 @@ class AristaDriver(driver_api.MechanismDriver):
                                                     network_id,
                                                     tenant_id,
                                                     port_name,
-                                                    device_owner)
+                                                    device_owner,
+                                                    sg, orig_sg,
+                                                    vnic_type,
+                                                    profile=profile)
                 else:
                     LOG.info(_LI("Port not plugged into network"))
             except arista_exc.AristaRpcError:
@@ -449,7 +527,11 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         port = context.current
         host = context.host
+        network_id = port['network_id']
+
         tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+        # Ensure that we use tenant Id for the network owner
+        tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
 
         pretty_log("delete_port_postcommit:", port)
 
@@ -474,6 +556,12 @@ class AristaDriver(driver_api.MechanismDriver):
         port_id = port['id']
         network_id = port['network_id']
         device_owner = port['device_owner']
+        vnic_type = port['binding:vnic_type']
+        binding_profile = port['binding:profile']
+        profile = []
+        if binding_profile:
+            profile = binding_profile['local_link_information']
+        sg = port['security_groups']
 
         if not device_id or not host:
             LOG.warn(UNABLE_TO_DELETE_DEVICE_MSG)
@@ -486,7 +574,8 @@ class AristaDriver(driver_api.MechanismDriver):
             hostname = self._host_name(host)
             self.rpc.unplug_port_from_network(device_id, device_owner,
                                               hostname, port_id, network_id,
-                                              tenant_id)
+                                              tenant_id, sg, vnic_type,
+                                              profile=profile)
 
             # if necessary, delete tenant as well.
             self.delete_tenant(tenant_id)
@@ -552,3 +641,46 @@ class AristaDriver(driver_api.MechanismDriver):
                                           segmentation_id) or
             self.ndb.get_shared_network_owner_id(network_id)
         )
+
+    def create_security_group(self, sg):
+        try:
+            self.rpc.create_acl(sg)
+        except Exception:
+            msg = (_('Failed to create ACL on EOS %s') % sg)
+            LOG.exception(msg)
+            raise arista_exc.AristaSecurityGroupError(msg=msg)
+
+    def delete_security_group(self, sg):
+        try:
+            self.rpc.delete_acl(sg)
+        except Exception:
+            msg = (_('Failed to create ACL on EOS %s') % sg)
+            LOG.exception(msg)
+            raise arista_exc.AristaSecurityGroupError(msg=msg)
+
+    def update_security_group(self, sg):
+        try:
+            self.rpc.create_acl(sg)
+        except Exception:
+            msg = (_('Failed to create ACL on EOS %s') % sg)
+            LOG.exception(msg)
+            raise arista_exc.AristaSecurityGroupError(msg=msg)
+
+    def create_security_group_rule(self, sgr):
+        try:
+            self.rpc.create_acl_rule(sgr)
+        except Exception:
+            msg = (_('Failed to create ACL rule on EOS %s') % sgr)
+            LOG.exception(msg)
+            raise arista_exc.AristaSecurityGroupError(msg=msg)
+
+    def delete_security_group_rule(self, sgr_id):
+        if sgr_id:
+            sgr = self.ndb.get_security_group_rule(sgr_id)
+            if sgr:
+                try:
+                    self.rpc.delete_acl_rule(sgr)
+                except Exception:
+                    msg = (_('Failed to delete ACL rule on EOS %s') % sgr)
+                    LOG.exception(msg)
+                    raise arista_exc.AristaSecurityGroupError(msg=msg)
