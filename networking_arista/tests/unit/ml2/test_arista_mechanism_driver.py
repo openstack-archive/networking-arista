@@ -35,6 +35,8 @@ def setup_arista_wrapper_config(value=''):
     cfg.CONF.set_override('eapi_username', value, "ml2_arista")
     cfg.CONF.set_override('sync_interval', 10, "ml2_arista")
     cfg.CONF.set_override('conn_timeout', 20, "ml2_arista")
+    cfg.CONF.set_override('switch_info', ['switch1:user:pass'], "ml2_arista")
+    cfg.CONF.set_override('sec_group_support', False, "ml2_arista")
 
 
 def setup_valid_config():
@@ -217,7 +219,8 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
     def setUp(self):
         super(PositiveRPCWrapperValidConfigTestCase, self).setUp()
         setup_valid_config()
-        self.drv = arista_ml2.AristaRPCWrapper()
+        ndb = db_lib.NeutronNets()
+        self.drv = arista_ml2.AristaRPCWrapper(ndb)
         self.drv._server_ip = "10.11.12.13"
         self.region = 'RegionOne'
 
@@ -452,36 +455,49 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         num_devices = 10
         num_ports_per_device = 2
 
-        ports = {}
         device_count = 0
+        devices = {}
         for device_id in range(1, num_devices):
             device_count += 1
+            dev_id = 'dev-id-%d' % device_id
+            devices[dev_id] = {'vmId': dev_id,
+                               'baremetal_instance': False,
+                               'ports': []
+                               }
             for port_id in range(1, num_ports_per_device):
                 port_id = 'port-id-%d-%d' % (device_id, port_id)
-                ports[port_id] = {
-                    'deviceId': 'dev-id-%d' % device_id,
-                    'hosts': ['host_%d' % (device_count)]
+                port = {
+                    'device_id': 'dev-id-%d' % device_id,
+                    'hosts': ['host_%d' % (device_count)],
+                    'portId': port_id
                 }
+                devices[dev_id]['ports'].append(port)
 
-        devices = [n_const.DEVICE_OWNER_DHCP, 'compute',
-                   n_const.DEVICE_OWNER_DVR_INTERFACE]
+        device_owners = [n_const.DEVICE_OWNER_DHCP, 'compute',
+                         n_const.DEVICE_OWNER_DVR_INTERFACE]
         port_list = []
 
         net_count = 1
         for device_id in range(1, num_devices):
             for port_id in range(1, num_ports_per_device):
                 port = {
-                    'id': 'port-id-%d-%d' % (device_id, port_id),
+                    'portId': 'port-id-%d-%d' % (device_id, port_id),
                     'device_id': 'dev-id-%d' % device_id,
-                    'device_owner': devices[(device_id + port_id) % 3],
+                    'device_owner': device_owners[(device_id + port_id) % 3],
                     'network_id': 'network-id-%d' % net_count,
-                    'name': 'port-%d-%d' % (device_id, port_id)
+                    'name': 'port-%d-%d' % (device_id, port_id),
+                    'tenant_id': tenant_id
                 }
                 port_list.append(port)
                 net_count += 1
 
+        create_ports = {}
+        for port in port_list:
+            create_ports.update(self._port_dict_representation(port))
+
         self.drv.cli_commands[arista_ml2.CMD_INSTANCE] = 'instance'
-        self.drv.create_port_bulk(tenant_id, port_list, ports)
+        self.drv.create_instance_bulk(tenant_id, create_ports, devices,
+                                      bm_port_profiles=None)
         cmd1 = ['show openstack agent uuid']
         cmd2 = ['enable',
                 'configure',
@@ -490,15 +506,14 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'region RegionOne',
                 'tenant ten-3']
 
-        net_count = 1
-        for vm_count in range(1, num_devices):
-            host = 'host_%s' % vm_count
-            for port_count in range(1, num_ports_per_device):
-                device_id = 'dev-id-%d' % vm_count
-                device_owner = devices[(vm_count + port_count) % 2]
-                port_name = '"port-%d-%d"' % (vm_count, port_count)
-                network_id = 'network-id-%d' % net_count
-                port_id = 'port-id-%d-%d' % (vm_count, port_count)
+        for device in devices.values():
+            for v_port in device['ports']:
+                port_id = v_port['portId']
+                port = create_ports[port_id]
+                host = v_port['hosts'][0]
+                device_owner = port['device_owner']
+                port_name = port['name']
+                network_id = port['network_id']
                 if device_owner == 'network:dhcp':
                     cmd2.append('network id %s' % network_id)
                     cmd2.append('dhcp id %s hostid %s port-id %s name %s' % (
@@ -620,6 +635,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         self.drv.cli_commands[
             arista_ml2.CMD_REGION_SYNC] = 'region RegionOne sync'
         self.drv.cli_commands[arista_ml2.CMD_SYNC_HEARTBEAT] = 'sync heartbeat'
+        self.drv.cli_commands['baremetal'] = ''
 
     @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
     def test_create_network_bulk_during_sync(self, mock_send_eapi_req):
@@ -718,33 +734,63 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
+    def _port_dict_representation(self, port):
+        return {port['portId']: {'device_owner': port['device_owner'],
+                                 'device_id': port['device_id'],
+                                 'name': port['name'],
+                                 'id': port['portId'],
+                                 'tenant_id': port['tenant_id'],
+                                 'network_id': port['network_id']}}
+
     @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
     def test_create_port_bulk_during_sync(self, mock_send_eapi_req):
         self._enable_sync_cmds()
         tenant_id = 'ten-3'
-        num_ports = 101
+        num_devices = 101
+        num_ports_per_device = 2
 
-        ports = dict(
-            ('pid-%d' % id, {
-                'deviceId': 'vm-id-%d' % id,
-                'hosts': ['host_%d' % id],
-            }
-            ) for id in range(1, num_ports + 1)
-        )
+        device_count = 0
+        devices = {}
+        for device_id in range(1, num_devices):
+            device_count += 1
+            dev_id = 'dev-id-%d' % device_id
+            devices[dev_id] = {'vmId': dev_id,
+                               'baremetal_instance': False,
+                               'ports': []
+                               }
+            for port_id in range(1, num_ports_per_device):
+                port_id = 'port-id-%d-%d' % (device_id, port_id)
+                port = {
+                    'device_id': 'dev-id-%d' % device_id,
+                    'hosts': ['host_%d' % (device_count)],
+                    'portId': port_id
+                }
+                devices[dev_id]['ports'].append(port)
+
+        device_owners = [n_const.DEVICE_OWNER_DHCP, 'compute',
+                         n_const.DEVICE_OWNER_DVR_INTERFACE]
 
         port_list = []
+        net_count = 1
+        for device_id in range(1, num_devices):
+            for port_id in range(1, num_ports_per_device):
+                port = {
+                    'portId': 'port-id-%d-%d' % (device_id, port_id),
+                    'device_id': 'dev-id-%d' % device_id,
+                    'device_owner': device_owners[(device_id + port_id) % 3],
+                    'network_id': 'network-id-%d' % net_count,
+                    'name': 'port-%d-%d' % (device_id, port_id),
+                    'tenant_id': tenant_id
+                    }
+                port_list.append(port)
+                net_count += 1
 
-        for id in range(1, num_ports + 1):
-            port = {
-                'id': 'pid-%d' % id,
-                'device_id': 'vm-id-%d' % id,
-                'device_owner': 'compute',
-                'network_id': 'nid-%d' % id,
-                'name': 'pname-%d' % id,
-            }
-            port_list.append(port)
+        create_ports = {}
+        for port in port_list:
+            create_ports.update(self._port_dict_representation(port))
 
-        self.drv.create_port_bulk(tenant_id, port_list, ports, sync=True)
+        self.drv.create_instance_bulk(tenant_id, create_ports, devices,
+                                      bm_port_profiles=None, sync=True)
         cmd1 = ['show openstack agent uuid']
         cmd2 = ['enable',
                 'configure',
@@ -753,16 +799,23 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 'region RegionOne sync',
                 'tenant ten-3']
 
-        for id in range(1, 101):
-            cmd2.append('vm id vm-id-%d hostid host_%d' % (id, id))
-            cmd2.append('port id pid-%d name "pname-%d" network-id nid-%s' % (
-                        id, id, id))
+        count = 0
+        for device in devices.values():
+            for v_port in device['ports']:
+                port_id = v_port['portId']
+                port = create_ports[port_id]
+                host = v_port['hosts'][0]
+                vm_id = device['vmId']
+                port_name = port['name']
+                network_id = port['network_id']
+                if count == (num_devices - 1):
+                    # Send heartbeat
+                    cmd2.append('sync heartbeat')
+                cmd2.append('vm id %s hostid %s' % (vm_id, host))
+                cmd2.append('port id %s name "%s" network-id %s' % (
+                            port_id, port_name, network_id))
+                count += 1
 
-        # Send heartbeat
-        cmd2.append('sync heartbeat')
-        # Send the remaining vm port
-        cmd2.append('vm id vm-id-101 hostid host_101')
-        cmd2.append('port id pid-101 name "pname-101" network-id nid-101')
         # Send the final heartbeat
         cmd2.append('sync heartbeat')
 
@@ -799,8 +852,9 @@ class AristaRPCWrapperInvalidConfigTestCase(base.BaseTestCase):
         setup_arista_wrapper_config('')
 
     def test_raises_exception_on_wrong_configuration(self):
+        ndb = db_lib.NeutronNets()
         self.assertRaises(arista_exc.AristaConfigError,
-                          arista_ml2.AristaRPCWrapper)
+                          arista_ml2.AristaRPCWrapper, ndb)
 
 
 class NegativeRPCWrapperTestCase(base.BaseTestCase):
@@ -811,7 +865,8 @@ class NegativeRPCWrapperTestCase(base.BaseTestCase):
         setup_valid_config()
 
     def test_exception_is_raised_on_json_server_error(self):
-        drv = arista_ml2.AristaRPCWrapper()
+        ndb = db_lib.NeutronNets()
+        drv = arista_ml2.AristaRPCWrapper(ndb)
 
         drv._server = mock.MagicMock()
         drv._server.runCmds.side_effect = Exception('server error')
@@ -905,7 +960,9 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.create_network_precommit(network_context)
 
         for vm_id in vms:
-            port_context = self._get_port_context(tenant_id,
+            port_id = '%s_%s' % (vm_id, 101)
+            port_context = self._get_port_context(port_id,
+                                                  tenant_id,
                                                   network_id,
                                                   vm_id,
                                                   network_context)
@@ -920,7 +977,9 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
 
         # Now test the delete ports
         for vm_id in vms:
-            port_context = self._get_port_context(tenant_id,
+            port_id = '%s_%s' % (vm_id, 101)
+            port_context = self._get_port_context(port_id,
+                                                  tenant_id,
                                                   network_id,
                                                   vm_id,
                                                   network_context)
@@ -970,12 +1029,13 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
                              'network_type': 'vlan'}]
         return FakeNetworkContext(network, network_segments, network)
 
-    def _get_port_context(self, tenant_id, net_id, vm_id, network):
+    def _get_port_context(self, port_id, tenant_id, net_id, vm_id, network):
         port = {'device_id': vm_id,
                 'device_owner': 'compute',
                 'binding:host_id': 'ubuntu1',
+                'binding:vnic_type': 'normal',
                 'tenant_id': tenant_id,
-                'id': 101,
+                'id': port_id,
                 'network_id': net_id
                 }
         return FakePortContext(port, port, network)
@@ -1082,9 +1142,13 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.rpc.sync_start.return_value = True
         self.rpc.sync_end.return_value = True
 
+        self.rpc._baremetal_supported.return_value = False
+        self.rpc.get_all_baremetal_hosts.return_value = {}
+
         self.sync_service.do_synchronize()
 
         expected_calls = [
+            mock.call.perform_sync_of_sg(),
             mock.call.get_region_updated_time(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
@@ -1100,7 +1164,12 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.sync_end(),
             mock.call.get_region_updated_time()
         ]
-        assert self.rpc.mock_calls == expected_calls
+        self.assertTrue(self.rpc.mock_calls == expected_calls,
+                        "Seen: %s\nExpected: %s" % (
+                            self.rpc.mock_calls,
+                            expected_calls,
+                            )
+                        )
 
         db_lib.forget_network(tenant_id, network_id)
         db_lib.forget_tenant(tenant_id)
@@ -1127,9 +1196,15 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         # If the timestamps do match, then the sync should not be executed.
         expected_calls = [
+            mock.call.perform_sync_of_sg(),
             mock.call.get_region_updated_time(),
         ]
-        self.assertTrue(self.rpc.method_calls == expected_calls)
+        self.assertTrue(self.rpc.mock_calls[:2] == expected_calls,
+                        "Seen: %s\nExpected: %s" % (
+                            self.rpc.mock_calls,
+                            expected_calls,
+                            )
+                        )
 
     def test_synchronize_one_network(self):
         """Test to ensure that only the required resources are sent to EOS."""
@@ -1153,6 +1228,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.rpc.get_tenants.return_value = {
             tenant_1_id: {
                 'tenantVmInstances': {},
+                'tenantBaremetalInstances': {},
                 'tenantNetworks': {
                     tenant_1_net_1_id: {
                         'networkId': tenant_1_net_1_id,
@@ -1168,15 +1244,20 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.rpc.sync_start.return_value = True
         self.rpc.sync_end.return_value = True
 
+        self.rpc._baremetal_supported.return_value = False
+        self.rpc.get_all_baremetal_hosts.return_value = {}
+
         self.sync_service.do_synchronize()
 
         expected_calls = [
+            mock.call.perform_sync_of_sg(),
             mock.call.get_region_updated_time(),
             mock.call.get_region_updated_time().__nonzero__(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
             mock.call.check_cli_commands(),
             mock.call.get_tenants(),
+
             mock.call.create_network_bulk(
                 tenant_2_id,
                 [{'network_id': tenant_2_net_1_id,
@@ -1184,11 +1265,30 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                   'network_name': '',
                   'shared': False}],
                 sync=True),
+
             mock.call.sync_end(),
             mock.call.get_region_updated_time()
         ]
 
-        self.assertTrue(self.rpc.mock_calls == expected_calls,
+        # The create_network_bulk() can be called in different order. So split
+        # it up. The first part checks if the initial set of methods are
+        # invoked.
+        self.assertTrue(self.rpc.mock_calls[:6] == expected_calls[:6],
+                        "Seen: %s\nExpected: %s" % (
+                            self.rpc.mock_calls,
+                            expected_calls,
+                            )
+                        )
+        # Check if tenant 1 networks are created. It must be one of the two
+        # methods.
+        self.assertTrue(expected_calls[7] in self.rpc.mock_calls[7:],
+                        "Seen: %s\nExpected: %s" % (
+                            self.rpc.mock_calls,
+                            expected_calls,
+                            )
+                        )
+        # Check if the sync end methods are invoked.
+        self.assertTrue(self.rpc.mock_calls[9:] == expected_calls[9:],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -1224,15 +1324,20 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.rpc.sync_start.return_value = True
         self.rpc.sync_end.return_value = True
 
+        self.rpc._baremetal_supported.return_value = False
+        self.rpc.get_all_baremetal_hosts.return_value = {}
+
         self.sync_service.do_synchronize()
 
         expected_calls = [
+            mock.call.perform_sync_of_sg(),
             mock.call.get_region_updated_time(),
             mock.call.get_region_updated_time().__nonzero__(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
             mock.call.check_cli_commands(),
             mock.call.get_tenants(),
+
             mock.call.create_network_bulk(
                 tenant_1_id,
                 [{'network_id': tenant_1_net_1_id,
@@ -1240,6 +1345,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                   'network_name': '',
                   'shared': False}],
                 sync=True),
+
             mock.call.create_network_bulk(
                 tenant_2_id,
                 [{'network_id': tenant_2_net_1_id,
@@ -1254,7 +1360,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         # The create_network_bulk() can be called in different order. So split
         # it up. The first part checks if the initial set of methods are
         # invoked.
-        self.assertTrue(self.rpc.mock_calls[:5] == expected_calls[:5],
+        self.assertTrue(self.rpc.mock_calls[:6] == expected_calls[:6],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -1262,7 +1368,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 1 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[5] in expected_calls[5:7],
+        self.assertTrue(self.rpc.mock_calls[7] in expected_calls[7:9],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -1270,14 +1376,14 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 2 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[6] in expected_calls[6:8],
+        self.assertTrue(self.rpc.mock_calls[8] in expected_calls[7:9],
                         "Seen: %s\nExpected: %s" % (
-                            self.rpc.mock_calls[6],
-                            expected_calls[6:8],
+                            self.rpc.mock_calls,
+                            expected_calls,
                             )
                         )
         # Check if the sync end methods are invoked.
-        self.assertTrue(self.rpc.mock_calls[8:10] == expected_calls[8:10],
+        self.assertTrue(self.rpc.mock_calls[9:] == expected_calls[9:],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
