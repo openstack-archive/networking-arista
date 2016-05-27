@@ -22,11 +22,13 @@ from oslo_log import log as logging
 import requests
 
 from neutron.common import constants as n_const
+from neutron.extensions import portbindings
 from neutron.i18n import _LI
 from neutron.i18n import _LW
 
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
+from networking_arista.ml2 import arista_sec_gp
 
 import socket
 
@@ -46,6 +48,7 @@ CMD_INSTANCE = 'INSTANCE'
 # EAPI error messages of interest
 ERR_CVX_NOT_LEADER = 'only available on cluster leader'
 ERR_DVR_NOT_SUPPORTED = 'EOS version on CVX does not support DVR'
+BAREMETAL_NOT_SUPPORTED = 'EOS version on CVX does not support Baremetal'
 
 
 class AristaRPCWrapper(object):
@@ -55,7 +58,8 @@ class AristaRPCWrapper(object):
     EOS - operating system used on Arista hardware
     Command API - JSON RPC API provided by Arista EOS
     """
-    def __init__(self):
+    def __init__(self, neutron_db):
+        self._ndb = neutron_db
         self._validate_config()
         self._server_ip = None
         self.keystone_conf = cfg.CONF.keystone_authtoken
@@ -68,6 +72,9 @@ class AristaRPCWrapper(object):
         # and the actual CLI command.
         self.cli_commands = {}
         self.initialize_cli_commands()
+
+        self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
+            self._ndb)
 
     def _send_eapi_req(self, cmds):
         # This method handles all EAPI requests (using the requests library)
@@ -159,6 +166,7 @@ class AristaRPCWrapper(object):
 
     def initialize_cli_commands(self):
         self.cli_commands['timestamp'] = []
+        self.cli_commands[CMD_INSTANCE] = None
         self.cli_commands[CMD_REGION_SYNC] = ''
         self.cli_commands[CMD_SYNC_HEARTBEAT] = ''
         self.cli_commands['resource-pool'] = []
@@ -300,7 +308,8 @@ class AristaRPCWrapper(object):
         return tenants
 
     def plug_port_into_network(self, device_id, host_id, port_id,
-                               net_id, tenant_id, port_name, device_owner):
+                               net_id, tenant_id, port_name, device_owner,
+                               sg, orig_sg, vnic_type, profile=None):
         """Generic routine plug a port of a VM instace into network.
 
         :param device_id: globally unique identifier for the device
@@ -310,6 +319,7 @@ class AristaRPCWrapper(object):
         :param tenant_id: globally unique neutron tenant identifier
         :param port_name: Name of the port - for display purposes
         :param device_owner: Device owner - e.g. compute or network:dhcp
+        # TODO - add params
         """
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             self.plug_dhcp_port_into_network(device_id,
@@ -325,12 +335,35 @@ class AristaRPCWrapper(object):
                                         net_id,
                                         tenant_id,
                                         port_name)
+        elif device_owner.startswith('baremetal'):
+            self.plug_baremetal_into_network(device_id,
+                                             host_id,
+                                             port_id,
+                                             net_id,
+                                             tenant_id,
+                                             port_name,
+                                             sg, orig_sg,
+                                             vnic_type,
+                                             profile)
         elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
             self.plug_distributed_router_port_into_network(device_id,
                                                            host_id,
                                                            port_id,
                                                            net_id,
                                                            tenant_id)
+
+    def _baremetal_supported(self):
+        return (self.cli_commands[CMD_INSTANCE] == 'instance')
+
+    def _baremetal_support_check(self, vnic_type):
+        # Basic error checking for baremental deployments
+        if (vnic_type == portbindings.VNIC_BAREMETAL and
+           not self._baremetal_supported()):
+            msg = _("Baremetal instances are not supported in this"
+                    " release of EOS")
+            LOG.error(msg)
+            raise arista_exc.AristaConfigError(msg=msg)
+        return True
 
     def plug_host_into_network(self, vm_id, host, port_id,
                                network_id, tenant_id, port_name):
@@ -352,6 +385,68 @@ class AristaRPCWrapper(object):
             cmds.append('port id %s network-id %s' %
                         (port_id, network_id))
         self._run_openstack_cmds(cmds)
+
+    def plug_baremetal_into_network(self, vm_id, host, port_id,
+                                    network_id, tenant_id, port_name,
+                                    sg, orig_sg, vnic_type=None, profile=None):
+        """Creates VLAN between TOR and compute host.
+
+        :param vm_id: globally unique identifier for VM instance
+        :param host: ID of the host where the VM is placed
+        :param port_id: globally unique port ID that connects VM to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        :param port_name: Name of the port - for display purposes
+        """
+        # Basic error checking for baremental deployments
+        # notice that the following method throws and exception
+        # if an error condition exists
+        self._baremetal_support_check(vnic_type)
+
+        # For baremetal, add host to the topology
+        if profile and vnic_type == portbindings.VNIC_BAREMETAL:
+            cmds = ['tenant %s' % tenant_id]
+            cmds.append('instance id %s hostid %s type baremetal' %
+                        (vm_id, host))
+            for p in profile:
+                if not p:
+                    # skip all empty entries
+                    continue
+                # Ensure that profile contains switch and port ID info
+                if p['switch_id'] and p['port_id']:
+                    if port_name:
+                        cmds.append('port id %s name "%s" network-id %s '
+                                    'type native switch-id %s switchport %s' %
+                                    (port_id, port_name, network_id,
+                                        p['switch_id'], p['port_id']))
+                    else:
+                        cmds.append('port id %s network-id %s type native '
+                                    'switch-id %s switchport %s' %
+                                    (port_id, network_id, p['switch_id'],
+                                        p['port_id']))
+
+                    # SG -  Apply security group rules to the port
+                    # TODO(sukhdev): roll back the ACLs if it fails on a switch
+                    # move it in the exception
+                    # before plumming it
+                    if sg:
+                        self.security_group_driver.apply_acl(sg,
+                                                             p['switch_id'],
+                                                             p['port_id'],
+                                                             p['switch_info'])
+                    elif not sg and orig_sg:
+                        # Port is being updated to remove security groups
+                        self.security_group_driver.remove_acl(orig_sg,
+                                                              p['switch_id'],
+                                                              p['port_id'],
+                                                              p['switch_info'])
+                else:
+                    msg = _('switch and port ID not specified for baremetal')
+                    LOG.error(msg)
+                    raise arista_exc.AristaConfigError(msg=msg)
+            cmds.append('exit')
+
+            self._run_openstack_cmds(cmds)
 
     def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
                                     network_id, tenant_id, port_name):
@@ -395,7 +490,8 @@ class AristaRPCWrapper(object):
         self._run_openstack_cmds(cmds)
 
     def unplug_port_from_network(self, device_id, device_owner, hostname,
-                                 port_id, network_id, tenant_id):
+                                 port_id, network_id, tenant_id, sg, vnic_type,
+                                 profile=None):
         """Removes a port from the device
 
         :param device_id: globally unique identifier for the device
@@ -416,6 +512,15 @@ class AristaRPCWrapper(object):
                                           port_id,
                                           network_id,
                                           tenant_id)
+        elif device_owner.startswith('baremetal'):
+            self.unplug_baremetal_from_network(device_id,
+                                               hostname,
+                                               port_id,
+                                               network_id,
+                                               tenant_id,
+                                               sg,
+                                               vnic_type,
+                                               profile)
         elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
             self.unplug_distributed_router_port_from_network(device_id,
                                                              port_id,
@@ -437,6 +542,37 @@ class AristaRPCWrapper(object):
                 'no port id %s' % port_id,
                 ]
         self._run_openstack_cmds(cmds)
+
+    def unplug_baremetal_from_network(self, vm_id, host, port_id,
+                                      network_id, tenant_id, sg, vnic_type,
+                                      profile=None):
+        """Removes previously configured VLAN between TOR and a host.
+
+        :param vm_id: globally unique identifier for VM instance
+        :param host: ID of the host where the VM is placed
+        :param port_id: globally unique port ID that connects VM to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+        # Basic error checking for baremental deployments
+        # notice that the following method throws and exception
+        # if an error condition exists
+        self._baremetal_support_check(vnic_type)
+
+        # Following is a temporary code for native VLANs - should be removed
+        cmds = ['tenant %s' % tenant_id]
+        cmds.append('instance id %s hostid %s type baremetal' % (vm_id, host))
+        cmds.append('no port id %s' % port_id)
+        self._run_openstack_cmds(cmds)
+
+        # SG -  Remove security group rules from the port
+        # after deleting the instance
+        for p in profile:
+            if not p:
+                continue
+            self.security_group_driver.remove_acl(sg, p['switch_id'],
+                                                  p['port_id'],
+                                                  p['switch_info'])
 
     def unplug_dhcp_port_from_network(self, dhcp_id, host, port_id,
                                       network_id, tenant_id):
@@ -615,60 +751,110 @@ class AristaRPCWrapper(object):
             cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
         self._run_openstack_cmds(cmds, sync=sync)
 
-    def create_port_bulk(self, tenant_id, neutron_ports, arista_ports,
-                         sync=False):
+    def create_instance_bulk(self, tenant_id, neutron_ports, vms,
+                             bm_port_profiles, sync=False):
         """Sends a bulk request to create ports.
 
         :param tenant_id: globaly unique neutron tenant identifier
-        :param neutron_ports: list of neutron ports that need to be created.
-        :param arista_ports: list of ports in the arista db.
+        :param neutron_ports: list of ports that need to be created.
+        :param vms: list of vms to which the ports will be attached to.
         :param sync: This flags indicates that the region is being synced.
         """
         cmds = ['tenant %s' % tenant_id]
         # Create a reference to function to avoid name lookups in the loop
         append_cmd = cmds.append
         counter = 0
-        for neutron_port in neutron_ports:
+        for vm in vms.values():
             counter += 1
-            try:
-                port = arista_ports[neutron_port['id']]
-            except KeyError:
-                LOG.warn(_LW(
-                         "Device id %(device)s not found for port %(port)s"),
-                         {'device': neutron_port['device_id'],
-                          'port': neutron_port['id']})
-                continue
 
-            port_name = '' if 'name' not in neutron_port else 'name "%s"' % (
-                neutron_port['name']
-            )
+            # Mark an instance as baremetal if any of the ports is baremetal
+            for v_port in vm['ports']:
+                port_id = v_port['portId']
+                if (port_id in neutron_ports and
+                    neutron_ports[port_id]['device_owner'].startswith(
+                        'baremetal')):
+                    vm['baremetal_instance'] = True
 
-            device_owner = neutron_port['device_owner']
-            if device_owner == n_const.DEVICE_OWNER_DHCP:
-                append_cmd('network id %s' % neutron_port['network_id'])
-                append_cmd('dhcp id %s hostid %s port-id %s %s' %
-                           (port['deviceId'], port['hosts'][0],
-                            neutron_port['id'], port_name))
-            elif device_owner.startswith('compute'):
-                append_cmd('vm id %s hostid %s' % (port['deviceId'],
-                                                   port['hosts'][0]))
-                append_cmd('port id %s %s network-id %s' %
-                           (neutron_port['id'], port_name,
-                            neutron_port['network_id']))
-            elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
-                if not self.cli_commands[CMD_INSTANCE]:
-                    LOG.info(ERR_DVR_NOT_SUPPORTED)
+            # Filter out all virtual ports, if instance type is baremetal
+            index = 0
+            for v_port in vm['ports']:
+                port_id = v_port['portId']
+                if port_id in neutron_ports:
+                    device_owner = neutron_ports[port_id]['device_owner']
+                    if(device_owner.startswith('compute') and
+                       vm['baremetal_instance']):
+                        del vm['ports'][index]
+                index += 1
+
+            # Now we are left with the ports that we are interested that
+            # require provisioning
+            for v_port in vm['ports']:
+                port_id = v_port['portId']
+                if not v_port['hosts']:
+                    # Skip all the ports that have no host associsted with them
                     continue
-                append_cmd('instance id %s type router' % port['deviceId'])
-                for host in port['hosts']:
-                    append_cmd('port id %s network-id %s hostid %s' % (
-                               neutron_port['id'], neutron_port['network_id'],
-                               host))
-            else:
-                LOG.warn(_LW("Unknown device owner: %s"), device_owner)
-                continue
-            if self._heartbeat_required(sync, counter):
-                append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
+
+                if port_id not in neutron_ports.keys():
+                    continue
+                neutron_port = neutron_ports[port_id]
+
+                port_name = ''
+                if 'name' in neutron_port:
+                    port_name = 'name "%s"' % neutron_port['name']
+
+                device_owner = neutron_port['device_owner']
+                network_id = neutron_port['network_id']
+                if device_owner == n_const.DEVICE_OWNER_DHCP:
+                    append_cmd('network id %s' % neutron_port['network_id'])
+                    append_cmd('dhcp id %s hostid %s port-id %s %s' %
+                               (vm['vmId'], v_port['hosts'][0],
+                                neutron_port['id'], port_name))
+                if device_owner.startswith('baremetal'):
+                    append_cmd('instance id %s hostid %s type baremetal' %
+                               (vm['vmId'], v_port['hosts'][0]))
+                    profile = bm_port_profiles[neutron_port['id']]
+                    profile = json.loads(profile['profile'])
+                    for p in profile['local_link_information']:
+                        if not p or not isinstance(p, dict):
+                            # skip all empty entries
+                            continue
+                        # Ensure that profile contains switch and port ID info
+                        if p['switch_id'] and p['port_id']:
+                            if port_name:
+                                cmds.append('port id %s name "%s" '
+                                            'network-id %s type native '
+                                            'switch-id %s switchport %s' %
+                                            (port_id, port_name, network_id,
+                                             p['switch_id'], p['port_id']))
+                            else:
+                                cmds.append('port id %s network-id %s '
+                                            'type native '
+                                            'switch-id %s switchport %s' %
+                                            (port_id, network_id,
+                                             p['switch_id'], p['port_id']))
+
+                elif device_owner.startswith('compute'):
+                    append_cmd('vm id %s hostid %s' % (vm['vmId'],
+                                                       v_port['hosts'][0]))
+                    append_cmd('port id %s %s network-id %s' %
+                               (neutron_port['id'], port_name,
+                                neutron_port['network_id']))
+                elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+                    if not self.cli_commands[CMD_INSTANCE]:
+                        LOG.info(ERR_DVR_NOT_SUPPORTED)
+                        continue
+                    append_cmd('instance id %s type router' % (
+                               neutron_port['device_id']))
+                    for host in v_port['hosts']:
+                        append_cmd('port id %s network-id %s hostid %s' % (
+                                   neutron_port['id'],
+                                   neutron_port['network_id'], host))
+                else:
+                    LOG.warn(_LW("Unknown device owner: %s"),
+                             neutron_port['device_owner'])
+                    continue
+                if self._heartbeat_required(sync, counter):
+                    append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
 
         if self._heartbeat_required(sync):
             append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
@@ -733,6 +919,45 @@ class AristaRPCWrapper(object):
         log_cmds.append(sync_interval_cmd)
 
         self._run_openstack_cmds(cmds, commands_to_log=log_cmds, sync=sync)
+
+    def create_acl(self, sg):
+        """Creates an ACL on Arista Switch.
+
+        Deals with multiple configurations - such as multiple switches
+        """
+        self.security_group_driver.create_acl(sg)
+
+    def delete_acl(self, sg):
+        """Deletes an ACL from Arista Switch.
+
+        Deals with multiple configurations - such as multiple switches
+        """
+        self.security_group_driver.delete_acl(sg)
+
+    def create_acl_rule(self, sgr):
+        """Creates an ACL on Arista Switch.
+
+        For a given Security Group (ACL), it adds additional rule
+        Deals with multiple configurations - such as multiple switches
+        """
+        self.security_group_driver.create_acl_rule(sgr)
+
+    def delete_acl_rule(self, sgr):
+        """Deletes an ACL rule on Arista Switch.
+
+        For a given Security Group (ACL), it removes a rule
+        Deals with multiple configurations - such as multiple switches
+        """
+        self.security_group_driver.delete_acl_rule(sgr)
+
+    def perform_sync_of_sg(self):
+        """Perform sync of the security groups between ML2 and EOS.
+
+        This is unconditional sync to ensure that all security
+        ACLs are pushed to all the switches, in case of switch
+        or neutron reboot
+        """
+        self.security_group_driver.perform_sync_of_sg()
 
     def clear_region_updated_time(self):
         # TODO(shashank): Remove this once the call is removed from the ML2
@@ -954,6 +1179,12 @@ class SyncService(object):
            If ML2 database is not in sync with EOS, then compute the diff and
            send it down to EOS.
         """
+        # Perform sync of Security Groups unconditionally
+        try:
+            self._rpc.perform_sync_of_sg()
+        except arista_exc.AristaRpcError:
+            LOG.warning(EOS_UNREACHABLE_MSG)
+
         if not self._sync_required():
             return
 
@@ -1011,6 +1242,8 @@ class SyncService(object):
             self._ndb.get_all_networks()
         )
 
+        # Get Baremetal port profiles, if any
+        bm_port_profiles = db_lib.get_all_baremetal_ports()
         # To support shared networks, split the sync loop in two parts:
         # In first loop, delete unwanted VM and networks and update networks
         # In second loop, update VMs. This is done to ensure that networks for
@@ -1021,16 +1254,19 @@ class SyncService(object):
             db_instances = db_lib.get_vms(tenant)
 
             eos_nets = self._get_eos_networks(eos_tenants, tenant)
-            eos_vms = self._get_eos_vms(eos_tenants, tenant)
-            eos_routers = self._get_eos_routers(eos_tenants, tenant)
+            eos_vms, eos_bms, eos_routers = self._get_eos_vms(eos_tenants,
+                                                              tenant)
 
             db_nets_key_set = frozenset(db_nets.keys())
             db_instances_key_set = frozenset(db_instances.keys())
             eos_nets_key_set = frozenset(eos_nets.keys())
             eos_vms_key_set = frozenset(eos_vms.keys())
             eos_routers_key_set = frozenset(eos_routers.keys())
+            eos_bms_key_set = frozenset(eos_bms.keys())
 
-            eos_instances_key_set = (eos_vms_key_set | eos_routers_key_set)
+            # Create a candidate list by incorporating all instances
+            eos_instances_key_set = (eos_vms_key_set | eos_routers_key_set |
+                                     eos_bms_key_set)
 
             # Find the networks that are present on EOS, but not in Neutron DB
             nets_to_delete = eos_nets_key_set.difference(db_nets_key_set)
@@ -1043,6 +1279,8 @@ class SyncService(object):
                 vm for vm in eos_vms_key_set if vm in instances_to_delete]
             routers_to_delete = [
                 r for r in eos_routers_key_set if r in instances_to_delete]
+            bms_to_delete = [
+                b for b in eos_bms_key_set if b in instances_to_delete]
 
             # Find the Networks that are present in Neutron DB, but not on EOS
             nets_to_update = db_nets_key_set.difference(eos_nets_key_set)
@@ -1061,6 +1299,14 @@ class SyncService(object):
                                                        sync=True)
                     else:
                         LOG.info(ERR_DVR_NOT_SUPPORTED)
+
+                if bms_to_delete:
+                    if self._rpc.cli_commands[CMD_INSTANCE]:
+                        self._rpc.delete_instance_bulk(tenant,
+                                                       bms_to_delete,
+                                                       sync=True)
+                    else:
+                        LOG.info(BAREMETAL_NOT_SUPPORTED)
 
                 if nets_to_delete:
                     self._rpc.delete_network_bulk(tenant, nets_to_delete,
@@ -1090,15 +1336,16 @@ class SyncService(object):
             try:
                 # Filter the ports to only the vms that we are interested
                 # in.
-                relevant_ports = []
+                ports_of_interest = {}
                 for port in self._ndb.get_all_ports_for_tenant(tenant):
-                    if port['device_id'] in instances_to_update[tenant]:
-                        relevant_ports.append(port)
+                    ports_of_interest.update(
+                        self._port_dict_representation(port))
 
-                if relevant_ports:
-                    db_ports = db_lib.get_ports(tenant)
-                    self._rpc.create_port_bulk(tenant, relevant_ports,
-                                               db_ports, sync=True)
+                if ports_of_interest:
+                    db_vms = db_lib.get_vms(tenant)
+                    self._rpc.create_instance_bulk(tenant, ports_of_interest,
+                                                   db_vms, bm_port_profiles,
+                                                   sync=True)
             except arista_exc.AristaRpcError:
                 LOG.warning(EOS_UNREACHABLE_MSG)
                 self._force_sync = True
@@ -1150,12 +1397,21 @@ class SyncService(object):
 
     def _get_eos_vms(self, eos_tenants, tenant):
         vms = {}
+        bms = {}
+        routers = {}
         if eos_tenants and tenant in eos_tenants:
             vms = eos_tenants[tenant]['tenantVmInstances']
-        return vms
-
-    def _get_eos_routers(self, eos_tenants, tenant):
-        if eos_tenants and tenant in eos_tenants:
+            if 'tenantBaremetalInstances' in eos_tenants[tenant]:
+                # Check if baremetal service is supported
+                bms = eos_tenants[tenant]['tenantBaremetalInstances']
             if 'tenantRouterInstances' in eos_tenants[tenant]:
-                return eos_tenants[tenant]['tenantRouterInstances']
-        return {}
+                routers = eos_tenants[tenant]['tenantRouterInstances']
+        return vms, bms, routers
+
+    def _port_dict_representation(self, port):
+        return {port['id']: {'device_owner': port['device_owner'],
+                             'device_id': port['device_id'],
+                             'name': port['name'],
+                             'id': port['id'],
+                             'tenant_id': port['tenant_id'],
+                             'network_id': port['network_id']}}
