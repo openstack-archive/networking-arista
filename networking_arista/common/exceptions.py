@@ -33,3 +33,7 @@ class AristaServicePluginRpcError(exceptions.NeutronException):
 
 class AristaServicePluginConfigError(exceptions.NeutronException):
     message = _('%(msg)s')
+
+
+class AristaSecurityGroupError(exceptions.NeutronException):
+    message = _('%(msg)s')
