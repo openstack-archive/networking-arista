@@ -18,11 +18,11 @@ import threading
 from oslo_config import cfg
 from oslo_log import log
 
-from neutron.i18n import _LI
+from neutron._i18n import _LI
 from neutron.plugins.ml2.drivers.type_vlan import VlanTypeDriver
 
 from networking_arista.common import config  # noqa
-from networking_arista.ml2.arista_ml2 import AristaRPCWrapper
+from networking_arista.ml2.arista_ml2 import AristaRPCWrapperEapi
 from networking_arista.ml2.drivers.driver_helpers import VlanSyncService
 
 LOG = log.getLogger(__name__)
@@ -41,7 +41,7 @@ class AristaVlanTypeDriver(VlanTypeDriver):
 
     def __init__(self):
         super(AristaVlanTypeDriver, self).__init__()
-        self.rpc = AristaRPCWrapper()
+        self.rpc = AristaRPCWrapperEapi()
         self.sync_service = VlanSyncService(self.rpc)
         self.network_vlan_ranges = dict()
         self.sync_timeout = cfg.CONF.arista_type_driver['sync_interval']
