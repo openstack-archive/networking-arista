@@ -28,6 +28,8 @@ from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_ml2
 from networking_arista.ml2 import mechanism_arista
 
+import socket
+
 
 def setup_arista_wrapper_config(value=''):
     cfg.CONF.keystone_authtoken = fake_keystone_info_class()
@@ -210,6 +212,343 @@ class AristaProvisionedVlansStorageTestCase(testlib_api.SqlTestCase):
                             (net_list, expected_eos_net_list)))
 
 
+BASE_RPC = "networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON."
+JSON_SEND_FUNC = BASE_RPC + "_send_api_request"
+RAND_FUNC = BASE_RPC + "_get_random_name"
+EAPI_SEND_FUNC = ('networking_arista.ml2.arista_ml2.AristaRPCWrapperEapi'
+                  '._send_eapi_req')
+
+
+def port_dict_representation(port):
+    return {port['portId']: {'device_owner': port['device_owner'],
+                             'device_id': port['device_id'],
+                             'name': port['name'],
+                             'id': port['portId'],
+                             'tenant_id': port['tenant_id'],
+                             'network_id': port['network_id']}}
+
+
+class TestAristaJSONRPCWrapper(base.BaseTestCase):
+    def setUp(self):
+        super(TestAristaJSONRPCWrapper, self).setUp()
+        setup_valid_config()
+        ndb = db_lib.NeutronNets()
+        self.drv = arista_ml2.AristaRPCWrapperJSON(ndb)
+        self.drv._server_ip = "10.11.12.13"
+        self.region = 'RegionOne'
+
+    def _verify_send_api_request_call(self, mock_send_api_req, calls):
+        # Sort the data that we are using for verifying
+        expected_calls = []
+        for c in calls:
+            if len(c) > 2:
+                url, method, data = c
+                data.sort()
+                expected_calls.append(mock.call(url, method, data))
+            else:
+                url, method = c
+                expected_calls.append(mock.call(url, method))
+
+        # Sort the data sent in the mock API request
+        for call in mock_send_api_req.mock_calls:
+            if len(call.call_list()[0][1]) > 2:
+                call.call_list()[0][1][2].sort()
+        mock_send_api_req.assert_has_calls(expected_calls, any_order=True)
+
+    @patch(JSON_SEND_FUNC)
+    def test_register_with_eos(self, mock_send_api_req):
+        self.drv.register_with_eos()
+        sepPostData = [{'name': 'keystone', 'password': 'fun',
+                        'tenant': 'tenant_name', 'user': 'neutron',
+                        'authUrl': 'abc://host:5000/v2.0/'}]
+
+        calls = [
+            ('region/RegionOne/service-end-point', 'POST', sepPostData),
+            ('region/RegionOne', 'PUT',
+             [{'name': 'RegionOne', 'syncInterval': 10}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    def _get_random_name(self):
+        return 'thisWillBeRandomInProd'
+
+    @patch(JSON_SEND_FUNC)
+    @patch(RAND_FUNC, _get_random_name)
+    def test_sync_start(self, mock_send_api_req):
+        mock_send_api_req.side_effect = [
+            [{'name': 'RegionOne', 'syncStatus': ''}],
+            [{}],
+            [{'syncStatus': 'syncInProgress'}]
+        ]
+        assert self.drv.sync_start()
+        calls = [
+            ('region/', 'GET'),
+            ('region/RegionOne', 'POST',
+             [{'name': 'RegionOne',
+               'requester': socket.gethostname().split('.')[0],
+               'requestId': self._get_random_name()}]),
+            ('region/RegionOne', 'GET')
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    @patch(RAND_FUNC, _get_random_name)
+    def test_sync_end(self, mock_send_api_req):
+        mock_send_api_req.return_value = [{'requester':
+                                           self._get_random_name()}]
+        self.drv.current_sync_name = self._get_random_name()
+        assert self.drv.sync_end()
+        calls = [
+            ('region/RegionOne', 'PUT', [{'name': 'RegionOne', 'requester': '',
+                                         'requestId': ''}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_create_region(self, mock_send_api_req):
+        self.drv.create_region('foo')
+        calls = [('region/', 'POST', [{'name': 'foo'}])]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_delete_region(self, mock_send_api_req):
+        self.drv.delete_region('foo')
+        calls = [('region/', 'DELETE', [{'name': 'foo'}])]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_get_tenants(self, mock_send_api_req):
+        self.drv.get_tenants()
+        calls = [('region/RegionOne/tenant', 'GET')]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_delete_tenant_bulk(self, mock_send_api_req):
+        self.drv.delete_tenant_bulk(['t1', 't2'])
+        calls = [('region/RegionOne/tenant', 'DELETE',
+                  [{'id': 't1'}, {'id': 't2'}])]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    def _createNetworkData(self, tenant_id, network_id, shared=False,
+                           seg_id=100):
+        return {
+            'network_id': network_id,
+            'tenantId': tenant_id,
+            'shared': shared,
+            'segmentation_id': seg_id,
+        }
+
+    @patch(JSON_SEND_FUNC)
+    def test_create_network_bulk(self, mock_send_api_req):
+        n = []
+        n.append(self._createNetworkData('t1', 'net1'))
+        n.append(self._createNetworkData('t1', 'net2'))
+        self.drv.create_network_bulk('t1', n)
+        calls = [
+            ('region/RegionOne/network', 'POST',
+             [{'id': 'net1', 'tenantId': 't1', 'shared': False, 'segId': 100,
+               'segType': 'vlan'},
+              {'id': 'net2', 'tenantId': 't1', 'shared': False, 'segId': 100,
+               'segType': 'vlan'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_delete_network_bulk(self, mock_send_api_req):
+        self.drv.delete_network_bulk('t1', ['net1', 'net2'])
+        calls = [
+            ('region/RegionOne/network', 'DELETE',
+             [{'id': 'net1', 'tenantId': 't1'},
+              {'id': 'net2', 'tenantId': 't1'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_create_instance_bulk(self, mock_send_api_req):
+        tenant_id = 'ten-3'
+        num_devices = 10
+        num_ports_per_device = 2
+
+        device_count = 0
+        devices = {}
+        for device_id in range(1, num_devices):
+            device_count += 1
+            dev_id = 'dev-id-%d' % device_id
+            devices[dev_id] = {'vmId': dev_id,
+                               'baremetal_instance': False,
+                               'ports': []
+                               }
+            for port_id in range(1, num_ports_per_device):
+                port_id = 'port-id-%d-%d' % (device_id, port_id)
+                port = {
+                    'device_id': 'dev-id-%d' % device_id,
+                    'hosts': ['host_%d' % (device_count)],
+                    'portId': port_id
+                }
+                devices[dev_id]['ports'].append(port)
+
+        device_owners = [n_const.DEVICE_OWNER_DHCP, 'compute',
+                         n_const.DEVICE_OWNER_DVR_INTERFACE]
+        port_list = []
+
+        net_count = 1
+        for device_id in range(1, num_devices):
+            for port_id in range(1, num_ports_per_device):
+                port = {
+                    'portId': 'port-id-%d-%d' % (device_id, port_id),
+                    'device_id': 'dev-id-%d' % device_id,
+                    'device_owner': device_owners[(device_id + port_id) % 3],
+                    'network_id': 'network-id-%d' % net_count,
+                    'name': 'port-%d-%d' % (device_id, port_id),
+                    'tenant_id': tenant_id
+                }
+                port_list.append(port)
+                net_count += 1
+
+        create_ports = {}
+        for port in port_list:
+            create_ports.update(port_dict_representation(port))
+
+        self.drv.create_instance_bulk(tenant_id, create_ports, devices, None)
+        calls = [
+            ('region/RegionOne/tenant?tenantId=ten-3', 'GET'),
+            ('region/RegionOne/vm?tenantId=ten-3', 'POST',
+                [{'id': 'dev-id-9', 'hostId': 'host_9'},
+                 {'id': 'dev-id-3', 'hostId': 'host_3'},
+                 {'id': 'dev-id-6', 'hostId': 'host_6'}]),
+            ('region/RegionOne/dhcp?tenantId=ten-3', 'POST',
+                [{'id': 'dev-id-2', 'hostId': 'host_2'},
+                 {'id': 'dev-id-5', 'hostId': 'host_5'},
+                 {'id': 'dev-id-8', 'hostId': 'host_8'}]),
+            ('region/RegionOne/port', 'POST',
+                [{'networkId': 'network-id-8', 'id': 'port-id-8-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-8',
+                  'name': 'port-8-1', 'hosts': ['host_8'],
+                  'instanceType': 'dhcp'},
+                 {'networkId': 'network-id-9', 'id': 'port-id-9-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-9',
+                  'name': 'port-9-1', 'hosts': ['host_9'],
+                  'instanceType': 'vm'},
+                 {'networkId': 'network-id-2', 'id': 'port-id-2-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-2',
+                  'name': 'port-2-1', 'hosts': ['host_2'],
+                  'instanceType': 'dhcp'},
+                 {'networkId': 'network-id-3', 'id': 'port-id-3-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-3',
+                  'name': 'port-3-1', 'hosts': ['host_3'],
+                  'instanceType': 'vm'},
+                 {'networkId': 'network-id-6', 'id': 'port-id-6-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-6',
+                  'name': 'port-6-1', 'hosts': ['host_6'],
+                  'instanceType': 'vm'},
+                 {'networkId': 'network-id-5', 'id': 'port-id-5-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-5',
+                  'name': 'port-5-1', 'hosts': ['host_5'],
+                  'instanceType': 'dhcp'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_delete_vm_bulk(self, mock_send_api_req):
+        self.drv.delete_vm_bulk('t1', ['vm1', 'vm2'])
+        calls = [
+            ('region/RegionOne/vm?tenantId=t1', 'DELETE',
+             [{'id': 'vm1'}, {'id': 'vm2'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_delete_dhcp_bulk(self, mock_send_api_req):
+        self.drv.delete_dhcp_bulk('t1', ['dhcp1', 'dhcp2'])
+        calls = [
+            ('region/RegionOne/dhcp?tenantId=t1', 'DELETE',
+             [{'id': 'dhcp1'}, {'id': 'dhcp2'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_delete_port(self, mock_send_api_req):
+        self.drv.delete_port('p1', 'inst1', 't1', 'vm')
+        self.drv.delete_port('p2', 'inst2', 't1', 'dhcp')
+        calls = [
+            ('region/RegionOne/port?tenantId=t1&portId=p1&id=inst1&type=vm',
+             'DELETE',
+             [{'hosts': [], 'id': 'p1', 'tenantId': 't1', 'networkId': None,
+               'instanceId': 'inst1', 'name': None, 'instanceType': 'vm'}]),
+            ('region/RegionOne/port?tenantId=t1&portId=p2&id=inst2&type=dhcp',
+             'DELETE',
+             [{'hosts': [], 'id': 'p2', 'tenantId': 't1', 'networkId': None,
+               'instanceId': 'inst2', 'name': None, 'instanceType': 'dhcp'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_get_port(self, mock_send_api_req):
+        self.drv.get_port('t1', 'p1', 'inst1', 'vm')
+        calls = [
+            ('region/RegionOne/port?tenantId=t1&portId=p1&id=inst1&type=vm',
+             'GET')
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_plug_host_into_network(self, mock_send_api_req):
+        self.drv.plug_host_into_network('vm1', 'h1', 'p1', 'n1', 't1', 'port1')
+        calls = [
+            ('region/RegionOne/vm?tenantId=t1', 'POST',
+             [{'id': 'vm1', 'hostId': 'h1'}]),
+            ('region/RegionOne/port', 'POST',
+             [{'id': 'p1', 'hosts': ['h1'], 'tenantId': 't1',
+               'networkId': 'n1', 'instanceId': 'vm1', 'name': 'port1',
+               'instanceType': 'vm'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON.get_port')
+    def test_unplug_host_from_network(self, mock_get_port, mock_send_api_req):
+        mock_get_port.return_value = []
+        self.drv.unplug_host_from_network('vm1', 'h1', 'p1', 'n1', 't1')
+        port = self.drv._create_port_data('p1', 't1', None, 'vm1', None, 'vm',
+                                          None)
+        calls = [
+            ('region/RegionOne/port?tenantId=t1&portId=p1&id=vm1&type=vm',
+             'DELETE', [port]),
+            ('region/RegionOne/vm?tenantId=t1', 'DELETE', [{'id': 'vm1'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_plug_dhcp_port_into_network(self, mock_send_api_req):
+        self.drv.plug_dhcp_port_into_network('vm1', 'h1', 'p1', 'n1', 't1',
+                                             'port1')
+        calls = [
+            ('region/RegionOne/dhcp?tenantId=t1', 'POST',
+             [{'id': 'vm1', 'hostId': 'h1'}]),
+            ('region/RegionOne/port', 'POST',
+             [{'id': 'p1', 'hosts': ['h1'], 'tenantId': 't1',
+               'networkId': 'n1', 'instanceId': 'vm1', 'name': 'port1',
+               'instanceType': 'dhcp'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON.get_port')
+    def test_unplug_dhcp_port_from_network(self, mock_get_port,
+                                           mock_send_api_req):
+        mock_get_port.return_value = []
+        self.drv.unplug_dhcp_port_from_network('dhcp1', 'h1', 'p1', 'n1', 't1')
+        calls = [
+            ('region/RegionOne/port?tenantId=t1&portId=p1&id=dhcp1&type=dhcp',
+             'DELETE',
+             [{'id': 'p1', 'hosts': [], 'tenantId': 't1', 'networkId': None,
+               'instanceId': 'dhcp1', 'name': None, 'instanceType': 'dhcp'}]),
+            ('region/RegionOne/dhcp?tenantId=t1', 'DELETE',
+             [{'id': 'dhcp1'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+
 class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
     """Test cases to test the RPC between Arista Driver and EOS.
 
@@ -220,7 +559,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         super(PositiveRPCWrapperValidConfigTestCase, self).setUp()
         setup_valid_config()
         ndb = db_lib.NeutronNets()
-        self.drv = arista_ml2.AristaRPCWrapper(ndb)
+        self.drv = arista_ml2.AristaRPCWrapperEapi(ndb)
         self.drv._server_ip = "10.11.12.13"
         self.region = 'RegionOne'
 
@@ -245,7 +584,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
     def test_no_exception_on_correct_configuration(self):
         self.assertIsNotNone(self.drv)
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_plug_host_into_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-1'
@@ -264,7 +603,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 ]
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_plug_dhcp_port_into_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-1'
@@ -283,7 +622,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 ]
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_unplug_host_from_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-1'
@@ -300,7 +639,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 ]
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_unplug_dhcp_port_from_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-1'
@@ -318,7 +657,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 ]
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_create_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         network = {
@@ -338,7 +677,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_create_shared_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         network = {
@@ -356,7 +695,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 ]
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_create_network_bulk(self, mock_send_eapi_req):
         tenant_id = 'ten-2'
         num_networks = 10
@@ -383,7 +722,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
             cmd2.append('shared')
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_delete_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         network_id = 'net-id'
@@ -395,7 +734,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 ]
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_delete_network_bulk(self, mock_send_eapi_req):
         tenant_id = 'ten-2'
         num_networks = 10
@@ -418,7 +757,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
             cmd2.append('no network id net-id-%d' % net_id)
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_delete_vm(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-id'
@@ -430,7 +769,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 ]
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_delete_vm_bulk(self, mock_send_eapi_req):
         tenant_id = 'ten-2'
         num_vms = 10
@@ -449,7 +788,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
             cmd2.append('no vm id vm-id-%d' % vm_id)
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_create_port_bulk(self, mock_send_eapi_req):
         tenant_id = 'ten-3'
         num_devices = 10
@@ -493,7 +832,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         create_ports = {}
         for port in port_list:
-            create_ports.update(self._port_dict_representation(port))
+            create_ports.update(port_dict_representation(port))
 
         self.drv.cli_commands[arista_ml2.CMD_INSTANCE] = 'instance'
         self.drv.create_instance_bulk(tenant_id, create_ports, devices,
@@ -530,7 +869,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_delete_tenant(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         self.drv.delete_tenant(tenant_id)
@@ -540,7 +879,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                 ]
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_delete_tenant_bulk(self, mock_send_eapi_req):
         num_tenants = 10
         tenant_list = ['ten-%d' % t_id for t_id in range(1, num_tenants)]
@@ -580,7 +919,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         self.assertEqual(net_info, valid_net_info,
                          ('Must return network info for a valid net'))
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_check_cli_commands(self, mock_send_eapi_req):
         self.drv._get_random_name = mock.MagicMock()
         self.drv._get_random_name.return_value = 'RegionOne'
@@ -608,7 +947,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
             if not found:
                 assert 0, "Failed to find a command that should've been called"
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_register_with_eos(self, mock_send_eapi_req):
         self.drv.register_with_eos()
         auth = fake_keystone_info_class()
@@ -637,7 +976,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         self.drv.cli_commands[arista_ml2.CMD_SYNC_HEARTBEAT] = 'sync heartbeat'
         self.drv.cli_commands['baremetal'] = ''
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_create_network_bulk_during_sync(self, mock_send_eapi_req):
         self._enable_sync_cmds()
         tenant_id = 'ten-10'
@@ -677,7 +1016,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_delete_network_bulk_during_sync(self, mock_send_eapi_req):
         self._enable_sync_cmds()
         tenant_id = 'ten-10'
@@ -706,7 +1045,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_delete_vm_bulk_during_sync(self, mock_send_eapi_req):
         self._enable_sync_cmds()
         tenant_id = 'ten-2'
@@ -734,15 +1073,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    def _port_dict_representation(self, port):
-        return {port['portId']: {'device_owner': port['device_owner'],
-                                 'device_id': port['device_id'],
-                                 'name': port['name'],
-                                 'id': port['portId'],
-                                 'tenant_id': port['tenant_id'],
-                                 'network_id': port['network_id']}}
-
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_create_port_bulk_during_sync(self, mock_send_eapi_req):
         self._enable_sync_cmds()
         tenant_id = 'ten-3'
@@ -787,7 +1118,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         create_ports = {}
         for port in port_list:
-            create_ports.update(self._port_dict_representation(port))
+            create_ports.update(port_dict_representation(port))
 
         self.drv.create_instance_bulk(tenant_id, create_ports, devices,
                                       bm_port_profiles=None, sync=True)
@@ -821,7 +1152,7 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
 
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapper._send_eapi_req')
+    @patch(EAPI_SEND_FUNC)
     def test_delete_tenant_bulk_during_sync(self, mock_send_eapi_req):
         self._enable_sync_cmds()
         num_tenants = 101
@@ -854,7 +1185,7 @@ class AristaRPCWrapperInvalidConfigTestCase(base.BaseTestCase):
     def test_raises_exception_on_wrong_configuration(self):
         ndb = db_lib.NeutronNets()
         self.assertRaises(arista_exc.AristaConfigError,
-                          arista_ml2.AristaRPCWrapper, ndb)
+                          arista_ml2.AristaRPCWrapperEapi, ndb)
 
 
 class NegativeRPCWrapperTestCase(base.BaseTestCase):
@@ -866,7 +1197,7 @@ class NegativeRPCWrapperTestCase(base.BaseTestCase):
 
     def test_exception_is_raised_on_json_server_error(self):
         ndb = db_lib.NeutronNets()
-        drv = arista_ml2.AristaRPCWrapper(ndb)
+        drv = arista_ml2.AristaRPCWrapperEapi(ndb)
 
         drv._server = mock.MagicMock()
         drv._server.runCmds.side_effect = Exception('server error')
