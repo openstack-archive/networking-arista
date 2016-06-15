@@ -365,6 +365,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         expected_calls = [
             mock.call.NeutronNets(),
             mock.call.__nonzero__(),
+            mock.call.__nonzero__(),
             mock.call.is_port_provisioned(port_id),
             mock.call.is_network_provisioned(tenant_id, network_id, None),
             mock.call.plug_port_into_network(device_id, host_id, port_id,
@@ -509,6 +510,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         expected_calls = [
             mock.call.NeutronNets(),
             mock.call.__nonzero__(),
+            mock.call.__nonzero__(),
             mock.call.is_network_provisioned(tenant_id, network_id, None),
             mock.call.unplug_port_from_network(device_id, 'compute', host_id,
                                                port_id, network_id, tenant_id,
@@ -598,6 +600,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.NeutronNets(),
+            mock.call.__nonzero__(),
             mock.call.__nonzero__(),
             mock.call.is_network_provisioned(tenant_id, network_id, None),
             mock.call.is_port_provisioned(port_id, None),
@@ -758,6 +761,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.NeutronNets(),
+            mock.call.__nonzero__(),
             mock.call.__nonzero__(),
             mock.call.get_segmentation_id(tenant_id, network_id),
             mock.call.is_port_provisioned(port_id, None),

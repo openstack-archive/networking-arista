@@ -61,7 +61,7 @@ class AristaDriver(driver_api.MechanismDriver):
     def __init__(self, rpc=None):
 
         self.ndb = db_lib.NeutronNets()
-        self.rpc = rpc or arista_ml2.AristaRPCWrapper(self.ndb)
+        self.rpc = rpc or arista_ml2.AristaRPCWrapperEapi(self.ndb)
         self.db_nets = db.AristaProvisionedNets()
         self.db_vms = db.AristaProvisionedVms()
         self.db_tenants = db.AristaProvisionedTenants()
