@@ -58,7 +58,7 @@ class AristaDriver(driver_api.MechanismDriver):
     """
     def __init__(self, rpc=None):
 
-        self.rpc = rpc or arista_ml2.AristaRPCWrapper()
+        self.rpc = rpc or arista_ml2.AristaRPCWrapperCapi()
         self.db_nets = db.AristaProvisionedNets()
         self.db_vms = db.AristaProvisionedVms()
         self.db_tenants = db.AristaProvisionedTenants()
