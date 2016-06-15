@@ -17,10 +17,10 @@ from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
 from oslo_utils import excutils
 
-from neutron._i18n import _LE
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
+from neutron.i18n import _LE
 
 LOG = logging.getLogger(__name__)
 
