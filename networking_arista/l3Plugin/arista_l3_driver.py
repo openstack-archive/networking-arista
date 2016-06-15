@@ -20,7 +20,7 @@ import jsonrpclib
 from oslo_config import cfg
 from oslo_log import log as logging
 
-from neutron._i18n import _LI
+from neutron.i18n import _LI
 
 from networking_arista.common import exceptions as arista_exc
 
