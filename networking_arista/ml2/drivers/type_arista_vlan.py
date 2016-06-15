@@ -18,7 +18,7 @@ import threading
 from oslo_config import cfg
 from oslo_log import log
 
-from neutron.i18n import _LI
+from neutron._i18n import _LI
 from neutron.plugins.ml2.drivers.type_vlan import VlanTypeDriver
 
 from networking_arista.common import config  # noqa
