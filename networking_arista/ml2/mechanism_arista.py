@@ -61,7 +61,6 @@ class AristaDriver(driver_api.MechanismDriver):
     def __init__(self, rpc=None):
 
         self.ndb = db_lib.NeutronNets()
-        self.rpc = rpc or arista_ml2.AristaRPCWrapper(self.ndb)
         self.db_nets = db.AristaProvisionedNets()
         self.db_vms = db.AristaProvisionedVms()
         self.db_tenants = db.AristaProvisionedTenants()
@@ -69,9 +68,26 @@ class AristaDriver(driver_api.MechanismDriver):
         confg = cfg.CONF.ml2_arista
         self.segmentation_type = db_lib.VLAN_SEGMENTATION
         self.timer = None
-        self.eos = arista_ml2.SyncService(self.rpc, self.ndb)
         self.sync_timeout = confg['sync_interval']
         self.eos_sync_lock = threading.Lock()
+
+        if rpc:
+            LOG.info("Using passed in parameter for RPC")
+            self.rpc = rpc
+        else:
+            api_type = confg['api_type'].upper()
+            if api_type == 'EAPI':
+                LOG.info("Using EAPI for RPC")
+                self.rpc = arista_ml2.AristaRPCWrapperEapi(self.ndb)
+            elif api_type == 'JSON':
+                LOG.info("Using JSON for RPC")
+                self.rpc = arista_ml2.AristaRPCWrapperJSON(self.ndb)
+            else:
+                msg = "RPC mechanism %s not recognized" % api_type
+                LOG.error(msg)
+                raise arista_exc.AristaRpcError(msg=msg)
+
+        self.eos = arista_ml2.SyncService(self.rpc, self.ndb)
 
     def initialize(self):
         self.rpc.register_with_eos()

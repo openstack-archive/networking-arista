@@ -16,8 +16,8 @@
 from oslo_log import log
 from six import moves
 
+from neutron._i18n import _LI
 from neutron.db import api as db_api
-from neutron.i18n import _LI
 from neutron.plugins.ml2.drivers import type_vlan
 
 from networking_arista.common import exceptions as arista_exc

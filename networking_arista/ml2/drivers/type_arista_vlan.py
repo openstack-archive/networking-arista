@@ -41,7 +41,7 @@ class AristaVlanTypeDriver(type_vlan.VlanTypeDriver):
 
     def __init__(self):
         super(AristaVlanTypeDriver, self).__init__()
-        self.rpc = arista_ml2.AristaRPCWrapper()
+        self.rpc = arista_ml2.AristaRPCWrapperEapi()
         self.sync_service = driver_helpers.VlanSyncService(self.rpc)
         self.network_vlan_ranges = dict()
         self.sync_timeout = cfg.CONF.arista_type_driver['sync_interval']
