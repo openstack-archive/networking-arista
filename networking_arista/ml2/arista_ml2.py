@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from abc import ABCMeta
+from abc import abstractmethod
 import base64
 import json
 import os
@@ -29,6 +31,8 @@ from neutron.extensions import portbindings
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_sec_gp
+
+from six import add_metaclass
 
 import socket
 
@@ -51,7 +55,8 @@ ERR_DVR_NOT_SUPPORTED = 'EOS version on CVX does not support DVR'
 BAREMETAL_NOT_SUPPORTED = 'EOS version on CVX does not support Baremetal'
 
 
-class AristaRPCWrapper(object):
+@add_metaclass(ABCMeta)
+class AristaRPCWrapperBase(object):
     """Wraps Arista JSON RPC.
 
     All communications between Neutron and EOS are over JSON RPC.
@@ -67,14 +72,868 @@ class AristaRPCWrapper(object):
         self.sync_interval = cfg.CONF.ml2_arista.sync_interval
         self.conn_timeout = cfg.CONF.ml2_arista.conn_timeout
         self.eapi_hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
+        self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
+            self._ndb)
 
         # The cli_commands dict stores the mapping between the CLI command key
         # and the actual CLI command.
         self.cli_commands = {}
-        self.initialize_cli_commands()
+        self._initialize_cli_commands()
 
-        self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
-            self._ndb)
+    def _validate_config(self):
+        if cfg.CONF.ml2_arista.get('eapi_host') == '':
+            msg = _('Required option eapi_host is not set')
+            LOG.error(msg)
+            raise arista_exc.AristaConfigError(msg=msg)
+        if cfg.CONF.ml2_arista.get('eapi_username') == '':
+            msg = _('Required option eapi_username is not set')
+            LOG.error(msg)
+            raise arista_exc.AristaConfigError(msg=msg)
+
+    def _keystone_url(self):
+        if self.keystone_conf.auth_uri:
+            auth_uri = self.keystone_conf.auth_uri.rstrip('/')
+        else:
+            auth_uri = (
+                '%(protocol)s://%(host)s:%(port)s' %
+                {'protocol': self.keystone_conf.auth_protocol,
+                 'host': self.keystone_conf.auth_host,
+                 'port': self.keystone_conf.auth_port})
+        return '%s/v2.0/' % auth_uri
+
+    def _api_username(self):
+        return cfg.CONF.ml2_arista.eapi_username
+
+    def _api_password(self):
+        return cfg.CONF.ml2_arista.eapi_password
+
+    def _get_random_name(self, length=10):
+        """Returns a base64 encoded name."""
+        return base64.b64encode(os.urandom(10)).translate(None, '=+/')
+
+    def _initialize_cli_commands(self):
+        self.cli_commands['timestamp'] = []
+        self.cli_commands[CMD_REGION_SYNC] = ''
+        self.cli_commands[CMD_INSTANCE] = None
+        self.cli_commands[CMD_SYNC_HEARTBEAT] = ''
+        self.cli_commands['resource-pool'] = []
+
+    def _get_cvx_hosts(self):
+        cvx = []
+        if self._server_ip:
+            # If we know the master's IP, let's start with that
+            cvx.append(self._server_ip)
+
+        for h in self.eapi_hosts:
+            if h.strip() not in cvx:
+                cvx.append(h.strip())
+
+        return cvx
+
+    @abstractmethod
+    def register_with_eos(self, sync=False):
+        """This is the registration request with EOS.
+
+        This the initial handshake between Neutron and EOS.
+        critical end-point information is registered with EOS.
+
+        :param sync: This flags indicates that the region is being synced.
+        """
+        raise NotImplementedError("register_with_eos() not implemented")
+
+    @abstractmethod
+    def check_cli_commands(self):
+        """Checks whether the CLI commands are valid.
+
+           This method tries to execute the commands on EOS and if it succeedes
+           the command is stored.
+        """
+        raise NotImplementedError("check_cli_commands() not implemented")
+
+    @abstractmethod
+    def get_region_updated_time(self):
+        """Return the timestamp of the last update.
+
+           This method returns the time at which any entities in the region
+           were updated.
+        """
+        raise NotImplementedError("get_region_updated_time() not implemented")
+
+    def clear_region_updated_time(self):
+        # TODO(shashank): Remove this once the call is removed from the ML2
+        # driver.
+        pass
+
+    @abstractmethod
+    def delete_this_region(self):
+        """Deleted the region data from EOS."""
+        raise NotImplementedError("delete_this_region() not implemented")
+
+    @abstractmethod
+    def sync_start(self):
+        """Let EOS know that a sync in being initiated."""
+        raise NotImplementedError("sync_start() not implemented")
+
+    @abstractmethod
+    def sync_end(self):
+        """Let EOS know that sync is complete."""
+        raise NotImplementedError("sync_end() not implemented")
+
+    @abstractmethod
+    def get_tenants(self):
+        """Returns dict of all tenants known by EOS.
+
+        :returns: dictionary containing the networks per tenant
+                  and VMs allocated per tenant
+        """
+        raise NotImplementedError("get_tenants() not implemented")
+
+    def delete_tenant(self, tenant_id):
+        """Deletes a given tenant and all its networks and VMs from EOS.
+
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+        self.delete_tenant_bulk([tenant_id])
+
+    @abstractmethod
+    def delete_tenant_bulk(self, tenant_list, sync=False):
+        """Sends a bulk request to delete the tenants.
+
+        :param tenant_list: list of globaly unique neutron tenant ids which
+                            need to be deleted.
+        :param sync: This flags indicates that the region is being synced.
+        """
+        raise NotImplementedError("delete_tenant_bulk() not implemented")
+
+    def create_network(self, tenant_id, network):
+        """Creates a single network on Arista hardware
+
+        :param tenant_id: globally unique neutron tenant identifier
+        :param network: dict containing network_id, network_name and
+                        segmentation_id
+        """
+        self.create_network_bulk(tenant_id, [network])
+
+    @abstractmethod
+    def create_network_bulk(self, tenant_id, network_list, sync=False):
+        """Creates a network on Arista Hardware
+
+        :param tenant_id: globally unique neutron tenant identifier
+        :param network_list: list of dicts containing network_id, network_name
+                             and segmentation_id
+        :param sync: This flags indicates that the region is being synced.
+        """
+        raise NotImplementedError("create_network_bulk() not implemented")
+
+    @abstractmethod
+    def create_network_segments(self, tenant_id, network_id,
+                                network_name, segments):
+        """Creates a network on Arista Hardware
+
+        Note: This method is not used at the moment. create_network()
+        is used instead. This will be used once the support for
+        multiple segments is added in Neutron.
+
+        :param tenant_id: globally unique neutron tenant identifier
+        :param network_id: globally unique neutron network identifier
+        :param network_name: Network name - for display purposes
+        :param segments: List of segments in a given network
+        """
+        raise NotImplementedError("create_network_segments() not implemented")
+
+    def delete_network(self, tenant_id, network_id):
+        """Deletes a specified network for a given tenant
+
+        :param tenant_id: globally unique neutron tenant identifier
+        :param network_id: globally unique neutron network identifier
+        """
+        self.delete_network_bulk(tenant_id, [network_id])
+
+    @abstractmethod
+    def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
+        """Deletes the network ids specified for a tenant
+
+        :param tenant_id: globally unique neutron tenant identifier
+        :param network_id_list: list of globally unique neutron network
+                                identifiers
+        :param sync: This flags indicates that the region is being synced.
+        """
+        raise NotImplementedError("delete_network_bulk() not implemented")
+
+    @abstractmethod
+    def create_instance_bulk(self, tenant_id, neutron_ports, vms,
+                             bm_port_profiles, sync=False):
+        """Sends a bulk request to create ports.
+
+        :param tenant_id: globaly unique neutron tenant identifier
+        :param neutron_ports: list of ports that need to be created.
+        :param vms: list of vms to which the ports will be attached to.
+        :param sync: This flags indicates that the region is being synced.
+        """
+        raise NotImplementedError("create_instance_bulk() not implemented")
+
+    def delete_vm(self, tenant_id, vm_id):
+        """Deletes a VM from EOS for a given tenant
+
+        :param tenant_id : globally unique neutron tenant identifier
+        :param vm_id : id of a VM that needs to be deleted.
+        """
+        self.delete_vm_bulk(tenant_id, [vm_id])
+
+    @abstractmethod
+    def delete_instance_bulk(self, tenant_id, instance_id_list, sync=False):
+        """Deletes instances from EOS for a given tenant
+
+        :param tenant_id : globally unique neutron tenant identifier
+        :param instance_id_list : ids of instances that needs to be deleted.
+        :param sync: This flags indicates that the region is being synced.
+        """
+        raise NotImplementedError("delete_instance_bulk() not implemented")
+
+    @abstractmethod
+    def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
+        """Deletes VMs from EOS for a given tenant
+
+        :param tenant_id : globally unique neutron tenant identifier
+        :param vm_id_list : ids of VMs that needs to be deleted.
+        :param sync: This flags indicates that the region is being synced.
+        """
+        raise NotImplementedError("delete_vm_bulk() not implemented")
+
+    def plug_port_into_network(self, device_id, host_id, port_id,
+                               net_id, tenant_id, port_name, device_owner,
+                               sg, orig_sg, vnic_type, profile=None):
+        """Generic routine plug a port of a VM instace into network.
+
+        :param device_id: globally unique identifier for the device
+        :param host: ID of the host where the port is placed
+        :param port_id: globally unique port ID that connects port to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        :param port_name: Name of the port - for display purposes
+        :param device_owner: Device owner - e.g. compute or network:dhcp
+        # TODO - add params
+        """
+        if device_owner == n_const.DEVICE_OWNER_DHCP:
+            self.plug_dhcp_port_into_network(device_id,
+                                             host_id,
+                                             port_id,
+                                             net_id,
+                                             tenant_id,
+                                             port_name)
+        elif device_owner.startswith('compute'):
+            self.plug_host_into_network(device_id,
+                                        host_id,
+                                        port_id,
+                                        net_id,
+                                        tenant_id,
+                                        port_name)
+        elif device_owner.startswith('baremetal'):
+            self.plug_baremetal_into_network(device_id,
+                                             host_id,
+                                             port_id,
+                                             net_id,
+                                             tenant_id,
+                                             port_name,
+                                             sg, orig_sg,
+                                             vnic_type,
+                                             profile)
+        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+            self.plug_distributed_router_port_into_network(device_id,
+                                                           host_id,
+                                                           port_id,
+                                                           net_id,
+                                                           tenant_id)
+
+    def unplug_port_from_network(self, device_id, device_owner, hostname,
+                                 port_id, network_id, tenant_id, sg, vnic_type,
+                                 profile=None):
+        """Removes a port from the device
+
+        :param device_id: globally unique identifier for the device
+        :param host: ID of the host where the device is placed
+        :param port_id: globally unique port ID that connects device to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+        if device_owner == n_const.DEVICE_OWNER_DHCP:
+            self.unplug_dhcp_port_from_network(device_id,
+                                               hostname,
+                                               port_id,
+                                               network_id,
+                                               tenant_id)
+        elif device_owner.startswith('compute'):
+            self.unplug_host_from_network(device_id,
+                                          hostname,
+                                          port_id,
+                                          network_id,
+                                          tenant_id)
+        elif device_owner.startswith('baremetal'):
+            self.unplug_baremetal_from_network(device_id,
+                                               hostname,
+                                               port_id,
+                                               network_id,
+                                               tenant_id,
+                                               sg,
+                                               vnic_type,
+                                               profile)
+        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+            self.unplug_distributed_router_port_from_network(device_id,
+                                                             port_id,
+                                                             hostname,
+                                                             tenant_id)
+
+    @abstractmethod
+    def plug_host_into_network(self, vm_id, host, port_id,
+                               network_id, tenant_id, port_name):
+        """Creates VLAN between TOR and compute host.
+
+        :param vm_id: globally unique identifier for VM instance
+        :param host: ID of the host where the VM is placed
+        :param port_id: globally unique port ID that connects VM to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        :param port_name: Name of the port - for display purposes
+        """
+        raise NotImplementedError("plug_host_into_network() not implenented")
+
+    @abstractmethod
+    def unplug_host_from_network(self, vm_id, host, port_id,
+                                 network_id, tenant_id):
+        """Removes previously configured VLAN between TOR and a host.
+
+        :param vm_id: globally unique identifier for VM instance
+        :param host: ID of the host where the VM is placed
+        :param port_id: globally unique port ID that connects VM to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+        raise NotImplementedError("unplug_host_from_network() not implemented")
+
+    @abstractmethod
+    def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
+                                    network_id, tenant_id, port_name):
+        """Creates VLAN between TOR and dhcp host.
+
+        :param dhcp_id: globally unique identifier for dhcp
+        :param host: ID of the host where the dhcp is hosted
+        :param port_id: globally unique port ID that connects dhcp to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        :param port_name: Name of the port - for display purposes
+        """
+        raise NotImplementedError("plug_dhcp_port_into_network() not "
+                                  "implemented")
+
+    @abstractmethod
+    def unplug_dhcp_port_from_network(self, dhcp_id, host, port_id,
+                                      network_id, tenant_id):
+        """Removes previously configured VLAN between TOR and a dhcp host.
+
+        :param dhcp_id: globally unique identifier for dhcp
+        :param host: ID of the host where the dhcp is hosted
+        :param port_id: globally unique port ID that connects dhcp to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+        raise NotImplementedError("unplug_dhcp_port_from_network() not"
+                                  "implemented")
+
+    @abstractmethod
+    def plug_distributed_router_port_into_network(self, router_id, host,
+                                                  port_id, net_id, tenant_id):
+        """Creates a DVR port on EOS.
+
+        :param router_id: globally unique identifier for router instance
+        :param host: ID of the host where the DVR port is placed
+        :param port_id: globally unique port ID that connects port to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+        raise NotImplementedError("plug_distributed_router_port_into_network()"
+                                  " not implemented")
+
+    @abstractmethod
+    def unplug_distributed_router_port_from_network(self, router_id,
+                                                    port_id, host, tenant_id):
+        """Removes a DVR port from EOS.
+
+        :param router_id: globally unique identifier for router instance
+        :param port_id: globally unique port ID that connects port to network
+        :param host: ID of the host where the dhcp is hosted
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+        raise NotImplementedError("unplug_distributed_router_port_into_"
+                                  "network() not implemented")
+
+    @abstractmethod
+    def plug_baremetal_into_network(self, vm_id, host, port_id,
+                                    network_id, tenant_id, port_name,
+                                    sg, orig_sg, vnic_type=None, profile=None):
+        """Creates VLAN between TOR and compute host.
+
+        :param vm_id: globally unique identifier for VM instance
+        :param host: ID of the host where the VM is placed
+        :param port_id: globally unique port ID that connects VM to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        :param port_name: Name of the port - for display purposes
+        """
+
+        raise NotImplementedError("plug_baremetal_into_network() not "
+                                  "implemented")
+
+    @abstractmethod
+    def unplug_baremetal_from_network(self, vm_id, host, port_id,
+                                      network_id, tenant_id, sg, vnic_type,
+                                      profile=None):
+        """Removes previously configured VLAN between TOR and a host.
+
+        :param vm_id: globally unique identifier for VM instance
+        :param host: ID of the host where the VM is placed
+        :param port_id: globally unique port ID that connects VM to network
+        :param network_id: globally unique neutron network identifier
+        :param tenant_id: globally unique neutron tenant identifier
+        """
+        raise NotImplementedError("unplug_baremetal_from_network() not "
+                                  "implemented")
+
+    def _clean_acls(self, sg, failed_switch, switches_to_clean):
+        """This is a helper function to clean up ACLs on switches.
+
+        This called from within an exception - when apply_acl fails.
+        Therefore, ensure that exception is raised after the cleanup
+        is done.
+        :param sg: Security Group to be removed
+        :param failed_switch: IP of the switch where ACL failed
+        :param switches_to_clean: List of switches containing link info
+        """
+        if not switches_to_clean:
+            # This means the no switch needs cleaning - so, simply raise the
+            # the exception and bail out
+            msg = (_("Failed to apply ACL %(sg)s on switch %(switch)s") %
+                   {'sg': sg, 'switch': failed_switch})
+            LOG.error(msg)
+
+        for s in switches_to_clean:
+            try:
+                # Port is being updated to remove security groups
+                self.security_group_driver.remove_acl(sg,
+                                                      s['switch_id'],
+                                                      s['port_id'],
+                                                      s['switch_info'])
+            except Exception:
+                msg = (_("Failed to remove ACL %(sg)s on switch %(switch)%") %
+                       {'sg': sg, 'switch': s['switch_info']})
+                LOG.warn(msg)
+        raise arista_exc.AristaSecurityGroupError(msg=msg)
+
+    def create_acl(self, sg):
+        """Creates an ACL on Arista Switch.
+
+        Deals with multiple configurations - such as multiple switches
+        """
+        self.security_group_driver.create_acl(sg)
+
+    def delete_acl(self, sg):
+        """Deletes an ACL from Arista Switch.
+
+        Deals with multiple configurations - such as multiple switches
+        """
+        self.security_group_driver.delete_acl(sg)
+
+    def create_acl_rule(self, sgr):
+        """Creates an ACL on Arista Switch.
+
+        For a given Security Group (ACL), it adds additional rule
+        Deals with multiple configurations - such as multiple switches
+        """
+        self.security_group_driver.create_acl_rule(sgr)
+
+    def delete_acl_rule(self, sgr):
+        """Deletes an ACL rule on Arista Switch.
+
+        For a given Security Group (ACL), it removes a rule
+        Deals with multiple configurations - such as multiple switches
+        """
+        self.security_group_driver.delete_acl_rule(sgr)
+
+    def perform_sync_of_sg(self):
+        """Perform sync of the security groups between ML2 and EOS.
+
+        This is unconditional sync to ensure that all security
+        ACLs are pushed to all the switches, in case of switch
+        or neutron reboot
+        """
+        self.security_group_driver.perform_sync_of_sg()
+
+
+class AristaRPCWrapperJSON(AristaRPCWrapperBase):
+    def __init__(self, ndb):
+        super(AristaRPCWrapperJSON, self).__init__(ndb)
+        self.current_sync_name = None
+
+    def _api_host_url(self, host=""):
+        return ('https://%s:%s@%s/openstack/api/' %
+                (self._api_username(),
+                 self._api_password(),
+                 host))
+
+    def _send_request(self, host, path, method, data=None):
+        request_headers = {}
+        request_headers['Content-Type'] = 'application/json'
+        request_headers['Accept'] = 'application/json'
+        request_headers['Sync-ID'] = self.current_sync_name
+        url = self._api_host_url(host=host) + path
+
+        resp = None
+        data = json.dumps(data)
+        try:
+            msg = (_('JSON request to %(url)s contains %(data)s') %
+                   {'url': url, 'data': data})
+            LOG.info(msg)
+            func_lookup = {
+                'GET': requests.get,
+                'POST': requests.post,
+                'PUT': requests.put,
+                'PATCH': requests.patch,
+                'DELETE': requests.delete
+            }
+            func = func_lookup.get(method)
+            if not func:
+                LOG.warn(_LI('Unrecognized HTTP method %s'), method)
+                return None
+
+            resp = func(url, timeout=self.conn_timeout, verify=False,
+                        data=data)
+            LOG.info(_LI('JSON response contains: %s'), resp.json())
+            return json.loads(resp.json())
+        except requests.exceptions.ConnectionError:
+            msg = (_('Error connecting to %(url)s') % {'url': url})
+            LOG.warn(msg)
+            return None
+        except requests.exceptions.ConnectTimeout:
+            msg = (_('Timed out connecting to API request to %(url)s') %
+                   {'url': url})
+            LOG.warn(msg)
+            return None
+        except requests.exceptions.Timeout:
+            msg = (_('Timed out during API request to %(url)s') %
+                   {'url': url})
+            LOG.warn(msg)
+            return None
+        except requests.exceptions.InvalidURL:
+            msg = (_('Ignore attempt to connect to invalid URL %(url)s') %
+                   {'url': self._server_ip})
+            LOG.warn(msg)
+            return None
+        except ValueError:
+            LOG.info("Ignoring invalid JSON response")
+            return None
+        except Exception as error:
+            msg = unicode(error)
+            LOG.warn(msg)
+            raise
+
+    def _check_if_cvx_leader(self, host):
+        url = 'agent/'
+        data = self._send_request(host, url, 'GET')
+        return False if not data else data.get('isLeader', False)
+
+    def _get_eos_leader(self):
+        cvx = self._get_cvx_hosts()
+        for self._server_ip in cvx:
+            if self._check_if_cvx_leader(self._server_ip):
+                return self._server_ip
+        return None
+
+    def _send_api_request(self, path, method, data=None):
+        host = self._get_eos_leader()
+        if not host:
+            msg = unicode("Could not find CVX leader")
+            LOG.info(msg)
+            raise arista_exc.AristaRpcError(msg=msg)
+        return self._send_request(host, path, method, data)
+
+    def _create_keystone_endpoint(self):
+        path = 'region/%s/service-end-point' % self.region
+        data = {
+            'name': 'keystone',
+            'authUrl': self._keystone_url(),
+            'user': self.keystone_conf.admin_user,
+            'password': self.keystone_conf.admin_password,
+            'tenant': self.keystone_conf.admin_tenant_name
+        }
+        self._send_api_request(path, 'POST', [data])
+
+    def _set_region_update_interval(self):
+        path = 'region/%s' % self.region
+        data = {
+            'name': self.region,
+            'syncInterval': self.sync_interval
+        }
+        self._send_api_request(path, 'PUT', [data])
+
+    def register_with_eos(self, sync=False):
+        self._create_keystone_endpoint()
+        self._set_region_update_interval()
+
+    def check_cli_commands(self):
+        # move this to register_with_eos?
+        return self.create_region(self.region)
+
+    def get_region_updated_time(self):
+        path = 'agent/'
+        data = self._send_api_request(path, 'GET')
+        return data['uuid']
+
+    def create_region(self, region):
+        path = 'region/'
+        data = {'name': region}
+        return self._send_api_request(path, 'POST', [data])
+
+    def delete_region(self, region):
+        path = 'region/'
+        data = {'name': region}
+        return self._send_api_request(path, 'DELETE', [data])
+
+    def delete_this_region(self):
+        return self.delete_region(self.region)
+
+    def sync_start(self):
+        path = 'region/' + self.region
+        region = self._send_api_request(path, 'GET')
+        if region['syncStatus'] == 'syncInProgress':
+            return False
+        random_name = self._get_random_name()
+        data = {
+            'name': self.region,
+            'requester': socket.gethostname().split('.')[0],
+            'requestId': random_name
+        }
+        self._send_api_request(path, 'PUT', [data])
+        region = self._send_api_request(path, 'GET')
+        if region['syncStatus'] == 'syncInProgress':
+            self.current_sync_name = random_name
+            return True
+        return False
+
+    def sync_end(self):
+        path = 'region/' + self.region
+        region = self._send_api_request(path, 'GET')
+        if region['requester'] != self.current_sync_name:
+            return False
+        data = {
+            'name': self.region,
+            'requester': '',
+            'requestId': ''
+        }
+        self._send_api_request(path, 'PUT', [data])
+        self.current_sync_name = None
+        return True
+
+    def get_tenants(self):
+        """Returns dict of all tenants known by EOS.
+
+        :returns: dictionary containing the networks per tenant
+                  and VMs allocated per tenant
+        """
+        path = 'region/' + self.region + '/tenant'
+        return self._send_api_request(path, 'GET')
+
+    def delete_tenant_bulk(self, tenant_list, sync=False):
+        path = 'region/' + self.region + '/tenant'
+        data = [{'id': t} for t in tenant_list]
+        return self._send_api_request(path, 'DELETE', data)
+
+    def create_network_bulk(self, tenant_id, network_list, sync=False):
+        networks = []
+        for net in network_list:
+            n = {
+                'id': net['network_id'],
+                'tenantId': tenant_id,
+                'shared': net['shared'],
+                'segType': 'vlan',
+                'segId': DEFAULT_VLAN
+            }
+
+            if net.get('network_name'):
+                n['name'] = net['network_name']
+            if net.get('segmentation_id'):
+                n['segId'] = net['segmentation_id']
+
+            networks.append(n)
+
+        path = 'region/' + self.region + '/network'
+        return self._send_api_request(path, 'POST', networks)
+
+    def create_network_segments(self, tenant_id, network_id,
+                                network_name, segments):
+        raise NotImplementedError("create_network_segments() not implemented")
+
+    def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
+        path = 'region/' + self.region + '/network'
+        data = [{'id': n, 'tenantId': tenant_id} for n in network_id_list]
+        return self._send_api_request(path, 'DELETE', data)
+
+    def _create_instance_data(self, vm_id, host_id):
+        return {
+            'id': vm_id,
+            'hostId': host_id
+        }
+
+    def _create_port_data(self, port_id, tenant_id, network_id, instance_id,
+                          name, port_type):
+        return {
+            'id': port_id,
+            'tenantId': tenant_id,
+            'networkId': network_id,
+            'instanceId': instance_id,
+            'name': name,
+            'instanceType': port_type
+        }
+
+    def create_instance_bulk(self, tenant_id, neutron_ports, vms,
+                             sync=False):
+        # TODO(areimers) - Ironic support
+        vmInst = []
+        dhcpInst = []
+        portInst = []
+        for neutron_port in neutron_ports:
+            try:
+                vm = vms[neutron_port['id']]
+            except KeyError:
+                LOG.warn(_LW(
+                         "Device id %(device)s not found for port %(port)s"),
+                         {'device': neutron_port['device_id'],
+                          'port': neutron_port['id']})
+                continue
+
+            instance = self._create_instance_data(vm['deviceId'], vm['host'])
+
+            device_owner = neutron_port['device_owner']
+            if device_owner == n_const.DEVICE_OWNER_DHCP:
+                instance_type = 'dhcp'
+                dhcpInst.append(instance)
+            elif device_owner.startswith('compute'):
+                instance_type = 'vm'
+                vmInst.append(instance)
+            elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+                # TODO(areimers) - DVR support
+                LOG.info(ERR_DVR_NOT_SUPPORTED)
+                continue
+            else:
+                LOG.warn(_LW("Unknown device owner: %s"),
+                         neutron_port['device_owner'])
+                continue
+
+            port = self._create_port_data(neutron_port['id'], tenant_id,
+                                          neutron_port['network_id'],
+                                          vm['deviceId'],
+                                          neutron_port.get('name'),
+                                          instance_type)
+            portInst.append(port)
+
+        # create instances first
+        if vmInst:
+            path = 'region/' + self.region + '/vm'
+            self._send_api_request(path, 'POST', vmInst)
+        if dhcpInst:
+            path = 'region/' + self.region + '/dhcp'
+            self._send_api_request(path, 'POST', dhcpInst)
+
+        # now create ports for the instances
+        path = 'region/' + self.region + '/port'
+        self._send_api_request(path, 'POST', portInst)
+
+    def delete_instance_bulk(self, tenant_id, instance_id_list, sync=False):
+        # TODO(areimers) - DVR support
+        LOG.info(ERR_DVR_NOT_SUPPORTED)
+
+    def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
+        path = 'region/' + self.region + '/vm?tenantId=' + tenant_id
+        data = [{'id': v} for v in vm_id_list]
+        return self._send_api_request(path, 'DELETE', data)
+
+    def delete_dhcp_bulk(self, tenant_id, dhcp_id_list):
+        path = 'region/' + self.region + '/dhcp?tenantId=' + tenant_id
+        data = [{'id': d} for d in dhcp_id_list]
+        return self._send_api_request(path, 'DELETE', data)
+
+    def delete_port(self, port_id, instance_id, tenant_id, instance_type):
+        path = ('region/%s/port?tenantId=%s&portId=%s&id=%s&type=%s' %
+                (self.region, tenant_id, port_id, instance_id, instance_type))
+        port = self._create_port_data(port_id, tenant_id, None, instance_id,
+                                      None, instance_type)
+        return self._send_api_request(path, 'DELETE', [port])
+
+    def get_port(self, tenant_id, port_id, instance_id, instance_type):
+        path = ('region/%s/port?tenantId=%s&portId=%s&id=%s&type=%s' %
+                (self.region, tenant_id, port_id, instance_id, instance_type))
+        return self._send_api_request(path, 'GET')
+
+    def plug_host_into_network(self, vm_id, host, port_id,
+                               network_id, tenant_id, port_name):
+        vm = self._create_instance_data(vm_id, host)
+        port = self._create_port_data(port_id, tenant_id, network_id, vm_id,
+                                      port_name, 'vm')
+        self._send_api_request('region/' + self.region + '/vm?tenantId=' +
+                               tenant_id, 'POST', [vm])
+        self._send_api_request('region/' + self.region + '/port', 'POST',
+                               [port])
+
+    def unplug_host_from_network(self, vm_id, host, port_id,
+                                 network_id, tenant_id):
+        self.delete_port(port_id, vm_id, tenant_id, 'vm')
+        port = self.get_port(tenant_id, port_id, vm_id, 'vm')
+        if len(port) == 0:
+            self.delete_vm_bulk(tenant_id, [vm_id])
+
+    def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
+                                    network_id, tenant_id, port_name):
+        dhcp = self._create_instance_data(dhcp_id, host)
+        port = self._create_port_data(port_id, tenant_id, network_id, dhcp_id,
+                                      port_name, 'dhcp')
+        self._send_api_request('region/' + self.region + '/dhcp?tenantId=' +
+                               tenant_id, 'POST', [dhcp])
+        self._send_api_request('region/' + self.region + '/port', 'POST',
+                               [port])
+
+    def unplug_dhcp_port_from_network(self, dhcp_id, host, port_id,
+                                      network_id, tenant_id):
+        self.delete_port(port_id, dhcp_id, tenant_id, 'dhcp')
+        self.delete_dhcp_bulk(tenant_id, [dhcp_id])
+
+    def plug_distributed_router_port_into_network(self, router_id, host,
+                                                  port_id, net_id, tenant_id):
+        # TODO(areimers) - DVR support
+        raise NotImplementedError("plug_distributed_router_port_into_network()"
+                                  " not implemented")
+
+    def unplug_distributed_router_port_from_network(self, router_id,
+                                                    port_id, host, tenant_id):
+        # TODO(areimers) - DVR support
+        raise NotImplementedError("unplug_distributed_router_port_into_"
+                                  "network() not implemented")
+
+    def plug_baremetal_into_network(self, vm_id, host, port_id,
+                                    network_id, tenant_id, port_name,
+                                    sg, orig_sg, vnic_type=None, profile=None):
+        # TODO(areimers) - Ironic support
+        raise NotImplementedError("plug_baremetal_into_network() not "
+                                  "implemented")
+
+    def unplug_baremetal_from_network(self, vm_id, host, port_id,
+                                      network_id, tenant_id, sg, vnic_type,
+                                      profile=None):
+        # TODO(areimers) - Ironic support
+        raise NotImplementedError("unplug_baremetal_from_network() not "
+                                  "implemented")
+
+
+class AristaRPCWrapperEapi(AristaRPCWrapperBase):
+    def __init__(self, ndb):
+        super(AristaRPCWrapperEapi, self).__init__(ndb)
 
     def _send_eapi_req(self, cmds):
         # This method handles all EAPI requests (using the requests library)
@@ -87,7 +946,7 @@ class AristaRPCWrapper(object):
         request_headers = {}
         request_headers['Content-Type'] = 'application/json'
         request_headers['Accept'] = 'application/json'
-        url = self._eapi_host_url(host=self._server_ip)
+        url = self._api_host_url(host=self._server_ip)
 
         params = {}
         params['timestamps'] = "false"
@@ -153,30 +1012,11 @@ class AristaRPCWrapper(object):
             LOG.warn(msg)
             raise
 
-    def _get_exit_mode_cmds(self, modes):
-        """Returns a list of 'exit' commands for the modes.
-
-        :param modes: a list of CLI modes to exit out of.
-        """
-        return ['exit'] * len(modes)
-
     def _get_random_name(self, length=10):
         """Returns a base64 encoded name."""
         return base64.b64encode(os.urandom(10)).translate(None, '=+/')
 
-    def initialize_cli_commands(self):
-        self.cli_commands['timestamp'] = []
-        self.cli_commands[CMD_INSTANCE] = None
-        self.cli_commands[CMD_REGION_SYNC] = ''
-        self.cli_commands[CMD_SYNC_HEARTBEAT] = ''
-        self.cli_commands['resource-pool'] = []
-
     def check_cli_commands(self):
-        """Checks whether the CLI commands are valid.
-
-           This method tries to execute the commands on EOS and if it succeedes
-           the command is stored.
-        """
         cmd = ['show openstack config region %s timestamp' % self.region]
         try:
             self._run_eos_cmds(cmd)
@@ -252,17 +1092,6 @@ class AristaRPCWrapper(object):
                 _LW("'resource-pool' command '%s' is not available on EOS"),
                 cmd)
 
-    def _keystone_url(self):
-        if self.keystone_conf.auth_uri:
-            auth_uri = self.keystone_conf.auth_uri.rstrip('/')
-        else:
-            auth_uri = (
-                '%(protocol)s://%(host)s:%(port)s' %
-                {'protocol': self.keystone_conf.auth_protocol,
-                 'host': self.keystone_conf.auth_host,
-                 'port': self.keystone_conf.auth_port})
-        return '%s/v2.0/' % auth_uri
-
     def _heartbeat_required(self, sync, counter=0):
         return (sync and self.cli_commands[CMD_SYNC_HEARTBEAT] and
                 (counter % HEARTBEAT_INTERVAL) == 0)
@@ -296,61 +1125,11 @@ class AristaRPCWrapper(object):
         return None
 
     def get_tenants(self):
-        """Returns dict of all tenants known by EOS.
-
-        :returns: dictionary containing the networks per tenant
-                  and VMs allocated per tenant
-        """
         cmds = ['show openstack config region %s' % self.region]
         command_output = self._run_eos_cmds(cmds)
         tenants = command_output[0]['tenants']
 
         return tenants
-
-    def plug_port_into_network(self, device_id, host_id, port_id,
-                               net_id, tenant_id, port_name, device_owner,
-                               sg, orig_sg, vnic_type, profile=None):
-        """Generic routine plug a port of a VM instace into network.
-
-        :param device_id: globally unique identifier for the device
-        :param host: ID of the host where the port is placed
-        :param port_id: globally unique port ID that connects port to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param port_name: Name of the port - for display purposes
-        :param device_owner: Device owner - e.g. compute or network:dhcp
-        # TODO - add params
-        """
-        if device_owner == n_const.DEVICE_OWNER_DHCP:
-            self.plug_dhcp_port_into_network(device_id,
-                                             host_id,
-                                             port_id,
-                                             net_id,
-                                             tenant_id,
-                                             port_name)
-        elif device_owner.startswith('compute'):
-            self.plug_host_into_network(device_id,
-                                        host_id,
-                                        port_id,
-                                        net_id,
-                                        tenant_id,
-                                        port_name)
-        elif device_owner.startswith('baremetal'):
-            self.plug_baremetal_into_network(device_id,
-                                             host_id,
-                                             port_id,
-                                             net_id,
-                                             tenant_id,
-                                             port_name,
-                                             sg, orig_sg,
-                                             vnic_type,
-                                             profile)
-        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
-            self.plug_distributed_router_port_into_network(device_id,
-                                                           host_id,
-                                                           port_id,
-                                                           net_id,
-                                                           tenant_id)
 
     def _baremetal_supported(self):
         return (self.cli_commands[CMD_INSTANCE] == 'instance')
@@ -366,15 +1145,6 @@ class AristaRPCWrapper(object):
 
     def plug_host_into_network(self, vm_id, host, port_id,
                                network_id, tenant_id, port_name):
-        """Creates VLAN between TOR and compute host.
-
-        :param vm_id: globally unique identifier for VM instance
-        :param host: ID of the host where the VM is placed
-        :param port_id: globally unique port ID that connects VM to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param port_name: Name of the port - for display purposes
-        """
         cmds = ['tenant %s' % tenant_id,
                 'vm id %s hostid %s' % (vm_id, host)]
         if port_name:
@@ -385,48 +1155,9 @@ class AristaRPCWrapper(object):
                         (port_id, network_id))
         self._run_openstack_cmds(cmds)
 
-    def _clean_acls(self, sg, failed_switch, switches_to_clean):
-        """This is a helper function to clean up ACLs on switches.
-
-        This called from within an exception - when apply_acl fails.
-        Therefore, ensure that exception is raised after the cleanup
-        is done.
-        :param sg: Security Group to be removed
-        :param failed_switch: IP of the switch where ACL failed
-        :param switches_to_clean: List of switches containing link info
-        """
-        if not switches_to_clean:
-            # This means the no switch needs cleaning - so, simply raise the
-            # the exception and bail out
-            msg = (_("Failed to apply ACL %(sg)s on switch %(switch)s") %
-                   {'sg': sg, 'switch': failed_switch})
-            LOG.error(msg)
-
-        for s in switches_to_clean:
-            try:
-                # Port is being updated to remove security groups
-                self.security_group_driver.remove_acl(sg,
-                                                      s['switch_id'],
-                                                      s['port_id'],
-                                                      s['switch_info'])
-            except Exception:
-                msg = (_("Failed to remove ACL %(sg)s on switch %(switch)%") %
-                       {'sg': sg, 'switch': s['switch_info']})
-                LOG.warn(msg)
-        raise arista_exc.AristaSecurityGroupError(msg=msg)
-
     def plug_baremetal_into_network(self, vm_id, host, port_id,
                                     network_id, tenant_id, port_name,
                                     sg, orig_sg, vnic_type=None, profile=None):
-        """Creates VLAN between TOR and compute host.
-
-        :param vm_id: globally unique identifier for VM instance
-        :param host: ID of the host where the VM is placed
-        :param port_id: globally unique port ID that connects VM to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param port_name: Name of the port - for display purposes
-        """
         # Basic error checking for baremental deployments
         # notice that the following method throws and exception
         # if an error condition exists
@@ -487,15 +1218,6 @@ class AristaRPCWrapper(object):
 
     def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
                                     network_id, tenant_id, port_name):
-        """Creates VLAN between TOR and dhcp host.
-
-        :param dhcp_id: globally unique identifier for dhcp
-        :param host: ID of the host where the dhcp is hosted
-        :param port_id: globally unique port ID that connects dhcp to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param port_name: Name of the port - for display purposes
-        """
         cmds = ['tenant %s' % tenant_id,
                 'network id %s' % network_id]
         if port_name:
@@ -508,15 +1230,6 @@ class AristaRPCWrapper(object):
 
     def plug_distributed_router_port_into_network(self, router_id, host,
                                                   port_id, net_id, tenant_id):
-        """Creates a DVR port on EOS.
-
-        :param router_id: globally unique identifier for router instance
-        :param host: ID of the host where the DVR port is placed
-        :param port_id: globally unique port ID that connects port to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        """
-
         if not self.cli_commands[CMD_INSTANCE]:
             LOG.info(ERR_DVR_NOT_SUPPORTED)
             return
@@ -526,54 +1239,8 @@ class AristaRPCWrapper(object):
                 'port id %s network-id %s hostid %s' % (port_id, net_id, host)]
         self._run_openstack_cmds(cmds)
 
-    def unplug_port_from_network(self, device_id, device_owner, hostname,
-                                 port_id, network_id, tenant_id, sg, vnic_type,
-                                 profile=None):
-        """Removes a port from the device
-
-        :param device_id: globally unique identifier for the device
-        :param host: ID of the host where the device is placed
-        :param port_id: globally unique port ID that connects device to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        """
-        if device_owner == n_const.DEVICE_OWNER_DHCP:
-            self.unplug_dhcp_port_from_network(device_id,
-                                               hostname,
-                                               port_id,
-                                               network_id,
-                                               tenant_id)
-        elif device_owner.startswith('compute'):
-            self.unplug_host_from_network(device_id,
-                                          hostname,
-                                          port_id,
-                                          network_id,
-                                          tenant_id)
-        elif device_owner.startswith('baremetal'):
-            self.unplug_baremetal_from_network(device_id,
-                                               hostname,
-                                               port_id,
-                                               network_id,
-                                               tenant_id,
-                                               sg,
-                                               vnic_type,
-                                               profile)
-        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
-            self.unplug_distributed_router_port_from_network(device_id,
-                                                             port_id,
-                                                             hostname,
-                                                             tenant_id)
-
     def unplug_host_from_network(self, vm_id, host, port_id,
                                  network_id, tenant_id):
-        """Removes previously configured VLAN between TOR and a host.
-
-        :param vm_id: globally unique identifier for VM instance
-        :param host: ID of the host where the VM is placed
-        :param port_id: globally unique port ID that connects VM to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        """
         cmds = ['tenant %s' % tenant_id,
                 'vm id %s hostid %s' % (vm_id, host),
                 'no port id %s' % port_id,
@@ -583,14 +1250,6 @@ class AristaRPCWrapper(object):
     def unplug_baremetal_from_network(self, vm_id, host, port_id,
                                       network_id, tenant_id, sg, vnic_type,
                                       profile=None):
-        """Removes previously configured VLAN between TOR and a host.
-
-        :param vm_id: globally unique identifier for VM instance
-        :param host: ID of the host where the VM is placed
-        :param port_id: globally unique port ID that connects VM to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        """
         # Basic error checking for baremental deployments
         # notice that the following method throws and exception
         # if an error condition exists
@@ -613,14 +1272,6 @@ class AristaRPCWrapper(object):
 
     def unplug_dhcp_port_from_network(self, dhcp_id, host, port_id,
                                       network_id, tenant_id):
-        """Removes previously configured VLAN between TOR and a dhcp host.
-
-        :param dhcp_id: globally unique identifier for dhcp
-        :param host: ID of the host where the dhcp is hosted
-        :param port_id: globally unique port ID that connects dhcp to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        """
         cmds = ['tenant %s' % tenant_id,
                 'network id %s' % network_id,
                 'no dhcp id %s port-id %s' % (dhcp_id, port_id),
@@ -629,14 +1280,6 @@ class AristaRPCWrapper(object):
 
     def unplug_distributed_router_port_from_network(self, router_id,
                                                     port_id, host, tenant_id):
-        """Removes a DVR port from EOS.
-
-        :param router_id: globally unique identifier for router instance
-        :param port_id: globally unique port ID that connects port to network
-        :param host: ID of the host where the dhcp is hosted
-        :param tenant_id: globally unique neutron tenant identifier
-        """
-
         if not self.cli_commands[CMD_INSTANCE]:
             LOG.info(ERR_DVR_NOT_SUPPORTED)
             return
@@ -647,23 +1290,7 @@ class AristaRPCWrapper(object):
                 'no port id %s hostid %s' % (port_id, host)]
         self._run_openstack_cmds(cmds)
 
-    def create_network(self, tenant_id, network):
-        """Creates a single network on Arista hardware
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network: dict containing network_id, network_name and
-                        segmentation_id
-        """
-        self.create_network_bulk(tenant_id, [network])
-
     def create_network_bulk(self, tenant_id, network_list, sync=False):
-        """Creates a network on Arista Hardware
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network_list: list of dicts containing network_id, network_name
-                             and segmentation_id
-        :param sync: This flags indicates that the region is being synced.
-        """
         cmds = ['tenant %s' % tenant_id]
         # Create a reference to function to avoid name lookups in the loop
         append_cmd = cmds.append
@@ -692,17 +1319,6 @@ class AristaRPCWrapper(object):
 
     def create_network_segments(self, tenant_id, network_id,
                                 network_name, segments):
-        """Creates a network on Arista Hardware
-
-        Note: This method is not used at the moment. create_network()
-        is used instead. This will be used once the support for
-        multiple segments is added in Neutron.
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network_id: globally unique neutron network identifier
-        :param network_name: Network name - for display purposes
-        :param segments: List of segments in a given network
-        """
         if segments:
             cmds = ['tenant %s' % tenant_id,
                     'network id %s name "%s"' % (network_id, network_name)]
@@ -714,22 +1330,7 @@ class AristaRPCWrapper(object):
 
             self._run_openstack_cmds(cmds)
 
-    def delete_network(self, tenant_id, network_id):
-        """Deletes a specified network for a given tenant
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network_id: globally unique neutron network identifier
-        """
-        self.delete_network_bulk(tenant_id, [network_id])
-
     def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
-        """Deletes the network ids specified for a tenant
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network_id_list: list of globally unique neutron network
-                                identifiers
-        :param sync: This flags indicates that the region is being synced.
-        """
         cmds = ['tenant %s' % tenant_id]
         counter = 0
         for network_id in network_id_list:
@@ -742,21 +1343,7 @@ class AristaRPCWrapper(object):
             cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
         self._run_openstack_cmds(cmds, sync=sync)
 
-    def delete_vm(self, tenant_id, vm_id):
-        """Deletes a VM from EOS for a given tenant
-
-        :param tenant_id : globally unique neutron tenant identifier
-        :param vm_id : id of a VM that needs to be deleted.
-        """
-        self.delete_vm_bulk(tenant_id, [vm_id])
-
     def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
-        """Deletes VMs from EOS for a given tenant
-
-        :param tenant_id : globally unique neutron tenant identifier
-        :param vm_id_list : ids of VMs that needs to be deleted.
-        :param sync: This flags indicates that the region is being synced.
-        """
         cmds = ['tenant %s' % tenant_id]
         counter = 0
         for vm_id in vm_id_list:
@@ -770,12 +1357,6 @@ class AristaRPCWrapper(object):
         self._run_openstack_cmds(cmds, sync=sync)
 
     def delete_instance_bulk(self, tenant_id, instance_id_list, sync=False):
-        """Deletes instances from EOS for a given tenant
-
-        :param tenant_id : globally unique neutron tenant identifier
-        :param instance_id_list : ids of instances that needs to be deleted.
-        :param sync: This flags indicates that the region is being synced.
-        """
         cmds = ['tenant %s' % tenant_id]
         counter = 0
         for instance in instance_id_list:
@@ -898,21 +1479,7 @@ class AristaRPCWrapper(object):
 
         self._run_openstack_cmds(cmds, sync=sync)
 
-    def delete_tenant(self, tenant_id):
-        """Deletes a given tenant and all its networks and VMs from EOS.
-
-        :param tenant_id: globally unique neutron tenant identifier
-        """
-        self.delete_tenant_bulk([tenant_id])
-
     def delete_tenant_bulk(self, tenant_list, sync=False):
-        """Sends a bulk request to delete the tenants.
-
-        :param tenant_list: list of globaly unique neutron tenant ids which
-                            need to be deleted.
-        :param sync: This flags indicates that the region is being synced.
-        """
-
         cmds = []
         for tenant in tenant_list:
             cmds.append('no tenant %s' % tenant)
@@ -921,7 +1488,6 @@ class AristaRPCWrapper(object):
         self._run_openstack_cmds(cmds, sync=sync)
 
     def delete_this_region(self):
-        """Deleted the region data from EOS."""
         cmds = ['enable',
                 'configure',
                 'cvx',
@@ -931,14 +1497,6 @@ class AristaRPCWrapper(object):
         self._run_eos_cmds(cmds)
 
     def register_with_eos(self, sync=False):
-        """This is the registration request with EOS.
-
-        This the initial handshake between Neutron and EOS.
-        critical end-point information is registered with EOS.
-
-        :param sync: This flags indicates that the region is being synced.
-        """
-
         cmds = ['auth url %s user %s password %s tenant %s' % (
                 self._keystone_url(),
                 self.keystone_conf.admin_user,
@@ -957,56 +1515,7 @@ class AristaRPCWrapper(object):
 
         self._run_openstack_cmds(cmds, commands_to_log=log_cmds, sync=sync)
 
-    def create_acl(self, sg):
-        """Creates an ACL on Arista Switch.
-
-        Deals with multiple configurations - such as multiple switches
-        """
-        self.security_group_driver.create_acl(sg)
-
-    def delete_acl(self, sg):
-        """Deletes an ACL from Arista Switch.
-
-        Deals with multiple configurations - such as multiple switches
-        """
-        self.security_group_driver.delete_acl(sg)
-
-    def create_acl_rule(self, sgr):
-        """Creates an ACL on Arista Switch.
-
-        For a given Security Group (ACL), it adds additional rule
-        Deals with multiple configurations - such as multiple switches
-        """
-        self.security_group_driver.create_acl_rule(sgr)
-
-    def delete_acl_rule(self, sgr):
-        """Deletes an ACL rule on Arista Switch.
-
-        For a given Security Group (ACL), it removes a rule
-        Deals with multiple configurations - such as multiple switches
-        """
-        self.security_group_driver.delete_acl_rule(sgr)
-
-    def perform_sync_of_sg(self):
-        """Perform sync of the security groups between ML2 and EOS.
-
-        This is unconditional sync to ensure that all security
-        ACLs are pushed to all the switches, in case of switch
-        or neutron reboot
-        """
-        self.security_group_driver.perform_sync_of_sg()
-
-    def clear_region_updated_time(self):
-        # TODO(shashank): Remove this once the call is removed from the ML2
-        # driver.
-        pass
-
     def get_region_updated_time(self):
-        """Return the timestamp of the last update.
-
-           This method returns the time at which any entities in the region
-           were updated.
-        """
         timestamp_cmd = self.cli_commands['timestamp']
         if timestamp_cmd:
             try:
@@ -1034,7 +1543,6 @@ class AristaRPCWrapper(object):
         return False
 
     def sync_start(self):
-        """Let EOS know that a sync in being initiated."""
         try:
             cmds = []
             if self.cli_commands[CMD_REGION_SYNC]:
@@ -1053,7 +1561,6 @@ class AristaRPCWrapper(object):
             return False
 
     def sync_end(self):
-        """Let EOS know that sync is complete."""
         try:
             # 'sync end' can be sent only when the region has been entered in
             # the sync mode
@@ -1149,15 +1656,7 @@ class AristaRPCWrapper(object):
         # Use guarded command to figure out if this is the master
         cmd = ['show openstack agent uuid']
 
-        cvx = []
-        if self._server_ip:
-            # If we know the master's IP, let's start with that
-            cvx.append(self._server_ip)
-
-        for h in self.eapi_hosts:
-            if h.strip() not in cvx:
-                cvx.append(h.strip())
-
+        cvx = self._get_cvx_hosts()
         # Identify which EOS instance is currently the master
         for self._server_ip in cvx:
             try:
@@ -1174,23 +1673,11 @@ class AristaRPCWrapper(object):
         LOG.error(msg)
         return None
 
-    def _eapi_host_url(self, host=""):
-        user = cfg.CONF.ml2_arista.eapi_username
-        pwd = cfg.CONF.ml2_arista.eapi_password
-
-        eapi_server_url = ('https://%s:%s@%s/command-api' %
-                           (user, pwd, host))
-        return eapi_server_url
-
-    def _validate_config(self):
-        if cfg.CONF.ml2_arista.get('eapi_host') == '':
-            msg = _('Required option eapi_host is not set')
-            LOG.error(msg)
-            raise arista_exc.AristaConfigError(msg=msg)
-        if cfg.CONF.ml2_arista.get('eapi_username') == '':
-            msg = _('Required option eapi_username is not set')
-            LOG.error(msg)
-            raise arista_exc.AristaConfigError(msg=msg)
+    def _api_host_url(self, host=""):
+        return ('https://%s:%s@%s/command-api' %
+                (self._api_username(),
+                 self._api_password(),
+                 host))
 
 
 class SyncService(object):
