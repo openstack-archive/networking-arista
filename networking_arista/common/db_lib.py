@@ -132,7 +132,7 @@ def forget_port(port_id, host_id):
             host_id=host_id).delete()
 
 
-def remember_network(tenant_id, network_id, segmentation_id):
+def remember_network(tenant_id, network_id, segmentation_id, segment_id):
     """Stores all relevant information about a Network in repository.
 
     :param tenant_id: globally unique neutron tenant identifier
@@ -143,22 +143,29 @@ def remember_network(tenant_id, network_id, segmentation_id):
     with session.begin():
         net = db_models.AristaProvisionedNets(
             tenant_id=tenant_id,
+            id=segment_id,
             network_id=network_id,
             segmentation_id=segmentation_id)
         session.add(net)
 
 
-def forget_network(tenant_id, network_id):
+def forget_network(tenant_id, network_id, segment_id=None):
     """Deletes all relevant information about a Network from repository.
 
     :param tenant_id: globally unique neutron tenant identifier
     :param network_id: globally unique neutron network identifier
     """
+    filters = {
+        'tenant_id': tenant_id,
+        'network_id': network_id
+    }
+    if segment_id:
+        filters['id'] = segment_id
+
     session = db.get_session()
     with session.begin():
         (session.query(db_models.AristaProvisionedNets).
-         filter_by(tenant_id=tenant_id, network_id=network_id).
-         delete())
+         filter_by(**filters).delete())
 
 
 def get_segmentation_id(tenant_id, network_id):
@@ -218,7 +225,8 @@ def is_port_provisioned(port_id, host_id=None):
         return num_ports > 0
 
 
-def is_network_provisioned(tenant_id, network_id, seg_id=None):
+def is_network_provisioned(tenant_id, network_id, segmentation_id=None,
+                           segment_id=None):
     """Checks if a networks is already known to EOS
 
     :returns: True, if yes; False otherwise.
@@ -228,15 +236,16 @@ def is_network_provisioned(tenant_id, network_id, seg_id=None):
     """
     session = db.get_session()
     with session.begin():
-        if not seg_id:
-            num_nets = (session.query(db_models.AristaProvisionedNets).
-                        filter_by(tenant_id=tenant_id,
-                                  network_id=network_id).count())
-        else:
-            num_nets = (session.query(db_models.AristaProvisionedNets).
-                        filter_by(tenant_id=tenant_id,
-                                  network_id=network_id,
-                                  segmentation_id=seg_id).count())
+        filter_opts = dict(tenant_id=tenant_id,
+                           network_id=network_id)
+        if segmentation_id:
+            filter_opts['segmentation_id'] = segmentation_id
+        if segment_id:
+            filter_opts['id'] = segment_id
+
+        num_nets = (session.query(db_models.AristaProvisionedNets).
+                    filter_by(**filter_opts).count())
+
         return num_nets > 0
 
 
@@ -468,6 +477,21 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
         if (nets[0]['shared'] and
            segments[0][driver_api.NETWORK_TYPE] == p_const.TYPE_VLAN):
             return nets[0]['tenant_id']
+
+    def get_all_network_segments(self, network_id):
+        static_segments = ml2_db.get_network_segments(self.admin_ctx.session,
+                                                      network_id)
+        dynamic_segments = ml2_db.get_network_segments(self.admin_ctx.session,
+                                                       network_id,
+                                                       filter_dynamic=True)
+        for dynamic_segment in dynamic_segments:
+            dynamic_segment['is_dynamic'] = True
+
+        return static_segments + dynamic_segments
+
+    def get_segment_by_id(self, segment_id):
+        return ml2_db.get_segment_by_id(self.admin_ctx.session,
+                                        segment_id)
 
     def get_network_from_net_id(self, network_id):
         filters = {'id': [network_id]}

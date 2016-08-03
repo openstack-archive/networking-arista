@@ -89,6 +89,15 @@ ARISTA_DRIVER_OPTS = [
                        '172.13.23.56:admin:admin, .... '
                        'This is required if sec_group_support is set to '
                        '"True"')),
+    cfg.ListOpt('managed_physnets',
+                default=[],
+                help=_('This is a comma separated list of physical networks '
+                       'which are managed by Arista Switches.'
+                       'This list will be used in bind_port/update_port by '
+                       'Arista mechanism driver to make decision if it can '
+                       'participate on binding or updating a port.'
+                       'For Example: '
+                       'managed_physnets = arista_network')),
 ]
 
 
