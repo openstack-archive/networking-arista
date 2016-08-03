@@ -71,6 +71,7 @@ class AristaDriver(driver_api.MechanismDriver):
         self.timer = None
         self.eos = arista_ml2.SyncService(self.rpc, self.ndb)
         self.sync_timeout = confg['sync_interval']
+        self.managed_physnets = confg['managed_physnets']
         self.eos_sync_lock = threading.Lock()
 
     def initialize(self):
@@ -205,42 +206,6 @@ class AristaDriver(driver_api.MechanismDriver):
                 LOG.info(EOS_UNREACHABLE_MSG)
                 raise ml2_exc.MechanismDriverError()
 
-    def create_port_precommit(self, context):
-        """Remember the information about a VM and its ports
-
-        A VM information, along with the physical host information
-        is saved.
-        """
-        port = context.current
-        device_id = port['device_id']
-        device_owner = port['device_owner']
-        host = context.host
-
-        pretty_log("create_port_precommit:", port)
-
-        if device_owner == 'compute:probe':
-            return
-
-        # device_id and device_owner are set on VM boot
-        is_vm_boot = device_id and device_owner
-        if host and is_vm_boot:
-            port_id = port['id']
-            network_id = port['network_id']
-            tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
-            # Ensure that we use tenant Id for the network owner
-            tenant_id = self._network_owner_tenant(context,
-                                                   network_id,
-                                                   tenant_id)
-            with self.eos_sync_lock:
-                # If network does not exist under this tenant,
-                # it may be a shared network. Get shared network owner Id
-                if not self._network_provisioned(tenant_id, network_id):
-                    # Ignore this request if network is not provisioned
-                    return
-                db_lib.remember_tenant(tenant_id)
-                db_lib.remember_vm(device_id, host, port_id,
-                                   network_id, tenant_id)
-
     def bind_port(self, context):
         """Bind baremetal port to a network.
 
@@ -268,63 +233,6 @@ class AristaDriver(driver_api.MechanismDriver):
                       {'id': port['id'],
                        'network': context.network.current['id']})
 
-    def create_port_postcommit(self, context):
-        """Plug a physical host into a network.
-
-        Send provisioning request to Arista Hardware to plug a host
-        into appropriate network.
-        """
-        port = context.current
-        device_id = port['device_id']
-        device_owner = port['device_owner']
-        host = context.host
-
-        profile = []
-        vnic_type = port['binding:vnic_type']
-        binding_profile = port['binding:profile']
-        if binding_profile:
-            profile = binding_profile['local_link_information']
-
-        pretty_log("create_port_postcommit:", port)
-
-        sg = port['security_groups']
-
-        # device_id and device_owner are set on VM boot
-        is_vm_boot = device_id and device_owner
-        if host and is_vm_boot:
-            port_id = port['id']
-            port_name = port['name']
-            network_id = port['network_id']
-            tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
-            # Ensure that we use tenant Id for the network owner
-            tenant_id = self._network_owner_tenant(context,
-                                                   network_id,
-                                                   tenant_id)
-            with self.eos_sync_lock:
-                hostname = self._host_name(host)
-                port_provisioned = db_lib.is_port_provisioned(port_id)
-                # If network does not exist under this tenant,
-                # it may be a shared network. Get shared network owner Id
-                if port_provisioned and self._network_provisioned(tenant_id,
-                                                                  network_id):
-                    try:
-                        self.rpc.plug_port_into_network(device_id,
-                                                        hostname,
-                                                        port_id,
-                                                        network_id,
-                                                        tenant_id,
-                                                        port_name,
-                                                        device_owner,
-                                                        sg, [],
-                                                        vnic_type,
-                                                        profile=profile)
-                    except arista_exc.AristaRpcError:
-                        LOG.info(EOS_UNREACHABLE_MSG)
-                        raise ml2_exc.MechanismDriverError()
-                else:
-                    LOG.info(_LI('VM %s is not created as it is not found in '
-                                 'Arista DB'), device_id)
-
     def _network_owner_tenant(self, context, network_id, tenant_id):
         tid = tenant_id
         if network_id and tenant_id:
@@ -332,6 +240,24 @@ class AristaDriver(driver_api.MechanismDriver):
             if network_owner and network_owner[0]['tenant_id'] != tenant_id:
                 tid = network_owner[0]['tenant_id'] or tenant_id
         return tid
+
+    def _should_port_be_managed(self, context):
+        """Check if a given port is managed by the mechanism driver.
+
+        It returns bound segemt dictionary, if physical network in the bound
+        segment is included in the managed physical network list.
+        """
+        if len(self.managed_physnets) == 0:
+            return (context.bottom_bound_segment
+                    if context.binding_levels else None)
+
+        if context.binding_levels:
+            for binding_level in context.binding_levels:
+                bound_segment = binding_level.get(driver_api.BOUND_SEGMENT)
+                if (bound_segment and
+                    bound_segment.get(driver_api.PHYSICAL_NETWORK) in
+                        self.managed_physnets):
+                    return bound_segment
 
     def update_port_precommit(self, context):
         """Update the name of a given port.
@@ -353,6 +279,13 @@ class AristaDriver(driver_api.MechanismDriver):
         pretty_log("update_port_precommit: orig", orig_port)
 
         if new_port['device_owner'] == 'compute:probe':
+            return
+
+        # Check if the port is part of managed physical network
+        seg_info = self._should_port_be_managed(context)
+        if not seg_info:
+            # Ignoring the update as the port is not managed by
+            # arista mechanism driver
             return
 
         # device_id and device_owner are set on VM boot
