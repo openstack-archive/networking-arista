@@ -1088,7 +1088,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.get_region_updated_time(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
-            mock.call.check_cli_commands(),
             mock.call.get_tenants(),
             mock.call.create_network_bulk(
                 tenant_id,
@@ -1175,7 +1174,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.get_region_updated_time().__nonzero__(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
-            mock.call.check_cli_commands(),
             mock.call.get_tenants(),
             mock.call.create_network_bulk(
                 tenant_2_id,
@@ -1231,7 +1229,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.get_region_updated_time().__nonzero__(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
-            mock.call.check_cli_commands(),
             mock.call.get_tenants(),
             mock.call.create_network_bulk(
                 tenant_1_id,
@@ -1270,14 +1267,14 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 2 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[6] in expected_calls[6:8],
+        self.assertTrue(self.rpc.mock_calls[6] in expected_calls[5:7],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls[6],
-                            expected_calls[6:8],
+                            expected_calls[5:7],
                             )
                         )
         # Check if the sync end methods are invoked.
-        self.assertTrue(self.rpc.mock_calls[8:10] == expected_calls[8:10],
+        self.assertTrue(self.rpc.mock_calls[7:] == expected_calls[7:],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
