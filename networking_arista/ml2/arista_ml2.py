@@ -1247,8 +1247,6 @@ class SyncService(object):
         try:
             # Register with EOS to ensure that it has correct credentials
             self._rpc.register_with_eos(sync=True)
-            # Recheck whether the commands are still available
-            self._rpc.check_cli_commands()
             eos_tenants = self._rpc.get_tenants()
         except arista_exc.AristaRpcError:
             LOG.warning(EOS_UNREACHABLE_MSG)
