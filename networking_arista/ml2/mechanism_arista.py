@@ -18,8 +18,8 @@ import threading
 from oslo_config import cfg
 from oslo_log import log as logging
 
+from neutron._i18n import _LI
 from neutron.common import constants as n_const
-from neutron.i18n import _LI
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_api
