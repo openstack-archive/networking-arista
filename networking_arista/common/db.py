@@ -15,6 +15,7 @@
 
 import sqlalchemy as sa
 
+from neutron.api.v2 import attributes as attr
 from neutron.db import model_base
 from neutron.db import models_v2
 
@@ -22,8 +23,14 @@ UUID_LEN = 36
 STR_LEN = 255
 
 
+class HasTenant(object):
+    """Tenant mixin, add to subclasses that have a tenant."""
+
+    tenant_id = sa.Column(sa.String(attr.TENANT_ID_MAX_LEN), index=True)
+
+
 class AristaProvisionedNets(model_base.BASEV2, models_v2.HasId,
-                            models_v2.HasTenant):
+                            HasTenant):
     """Stores networks provisioned on Arista EOS.
 
     Saves the segmentation ID for each network that is provisioned
@@ -44,7 +51,7 @@ class AristaProvisionedNets(model_base.BASEV2, models_v2.HasId,
 
 
 class AristaProvisionedVms(model_base.BASEV2, models_v2.HasId,
-                           models_v2.HasTenant):
+                           HasTenant):
     """Stores VMs provisioned on Arista EOS.
 
     All VMs launched on physical hosts connected to Arista
@@ -65,7 +72,7 @@ class AristaProvisionedVms(model_base.BASEV2, models_v2.HasId,
 
 
 class AristaProvisionedTenants(model_base.BASEV2, models_v2.HasId,
-                               models_v2.HasTenant):
+                               HasTenant):
     """Stores Tenants provisioned on Arista EOS.
 
     Tenants list is maintained for sync between Neutron and EOS.
