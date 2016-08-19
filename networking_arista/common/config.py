@@ -16,6 +16,8 @@
 
 from oslo_config import cfg
 
+from networking_arista._i18n import _
+
 
 # Arista ML2 Mechanism driver specific configuration knobs.
 #

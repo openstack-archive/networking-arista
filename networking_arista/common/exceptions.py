@@ -18,6 +18,8 @@
 
 from neutron_lib import exceptions
 
+from networking_arista._i18n import _
+
 
 class AristaRpcError(exceptions.NeutronException):
     message = _('%(msg)s')
