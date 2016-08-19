@@ -21,11 +21,10 @@ from oslo_config import cfg
 from oslo_log import log as logging
 import requests
 
-from neutron._i18n import _LI
-from neutron._i18n import _LW
 from neutron.common import constants as n_const
 from neutron.extensions import portbindings
 
+from networking_arista._i18n import _LI, _LW
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_sec_gp
