@@ -95,6 +95,15 @@ ARISTA_DRIVER_OPTS = [
                       'to communicate with CVX. Valid options are:'
                       'EAPI - Use EOS\' external API.'
                       'JSON - Use EOS\' JSON/REST API.')),
+    cfg.ListOpt('managed_physnets',
+                default=[],
+                help=_('This is a comma separated list of physical networks '
+                       'which are managed by Arista Switches.'
+                       'This list will be used in bind_port/update_port by '
+                       'Arista mechanism driver to make decision if it can '
+                       'participate on binding or updating a port.'
+                       'For Example: '
+                       'managed_physnets = arista_network')),
 ]
 
 
