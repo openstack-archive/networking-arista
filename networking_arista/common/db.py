@@ -47,6 +47,7 @@ class AristaProvisionedNets(model_base.BASEV2, models_v2.HasId,
                 u'segmentationTypeId': self.segmentation_id,
                 u'segmentationType': segmentation_type,
                 u'tenantId': self.tenant_id,
+                u'segmentId': self.id,
                 }
 
 

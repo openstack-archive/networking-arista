@@ -21,6 +21,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 import requests
 
+from neutron._i18n import _LE
 from neutron._i18n import _LI
 from neutron._i18n import _LW
 from neutron.common import constants as n_const
@@ -309,7 +310,8 @@ class AristaRPCWrapper(object):
 
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
-                               sg, orig_sg, vnic_type, profile=None):
+                               sg, orig_sg, vnic_type, segments=None,
+                               profile=None):
         """Generic routine plug a port of a VM instace into network.
 
         :param device_id: globally unique identifier for the device
@@ -327,14 +329,16 @@ class AristaRPCWrapper(object):
                                              port_id,
                                              net_id,
                                              tenant_id,
-                                             port_name)
+                                             port_name,
+                                             segments)
         elif device_owner.startswith('compute'):
             self.plug_host_into_network(device_id,
                                         host_id,
                                         port_id,
                                         net_id,
                                         tenant_id,
-                                        port_name)
+                                        port_name,
+                                        segments)
         elif device_owner.startswith('baremetal'):
             self.plug_baremetal_into_network(device_id,
                                              host_id,
@@ -343,6 +347,7 @@ class AristaRPCWrapper(object):
                                              tenant_id,
                                              port_name,
                                              sg, orig_sg,
+                                             segments,
                                              vnic_type,
                                              profile)
         elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
@@ -350,7 +355,8 @@ class AristaRPCWrapper(object):
                                                            host_id,
                                                            port_id,
                                                            net_id,
-                                                           tenant_id)
+                                                           tenant_id,
+                                                           segments)
 
     def _baremetal_supported(self):
         return (self.cli_commands[CMD_INSTANCE] == 'instance')
@@ -365,7 +371,7 @@ class AristaRPCWrapper(object):
             raise arista_exc.AristaConfigError(msg=msg)
 
     def plug_host_into_network(self, vm_id, host, port_id,
-                               network_id, tenant_id, port_name):
+                               network_id, tenant_id, port_name, segments):
         """Creates VLAN between TOR and compute host.
 
         :param vm_id: globally unique identifier for VM instance
@@ -383,6 +389,8 @@ class AristaRPCWrapper(object):
         else:
             cmds.append('port id %s network-id %s' %
                         (port_id, network_id))
+        for level, segment in enumerate(segments):
+            cmds.append('segment level %d id %s' % (level, segment['id']))
         self._run_openstack_cmds(cmds)
 
     def _clean_acls(self, sg, failed_switch, switches_to_clean):
@@ -417,7 +425,8 @@ class AristaRPCWrapper(object):
 
     def plug_baremetal_into_network(self, vm_id, host, port_id,
                                     network_id, tenant_id, port_name,
-                                    sg, orig_sg, vnic_type=None, profile=None):
+                                    sg, orig_sg, segments,
+                                    vnic_type=None, profile=None):
         """Creates VLAN between TOR and compute host.
 
         :param vm_id: globally unique identifier for VM instance
@@ -460,6 +469,9 @@ class AristaRPCWrapper(object):
                                     'switch-id %s switchport %s' %
                                     (port_id, network_id, p['switch_id'],
                                         p['port_id']))
+                    for level, segment in enumerate(segments):
+                        cmds.append('segment level %d id %s' % (level,
+                                                                segment['id']))
 
                     # SG -  Apply security group rules to the port
                     if sg:
@@ -486,7 +498,8 @@ class AristaRPCWrapper(object):
             self._run_openstack_cmds(cmds)
 
     def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
-                                    network_id, tenant_id, port_name):
+                                    network_id, tenant_id, port_name,
+                                    segments):
         """Creates VLAN between TOR and dhcp host.
 
         :param dhcp_id: globally unique identifier for dhcp
@@ -504,10 +517,13 @@ class AristaRPCWrapper(object):
         else:
             cmds.append('dhcp id %s hostid %s port-id %s' %
                         (dhcp_id, host, port_id))
+        for level, segment in enumerate(segments):
+            cmds.append('segment level %d id %s' % (level, segment['id']))
         self._run_openstack_cmds(cmds)
 
     def plug_distributed_router_port_into_network(self, router_id, host,
-                                                  port_id, net_id, tenant_id):
+                                                  port_id, net_id, tenant_id,
+                                                  segments):
         """Creates a DVR port on EOS.
 
         :param router_id: globally unique identifier for router instance
@@ -524,6 +540,8 @@ class AristaRPCWrapper(object):
         cmds = ['tenant %s' % tenant_id,
                 'instance id %s type router' % router_id,
                 'port id %s network-id %s hostid %s' % (port_id, net_id, host)]
+        for level, segment in enumerate(segments):
+            cmds.append('segment level %d id %s' % (level, segment['id']))
         self._run_openstack_cmds(cmds)
 
     def unplug_port_from_network(self, device_id, device_owner, hostname,
@@ -675,11 +693,12 @@ class AristaRPCWrapper(object):
                            (network['network_id'], network['network_name']))
             except KeyError:
                 append_cmd('network id %s' % network['network_id'])
-            # Enter segment mode without exiting out of network mode
-            if not network['segmentation_id']:
-                network['segmentation_id'] = DEFAULT_VLAN
-            append_cmd('segment 1 type vlan id %d' %
-                       network['segmentation_id'])
+
+            for seg in network['segments']:
+                is_dynamic = seg.get('is_dynamic', False)
+                append_cmd('segment %s type %s id %d %s' % (seg['id'],
+                           seg['network_type'], seg['segmentation_id'],
+                           'dynamic' if is_dynamic else 'static'))
             shared_cmd = 'shared' if network['shared'] else 'no shared'
             append_cmd(shared_cmd)
             if self._heartbeat_required(sync, counter):
@@ -706,11 +725,11 @@ class AristaRPCWrapper(object):
         if segments:
             cmds = ['tenant %s' % tenant_id,
                     'network id %s name "%s"' % (network_id, network_name)]
-            seg_num = 1
             for seg in segments:
-                cmds.append('segment %d type %s id %d' % (seg_num,
-                            seg['network_type'], seg['segmentation_id']))
-                seg_num += 1
+                is_dynamic = seg.get('is_dynamic', False)
+                cmds.append('segment %s type %s id %d %s' % (seg['id'],
+                            seg['network_type'], seg['segmentation_id'],
+                            'dynamic' if is_dynamic else 'static'))
 
             self._run_openstack_cmds(cmds)
 
@@ -735,6 +754,35 @@ class AristaRPCWrapper(object):
         for network_id in network_id_list:
             counter += 1
             cmds.append('no network id %s' % network_id)
+            if self._heartbeat_required(sync, counter):
+                cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
+
+        if self._heartbeat_required(sync):
+            cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
+        self._run_openstack_cmds(cmds, sync=sync)
+
+    def delete_network_segment(self, tenant_id, segment):
+        """Deletes a specified network segment for a given tenant
+
+        :param tenant_id: globally unique neutron tenant identifier
+        :param segment: a network segment
+        """
+        self.delete_network_segment_bulk(tenant_id, [segment])
+
+    def delete_network_segment_bulk(self, tenant_id, segment_list, sync=False):
+        """Deletes the network segments specified for a tenant
+
+        :param tenant_id: globally unique neutron tenant identifier
+        :param segment_list: list of network segments
+        :param sync: This flags indicates that the region is being synced.
+        """
+        cmds = ['tenant %s' % tenant_id]
+        counter = 0
+        for segment in segment_list:
+            counter += 1
+            cmds.append('network id %s' % segment['network_id'])
+            cmds.append('no segment %s' % segment['id'])
+
             if self._heartbeat_required(sync, counter):
                 cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
 
@@ -841,12 +889,16 @@ class AristaRPCWrapper(object):
 
                 device_owner = neutron_port['device_owner']
                 network_id = neutron_port['network_id']
+                segments = self._ndb.get_all_network_segments(network_id)
                 if device_owner == n_const.DEVICE_OWNER_DHCP:
                     append_cmd('network id %s' % neutron_port['network_id'])
                     append_cmd('dhcp id %s hostid %s port-id %s %s' %
                                (vm['vmId'], v_port['hosts'][0],
                                 neutron_port['id'], port_name))
-                if device_owner.startswith('baremetal'):
+                    for level, segment in enumerate(segments):
+                        append_cmd('segment level %d id %s' % (
+                                   level, segment['id']))
+                elif device_owner.startswith('baremetal'):
                     append_cmd('instance id %s hostid %s type baremetal' %
                                (vm['vmId'], v_port['hosts'][0]))
                     profile = bm_port_profiles[neutron_port['id']]
@@ -869,6 +921,9 @@ class AristaRPCWrapper(object):
                                             'switch-id %s switchport %s' %
                                             (port_id, network_id,
                                              p['switch_id'], p['port_id']))
+                            for level, segment in enumerate(segments):
+                                cmds.append('segment level %d id %s' % (level,
+                                            segment['id']))
 
                 elif device_owner.startswith('compute'):
                     append_cmd('vm id %s hostid %s' % (vm['vmId'],
@@ -876,6 +931,9 @@ class AristaRPCWrapper(object):
                     append_cmd('port id %s %s network-id %s' %
                                (neutron_port['id'], port_name,
                                 neutron_port['network_id']))
+                    for level, segment in enumerate(segments):
+                        append_cmd('segment level %d id %s' % (level,
+                                   segment['id']))
                 elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
                     if not self.cli_commands[CMD_INSTANCE]:
                         LOG.info(ERR_DVR_NOT_SUPPORTED)
@@ -886,10 +944,13 @@ class AristaRPCWrapper(object):
                         append_cmd('port id %s network-id %s hostid %s' % (
                                    neutron_port['id'],
                                    neutron_port['network_id'], host))
+                        for level, segment in enumerate(segments):
+                            append_cmd('segment level %d id %s' % (
+                                level, segment['id']))
                 else:
                     LOG.warn(_LW("Unknown device owner: %s"),
                              neutron_port['device_owner'])
-                    continue
+
                 if self._heartbeat_required(sync, counter):
                     append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
 
@@ -1192,6 +1253,43 @@ class AristaRPCWrapper(object):
             LOG.error(msg)
             raise arista_exc.AristaConfigError(msg=msg)
 
+    def get_physical_network(self, host_id):
+        """Returns dirctionary which contains physical topology information
+
+        for a given host_id
+        """
+        fqdns_used = cfg.CONF.ml2_arista['use_fqdn']
+        hostname = None
+        physnet = None
+        switch_id = None
+        cmds = ['show network physical-topology neighbors',
+                'show network physical-topology hosts']
+        try:
+            response = self._run_eos_cmds(cmds)
+            # Get response for 'show network physical-topology neighbors'
+            # command
+            neighbors = response[0]['neighbors']
+            neighbors_keys = neighbors.keys()
+            for neighbor in neighbors_keys:
+                if host_id in neighbor:
+                    hostname = neighbors[neighbor]['toPort'][0]['hostname']
+                    physnet = hostname if fqdns_used else (
+                        hostname.split('.')[0])
+                    break
+            # Get response for 'show network physical-topology hosts' command
+            if hostname:
+                switch_id = response[1]['hosts'][hostname]['name']
+
+            res = dict(physnet=physnet, switch_id=switch_id)
+            LOG.debug("get_physical_network: Physical Network info for "
+                      "%(host)s is %(res)s", {'host': host_id,
+                                              'res': res})
+            return res
+        except Exception as exc:
+            LOG.error(_LE('command %(cmds)s failed with '
+                      '%(exc)s'), {'cmds': cmds, 'exc': exc})
+            return dict()
+
 
 class SyncService(object):
     """Synchronization of information between Neutron and EOS
@@ -1349,13 +1447,12 @@ class SyncService(object):
                 if nets_to_update:
                     networks = [{
                         'network_id': net_id,
-                        'segmentation_id':
-                            db_nets[net_id]['segmentationTypeId'],
                         'network_name':
                             neutron_nets.get(net_id, {'name': ''})['name'],
                         'shared':
                             neutron_nets.get(net_id,
                                              {'shared': False})['shared'],
+                        'segments': self._ndb.get_all_network_segments(net_id),
                         }
                         for net_id in nets_to_update
                     ]
