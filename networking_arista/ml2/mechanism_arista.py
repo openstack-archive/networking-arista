@@ -18,6 +18,7 @@ import threading
 from oslo_config import cfg
 from oslo_log import log as logging
 
+from neutron._i18n import _LE
 from neutron._i18n import _LI
 from neutron.common import constants as n_const
 from neutron.extensions import portbindings
@@ -74,9 +75,15 @@ class AristaDriver(driver_api.MechanismDriver):
         self.eos_sync_lock = threading.Lock()
 
     def initialize(self):
-        self.rpc.register_with_eos()
+        try:
+            self.rpc.register_with_eos()
+            self.rpc.check_cvx_availability_and_functionality()
+            self.rpc.set_cvx_available()
+        except Exception as exc:
+            LOG.error(_LE("Register with EOS: %s"), exc)
+            self.rpc.set_cvx_unavailable()
+
         self._cleanup_db()
-        self.rpc.check_cli_commands()
         # Registering with EOS updates self.rpc.region_updated_time. Clear it
         # to force an initial sync
         self.rpc.clear_region_updated_time()
