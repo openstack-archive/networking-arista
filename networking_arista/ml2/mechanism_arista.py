@@ -18,6 +18,7 @@ import threading
 from oslo_config import cfg
 from oslo_log import log as logging
 
+from neutron._i18n import _LE
 from neutron._i18n import _LI
 from neutron.common import constants as n_const
 from neutron.extensions import portbindings
@@ -74,9 +75,15 @@ class AristaDriver(driver_api.MechanismDriver):
         self.eos_sync_lock = threading.Lock()
 
     def initialize(self):
-        self.rpc.register_with_eos()
+        try:
+            self.rpc.register_with_eos()
+            self.rpc.check_cvx_availability_and_functionality()
+            self.rpc.set_cvx_available()
+        except Exception as exc:
+            LOG.error(_LE("Register with EOS: %s"), exc)
+            self.rpc.set_cvx_unavailable()
+
         self._cleanup_db()
-        self.rpc.check_cli_commands()
         # Registering with EOS updates self.rpc.region_updated_time. Clear it
         # to force an initial sync
         self.rpc.clear_region_updated_time()
@@ -121,7 +128,9 @@ class AristaDriver(driver_api.MechanismDriver):
                     self.rpc.create_network(tenant_id, network_dict)
                 except arista_exc.AristaRpcError:
                     LOG.info(EOS_UNREACHABLE_MSG)
-                    raise ml2_exc.MechanismDriverError()
+                    if self.rpc.is_cvx_available():
+                        raise ml2_exc.MechanismDriverError(
+                            method='create_network_postcommit')
             else:
                 LOG.info(_LI('Network %s is not created as it is not found in '
                              'Arista DB'), network_id)
@@ -164,7 +173,9 @@ class AristaDriver(driver_api.MechanismDriver):
                         self.rpc.create_network(tenant_id, network_dict)
                     except arista_exc.AristaRpcError:
                         LOG.info(EOS_UNREACHABLE_MSG)
-                        raise ml2_exc.MechanismDriverError()
+                        if self.rpc.is_cvx_available():
+                            raise ml2_exc.MechanismDriverError(
+                                method='update_network_postcommit')
                 else:
                     LOG.info(_LI('Network %s is not updated as it is not found'
                                  ' in Arista DB'), network_id)
@@ -179,7 +190,8 @@ class AristaDriver(driver_api.MechanismDriver):
                 if db_lib.are_ports_attached_to_network(network_id):
                     LOG.info(_LI('Network %s can not be deleted as it '
                                  'has ports attached to it'), network_id)
-                    raise ml2_exc.MechanismDriverError()
+                    raise ml2_exc.MechanismDriverError(
+                        method='delete_network_precommit')
                 else:
                     db_lib.forget_network(tenant_id, network_id)
 
@@ -203,7 +215,9 @@ class AristaDriver(driver_api.MechanismDriver):
                 self.delete_tenant(tenant_id)
             except arista_exc.AristaRpcError:
                 LOG.info(EOS_UNREACHABLE_MSG)
-                raise ml2_exc.MechanismDriverError()
+                if self.rpc.is_cvx_available():
+                    raise ml2_exc.MechanismDriverError(
+                        method='delete_network_postcommit')
 
     def create_port_precommit(self, context):
         """Remember the information about a VM and its ports
@@ -320,7 +334,8 @@ class AristaDriver(driver_api.MechanismDriver):
                                                         profile=profile)
                     except arista_exc.AristaRpcError:
                         LOG.info(EOS_UNREACHABLE_MSG)
-                        raise ml2_exc.MechanismDriverError()
+                        raise ml2_exc.MechanismDriverError(
+                            method='create_port_postcommit')
                 else:
                     LOG.info(_LI('VM %s is not created as it is not found in '
                                  'Arista DB'), device_id)
@@ -503,7 +518,8 @@ class AristaDriver(driver_api.MechanismDriver):
                     LOG.info(_LI("Port not plugged into network"))
             except arista_exc.AristaRpcError:
                 LOG.info(EOS_UNREACHABLE_MSG)
-                raise ml2_exc.MechanismDriverError()
+                raise ml2_exc.MechanismDriverError(
+                    method='update_port_postcommit')
 
     def delete_port_precommit(self, context):
         """Delete information about a VM and host from the DB."""
@@ -579,7 +595,7 @@ class AristaDriver(driver_api.MechanismDriver):
             self.delete_tenant(tenant_id)
         except arista_exc.AristaRpcError:
             LOG.info(EOS_UNREACHABLE_MSG)
-            raise ml2_exc.MechanismDriverError()
+            raise ml2_exc.MechanismDriverError(method='_delete_port')
 
     def delete_tenant(self, tenant_id):
         """delete a tenant from DB.
@@ -595,7 +611,7 @@ class AristaDriver(driver_api.MechanismDriver):
                 self.rpc.delete_tenant(tenant_id)
             except arista_exc.AristaRpcError:
                 LOG.info(EOS_UNREACHABLE_MSG)
-                raise ml2_exc.MechanismDriverError()
+                raise ml2_exc.MechanismDriverError(method='delete_tenant')
 
     def _host_name(self, hostname):
         fqdns_used = cfg.CONF.ml2_arista['use_fqdn']

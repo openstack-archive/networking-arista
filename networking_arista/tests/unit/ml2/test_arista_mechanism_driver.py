@@ -586,18 +586,8 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
         self.drv._get_random_name.return_value = 'RegionOne'
 
         self.drv.check_cli_commands()
-
-        timestamp_cmd = ['show openstack config region RegionOne timestamp']
-        sync_lock_cmd = ['enable', 'configure', 'cvx', 'service openstack',
-                         'region RegionOne', 'sync lock clientid requestid',
-                         'exit', 'region RegionOne sync', 'sync end', 'exit']
-        delete_region_cmd = ['enable', 'configure', 'cvx', 'service openstack',
-                             'no region RegionOne']
-        instance_command = ['enable', 'configure', 'cvx', 'service openstack',
-                            'region RegionOne', 'tenant t1',
-                            'instance id i1 type router']
-        cmds = [timestamp_cmd, sync_lock_cmd, delete_region_cmd,
-                instance_command, delete_region_cmd]
+        instance_command = ['show openstack instances']
+        cmds = [instance_command]
 
         for cmd in cmds:
             found = False
@@ -1141,6 +1131,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         self.rpc.sync_start.return_value = True
         self.rpc.sync_end.return_value = True
+        self.rpc.is_cvx_available.return_value = True
 
         self.rpc._baremetal_supported.return_value = False
         self.rpc.get_all_baremetal_hosts.return_value = {}
@@ -1150,7 +1141,9 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         expected_calls = [
             mock.call.perform_sync_of_sg(),
             mock.call.get_region_updated_time(),
+            mock.call.is_cvx_available(),
             mock.call.sync_start(),
+            mock.call.check_cvx_availability_and_functionality(),
             mock.call.register_with_eos(sync=True),
             mock.call.get_tenants(),
             mock.call.create_network_bulk(
@@ -1160,6 +1153,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                   'network_name': '',
                   'shared': False}],
                 sync=True),
+            mock.call.is_cvx_available(),
             mock.call.sync_end(),
             mock.call.get_region_updated_time()
         ]
@@ -1242,6 +1236,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         self.rpc.sync_start.return_value = True
         self.rpc.sync_end.return_value = True
+        self.rpc.is_cvx_available.return_value = True
 
         self.rpc._baremetal_supported.return_value = False
         self.rpc.get_all_baremetal_hosts.return_value = {}
@@ -1252,7 +1247,9 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.perform_sync_of_sg(),
             mock.call.get_region_updated_time(),
             mock.call.get_region_updated_time().__nonzero__(),
+            mock.call.is_cvx_available(),
             mock.call.sync_start(),
+            mock.call.check_cvx_availability_and_functionality(),
             mock.call.register_with_eos(sync=True),
             mock.call.get_tenants(),
 
@@ -1264,6 +1261,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                   'shared': False}],
                 sync=True),
 
+            mock.call.is_cvx_available(),
             mock.call.sync_end(),
             mock.call.get_region_updated_time()
         ]
@@ -1303,6 +1301,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         self.rpc.sync_start.return_value = True
         self.rpc.sync_end.return_value = True
+        self.rpc.is_cvx_available.return_value = True
 
         self.rpc._baremetal_supported.return_value = False
         self.rpc.get_all_baremetal_hosts.return_value = {}
@@ -1313,7 +1312,9 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.perform_sync_of_sg(),
             mock.call.get_region_updated_time(),
             mock.call.get_region_updated_time().__nonzero__(),
+            mock.call.is_cvx_available(),
             mock.call.sync_start(),
+            mock.call.check_cvx_availability_and_functionality(),
             mock.call.register_with_eos(sync=True),
             mock.call.get_tenants(),
 
@@ -1332,6 +1333,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                   'network_name': '',
                   'shared': False}],
                 sync=True),
+            mock.call.is_cvx_available(),
             mock.call.sync_end(),
             mock.call.get_region_updated_time()
         ]
@@ -1339,7 +1341,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         # The create_network_bulk() can be called in different order. So split
         # it up. The first part checks if the initial set of methods are
         # invoked.
-        self.assertTrue(self.rpc.mock_calls[:6] == expected_calls[:6],
+        self.assertTrue(self.rpc.mock_calls[:7] == expected_calls[:7],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -1347,7 +1349,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 1 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[6] in expected_calls[6:8],
+        self.assertTrue(self.rpc.mock_calls[8] in expected_calls[8:10],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -1355,14 +1357,14 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 2 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[7] in expected_calls[6:8],
+        self.assertTrue(self.rpc.mock_calls[9] in expected_calls[8:10],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
                             )
                         )
         # Check if the sync end methods are invoked.
-        self.assertTrue(self.rpc.mock_calls[8:] == expected_calls[8:],
+        self.assertTrue(self.rpc.mock_calls[10:] == expected_calls[10:],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
