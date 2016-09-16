@@ -1151,6 +1151,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.perform_sync_of_sg(),
             mock.call.get_region_updated_time(),
             mock.call.sync_start(),
+            mock.call.check_instances_command(),
             mock.call.register_with_eos(sync=True),
             mock.call.get_tenants(),
             mock.call.create_network_bulk(
@@ -1253,6 +1254,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.get_region_updated_time(),
             mock.call.get_region_updated_time().__nonzero__(),
             mock.call.sync_start(),
+            mock.call.check_instances_command(),
             mock.call.register_with_eos(sync=True),
             mock.call.get_tenants(),
 
@@ -1314,6 +1316,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.get_region_updated_time(),
             mock.call.get_region_updated_time().__nonzero__(),
             mock.call.sync_start(),
+            mock.call.check_instances_command(),
             mock.call.register_with_eos(sync=True),
             mock.call.get_tenants(),
 
@@ -1339,7 +1342,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         # The create_network_bulk() can be called in different order. So split
         # it up. The first part checks if the initial set of methods are
         # invoked.
-        self.assertTrue(self.rpc.mock_calls[:6] == expected_calls[:6],
+        self.assertTrue(self.rpc.mock_calls[:7] == expected_calls[:7],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -1347,7 +1350,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 1 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[6] in expected_calls[6:8],
+        self.assertTrue(self.rpc.mock_calls[7] in expected_calls[7:9],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
@@ -1355,14 +1358,14 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
         # Check if tenant 2 networks are created. It must be one of the two
         # methods.
-        self.assertTrue(self.rpc.mock_calls[7] in expected_calls[6:8],
+        self.assertTrue(self.rpc.mock_calls[8] in expected_calls[7:9],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,
                             )
                         )
         # Check if the sync end methods are invoked.
-        self.assertTrue(self.rpc.mock_calls[8:] == expected_calls[8:],
+        self.assertTrue(self.rpc.mock_calls[9:] == expected_calls[9:],
                         "Seen: %s\nExpected: %s" % (
                             self.rpc.mock_calls,
                             expected_calls,

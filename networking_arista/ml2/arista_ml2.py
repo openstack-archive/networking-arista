@@ -45,6 +45,9 @@ CMD_SYNC_HEARTBEAT = 'SYNC_HEARTBEAT'
 CMD_REGION_SYNC = 'REGION_SYNC'
 CMD_INSTANCE = 'INSTANCE'
 
+EOS_AVAILABLE = 'eos_available'
+EOS_UNAVAILABLE = 'eos_unavailable'
+
 # EAPI error messages of interest
 ERR_CVX_NOT_LEADER = 'only available on cluster leader'
 ERR_DVR_NOT_SUPPORTED = 'EOS version on CVX does not support DVR'
@@ -75,6 +78,7 @@ class AristaRPCWrapper(object):
 
         self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
             self._ndb)
+        self._eos_state = EOS_AVAILABLE
 
     def _send_eapi_req(self, cmds):
         # This method handles all EAPI requests (using the requests library)
@@ -164,12 +168,35 @@ class AristaRPCWrapper(object):
         """Returns a base64 encoded name."""
         return base64.b64encode(os.urandom(10)).translate(None, '=+/')
 
+    def set_eos_unavailable(self):
+        self._eos_state = EOS_UNAVAILABLE
+
+    def set_eos_available(self):
+        self._eos_state = EOS_AVAILABLE
+
+    def is_eos_available(self):
+        return self._eos_state == EOS_AVAILABLE
+
     def initialize_cli_commands(self):
         self.cli_commands['timestamp'] = []
         self.cli_commands[CMD_INSTANCE] = None
         self.cli_commands[CMD_REGION_SYNC] = ''
         self.cli_commands[CMD_SYNC_HEARTBEAT] = ''
         self.cli_commands['resource-pool'] = []
+
+    def check_instances_command(self):
+        """Checks whether the CLI instance command is supported.
+
+           This method tries to execute the command on EOS and if it succeedes
+           the command is stored.
+        """
+        cmd = ['show openstack instances']
+        try:
+            self._run_eos_cmds(cmd)
+            self.cli_commands[CMD_INSTANCE] = 'instance'
+        except arista_exc.AristaRpcError:
+            self.cli_commands[CMD_INSTANCE] = None
+            LOG.warn(_LW("'instance' command is not available on EOS"))
 
     def check_cli_commands(self):
         """Checks whether the CLI commands are valid.
@@ -1078,10 +1105,13 @@ class AristaRPCWrapper(object):
         try:
             if self._get_eos_master() is None:
                 msg = "Failed to identify EOS master"
+                self.set_eos_unavailable()
                 raise arista_exc.AristaRpcError(msg=msg)
         except Exception:
+            self.set_eos_unavailable()
             raise
 
+        self.set_eos_available()
         log_cmds = commands
         if commands_to_log:
             log_cmds = commands_to_log
@@ -1137,6 +1167,9 @@ class AristaRPCWrapper(object):
                                   param is logged.
         :param sync: This flags indicates that the region is being synced.
         """
+        if not self.is_eos_available():
+            # Returning from here as EOS is not available.
+            return
 
         full_command = self._build_command(commands, sync=sync)
         if commands_to_log:
@@ -1246,6 +1279,7 @@ class SyncService(object):
         LOG.info(_LI('Syncing Neutron <-> EOS'))
         try:
             # Register with EOS to ensure that it has correct credentials
+            self._rpc.check_instances_command()
             self._rpc.register_with_eos(sync=True)
             eos_tenants = self._rpc.get_tenants()
         except arista_exc.AristaRpcError:
