@@ -45,6 +45,7 @@ CMD_SYNC_HEARTBEAT = 'SYNC_HEARTBEAT'
 CMD_REGION_SYNC = 'REGION_SYNC'
 CMD_INSTANCE = 'INSTANCE'
 
+
 # EAPI error messages of interest
 ERR_CVX_NOT_LEADER = 'only available on cluster leader'
 ERR_DVR_NOT_SUPPORTED = 'EOS version on CVX does not support DVR'
@@ -67,6 +68,7 @@ class AristaRPCWrapper(object):
         self.sync_interval = cfg.CONF.ml2_arista.sync_interval
         self.conn_timeout = cfg.CONF.ml2_arista.conn_timeout
         self.eapi_hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
+        self.sync_svc = None
 
         # The cli_commands dict stores the mapping between the CLI command key
         # and the actual CLI command.
@@ -75,6 +77,8 @@ class AristaRPCWrapper(object):
 
         self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
             self._ndb)
+        # Indication of CVX availabililty in the driver.
+        self._cvx_available = True
 
     def _send_eapi_req(self, cmds):
         # This method handles all EAPI requests (using the requests library)
@@ -164,76 +168,55 @@ class AristaRPCWrapper(object):
         """Returns a base64 encoded name."""
         return base64.b64encode(os.urandom(10)).translate(None, '=+/')
 
+    def set_cvx_unavailable(self):
+        self._cvx_available = False
+        if self.sync_svc:
+            self.sync_svc.force_sync()
+
+    def set_cvx_available(self):
+        self._cvx_available = True
+
+    def cvx_available(self):
+        return self._cvx_available
+
     def initialize_cli_commands(self):
-        self.cli_commands['timestamp'] = []
+        self.cli_commands['timestamp'] = [
+            'show openstack config region %s timestamp' % self.region]
         self.cli_commands[CMD_INSTANCE] = None
-        self.cli_commands[CMD_REGION_SYNC] = ''
-        self.cli_commands[CMD_SYNC_HEARTBEAT] = ''
+        self.cli_commands[CMD_REGION_SYNC] = 'region %s sync' % self.region
+        self.cli_commands[CMD_SYNC_HEARTBEAT] = 'sync heartbeat'
         self.cli_commands['resource-pool'] = []
 
     def check_cli_commands(self):
-        """Checks whether the CLI commands are valid.
+        """Checks whether the CLI command(s) is supported.
 
-           This method tries to execute the commands on EOS and if it succeedes
+           This method tries to execute the command on EOS and if it succeedes
            the command is stored.
         """
-        cmd = ['show openstack config region %s timestamp' % self.region]
+        cmd = ['show openstack instances']
         try:
             self._run_eos_cmds(cmd)
-            self.cli_commands['timestamp'] = cmd
-        except arista_exc.AristaRpcError:
-            self.cli_commands['timestamp'] = []
-            LOG.warn(_LW("'timestamp' command '%s' is not available on EOS"),
-                     cmd)
-
-        # Test the CLI command against a random region to ensure that multiple
-        # neutron servers trying to execute the same command do not interpret
-        # the lock errors differently.
-        test_region_name = self._get_random_name()
-        sync_command = [
-            'enable',
-            'configure',
-            'cvx',
-            'service openstack',
-            'region %s' % test_region_name,
-            'sync lock clientid requestid',
-            'exit',
-            'region %s sync' % test_region_name,
-            'sync end',
-            'exit',
-        ]
-        try:
-            self._run_eos_cmds(sync_command)
-            self.cli_commands[CMD_REGION_SYNC] = 'region %s sync' % self.region
-            self.cli_commands[CMD_SYNC_HEARTBEAT] = 'sync heartbeat'
-        except arista_exc.AristaRpcError:
-            self.cli_commands[CMD_REGION_SYNC] = ''
-            LOG.warn(_LW("'region sync' command is not available on EOS"))
-        finally:
-            cmd = ['enable', 'configure', 'cvx', 'service openstack',
-                   'no region %s' % test_region_name]
-            self._run_eos_cmds(cmd)
-
-        # Check if the instance command exists
-        instance_command = [
-            'enable',
-            'configure',
-            'cvx',
-            'service openstack',
-            'region %s' % test_region_name,
-            'tenant t1',
-            'instance id i1 type router',
-        ]
-        try:
-            self._run_eos_cmds(instance_command)
             self.cli_commands[CMD_INSTANCE] = 'instance'
-        except arista_exc.AristaRpcError:
+        except (arista_exc.AristaRpcError, Exception) as err:
             self.cli_commands[CMD_INSTANCE] = None
-            LOG.warn(_LW("'instance' command is not available on EOS"))
-        finally:
-            cmd = ['enable', 'configure', 'cvx', 'service openstack',
-                   'no region %s' % test_region_name]
-            self._run_eos_cmds(cmd)
+            LOG.warn(_LW("'instance' command is not available on EOS because "
+                         "of %s"), err)
+
+    def check_cvx_availability_and_functionality(self):
+        """Checks CVX availability and supported CLI commands."""
+
+        # The _cvx_available flag is an indication of CVX availability in the
+        # Arista mechanism driver. The flag will be updated in a call to
+        # _run_eos_cmds. The flag is set to False, if there is a
+        # failure in finding master EOS. It is set to True, otherwise.
+        # There is no need to have new command for checking the availabiltiy of
+        # CVX, because in check_cli_commands we are calling _run_eos_cmds.
+        # If openstack service is not enabled, then the show commands can still
+        # be executed. So CVX would be set to available, but the configuration
+        # commands will fail. That should be ok as it points to a misconfig.
+        # As a result, calling check_cli_commands will help us to find out the
+        # availability of CVX and also supported CLI command(s).
+        self.check_cli_commands()
 
     def check_vlan_type_driver_commands(self):
         """Checks the validity of CLI commands for Arista's VLAN type driver.
@@ -1025,6 +1008,7 @@ class AristaRPCWrapper(object):
         """
         cmds = ['show sync lock']
         ret = self._run_openstack_cmds(cmds, sync=True)
+
         for r in ret:
             if 'owner' in r:
                 lock_owner = r['owner']
@@ -1077,11 +1061,13 @@ class AristaRPCWrapper(object):
         # Always figure out who is master (starting with the last known val)
         try:
             if self._get_eos_master() is None:
-                msg = "Failed to identify EOS master"
+                msg = "Failed to identify CVX master"
+                self.set_cvx_unavailable()
                 raise arista_exc.AristaRpcError(msg=msg)
         except Exception:
             raise
 
+        self.set_cvx_available()
         log_cmds = commands
         if commands_to_log:
             log_cmds = commands_to_log
@@ -1094,7 +1080,8 @@ class AristaRPCWrapper(object):
             if response is None:
                 # Reset the server as we failed communicating with it
                 self._server_ip = None
-                msg = "Failed to communicate with EOS master"
+                self.set_cvx_unavailable()
+                msg = "Failed to communicate with CVX master"
                 raise arista_exc.AristaRpcError(msg=msg)
             return response
         except arista_exc.AristaRpcError:
@@ -1170,7 +1157,7 @@ class AristaRPCWrapper(object):
 
         # Couldn't find an instance that is the leader and returning none
         self._server_ip = None
-        msg = "Failed to reach the EOS master"
+        msg = "Failed to reach the CVX master"
         LOG.error(msg)
         return None
 
@@ -1221,6 +1208,13 @@ class SyncService(object):
             self._rpc.perform_sync_of_sg()
         except Exception as e:
             LOG.warning(e)
+
+        # Check whether CVX is available before starting the sync.
+        self._rpc.check_cvx_availability_and_functionality()
+        if not self._rpc.cvx_available():
+            LOG.warning("Not syncing as CVX is unreachable")
+            self.force_sync()
+            return
 
         if not self._sync_required():
             return
