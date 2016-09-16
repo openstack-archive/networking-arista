@@ -25,6 +25,7 @@ from oslo_utils import excutils
 import requests
 from six import add_metaclass
 
+from neutron._i18n import _LE
 from neutron._i18n import _LI
 from neutron._i18n import _LW
 from neutron.common import constants as n_const
@@ -73,6 +74,12 @@ class AristaRPCWrapperBase(object):
         self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
             self._ndb)
 
+        # Indication of CVX availabililty in the driver.
+        self._cvx_available = True
+
+        # Reference to SyncService object which is set in AristaDriver
+        self.sync_service = None
+
     def _validate_config(self):
         if cfg.CONF.ml2_arista.get('eapi_host') == '':
             msg = _('Required option eapi_host is not set')
@@ -115,6 +122,28 @@ class AristaRPCWrapperBase(object):
                 cvx.append(h.strip())
 
         return cvx
+
+    def set_cvx_unavailable(self):
+        self._cvx_available = False
+        if self.sync_service:
+            self.sync_service.force_sync()
+
+    def set_cvx_available(self):
+        self._cvx_available = True
+
+    def cvx_available(self):
+        return self._cvx_available
+
+    def check_cvx_availability(self):
+        try:
+            if self._get_eos_master():
+                self.set_cvx_available()
+                return True
+        except Exception as exc:
+            LOG.warning(_LW('%s when getting CVX master'), exc)
+
+        self.set_cvx_unavailable()
+        return False
 
     def delete_tenant(self, tenant_id):
         """Deletes a given tenant and all its networks and VMs from EOS.
@@ -617,7 +646,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         data = self._send_request(host, url, 'GET')
         return False if not data else data.get('isLeader', False)
 
-    def _get_eos_leader(self):
+    def _get_eos_master(self):
         cvx = self._get_cvx_hosts()
         for self._server_ip in cvx:
             if self._check_if_cvx_leader(self._server_ip):
@@ -625,11 +654,13 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         return None
 
     def _send_api_request(self, path, method, data=None, sanitized_data=None):
-        host = self._get_eos_leader()
+        host = self._get_eos_master()
         if not host:
             msg = unicode("Could not find CVX leader")
             LOG.info(msg)
+            self.set_cvx_unavailable()
             raise arista_exc.AristaRpcError(msg=msg)
+        self.set_cvx_available()
         return self._send_request(host, path, method, data, sanitized_data)
 
     def _create_keystone_endpoint(self):
@@ -751,12 +782,17 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
             nets = self.get_networks(ten['tenantId'])
             netDict = {}
-            for net in nets:
-                net['networkId'] = net.pop('id')
-                net['networkName'] = net.pop('name')
-                net['segmentationType'] = net.pop('segType')
-                net['segmentationTypeId'] = net.pop('segId')
-                netDict[net['networkId']] = net
+            try:
+                for net in nets:
+                    net['networkId'] = net.pop('id')
+                    net['networkName'] = net.pop('name')
+                    net['segmentationType'] = net.pop('segType')
+                    net['segmentationTypeId'] = net.pop('segId')
+                    netDict[net['networkId']] = net
+            except Exception as exc:
+                LOG.error(_LE('Failed to get tenant network %(net)s. '
+                              'Reason: %(exc)s'), {'net': net, 'exc': exc})
+
             ten['tenantNetworks'] = netDict
 
             vmPorts = self.get_ports_for_tenant(ten['tenantId'], 'vm')
@@ -1041,10 +1077,11 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         # The cli_commands dict stores the mapping between the CLI command key
         # and the actual CLI command.
         self.cli_commands = {
-            'timestamp': [],
-            CMD_REGION_SYNC: '',
+            'timestamp': [
+                'show openstack config region %s timestamp' % self.region],
+            CMD_REGION_SYNC: 'region %s sync' % self.region,
             CMD_INSTANCE: None,
-            CMD_SYNC_HEARTBEAT: '',
+            CMD_SYNC_HEARTBEAT: 'region %s sync',
             'resource-pool': []
         }
 
@@ -1126,63 +1163,14 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             raise
 
     def check_supported_features(self):
-        cmd = ['show openstack config region %s timestamp' % self.region]
+        cmd = ['show openstack instances']
         try:
             self._run_eos_cmds(cmd)
-            self.cli_commands['timestamp'] = cmd
-        except arista_exc.AristaRpcError:
-            self.cli_commands['timestamp'] = []
-            LOG.warn(_LW("'timestamp' command '%s' is not available on EOS"),
-                     cmd)
-
-        # Test the CLI command against a random region to ensure that multiple
-        # neutron servers trying to execute the same command do not interpret
-        # the lock errors differently.
-        test_region_name = self._get_random_name()
-        sync_command = [
-            'enable',
-            'configure',
-            'cvx',
-            'service openstack',
-            'region %s' % test_region_name,
-            'sync lock clientid requestid',
-            'exit',
-            'region %s sync' % test_region_name,
-            'sync end',
-            'exit',
-        ]
-        try:
-            self._run_eos_cmds(sync_command)
-            self.cli_commands[CMD_REGION_SYNC] = 'region %s sync' % self.region
-            self.cli_commands[CMD_SYNC_HEARTBEAT] = 'sync heartbeat'
-        except arista_exc.AristaRpcError:
-            self.cli_commands[CMD_REGION_SYNC] = ''
-            LOG.warn(_LW("'region sync' command is not available on EOS"))
-        finally:
-            cmd = ['enable', 'configure', 'cvx', 'service openstack',
-                   'no region %s' % test_region_name]
-            self._run_eos_cmds(cmd)
-
-        # Check if the instance command exists
-        instance_command = [
-            'enable',
-            'configure',
-            'cvx',
-            'service openstack',
-            'region %s' % test_region_name,
-            'tenant t1',
-            'instance id i1 type router',
-        ]
-        try:
-            self._run_eos_cmds(instance_command)
             self.cli_commands[CMD_INSTANCE] = 'instance'
-        except arista_exc.AristaRpcError:
+        except (arista_exc.AristaRpcError, Exception) as err:
             self.cli_commands[CMD_INSTANCE] = None
-            LOG.warn(_LW("'instance' command is not available on EOS"))
-        finally:
-            cmd = ['enable', 'configure', 'cvx', 'service openstack',
-                   'no region %s' % test_region_name]
-            self._run_eos_cmds(cmd)
+            LOG.warn(_LW("'instance' command is not available on EOS because "
+                         "of %s"), err)
 
     def check_vlan_type_driver_commands(self):
         """Checks the validity of CLI commands for Arista's VLAN type driver.
@@ -1689,11 +1677,14 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         # Always figure out who is master (starting with the last known val)
         try:
             if self._get_eos_master() is None:
-                msg = "Failed to identify EOS master"
+                msg = "Failed to identify CVX master"
+                self.set_cvx_unavailable()
                 raise arista_exc.AristaRpcError(msg=msg)
         except Exception:
+            self.set_cvx_unavailable()
             raise
 
+        self.set_cvx_available()
         log_cmds = commands
         if commands_to_log:
             log_cmds = commands_to_log
@@ -1706,7 +1697,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             if response is None:
                 # Reset the server as we failed communicating with it
                 self._server_ip = None
-                msg = "Failed to communicate with EOS master"
+                self.set_cvx_unavailable()
+                msg = "Failed to communicate with CVX master"
                 raise arista_exc.AristaRpcError(msg=msg)
             return response
         except arista_exc.AristaRpcError:
@@ -1774,7 +1766,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
         # Couldn't find an instance that is the leader and returning none
         self._server_ip = None
-        msg = "Failed to reach the EOS master"
+        msg = "Failed to reach the CVX master"
         LOG.error(msg)
         return None
 
@@ -1814,6 +1806,12 @@ class SyncService(object):
         except Exception as e:
             LOG.warning(e)
 
+        # Check whether CVX is available before starting the sync.
+        if not self._rpc.check_cvx_availability():
+            LOG.warning("Not syncing as CVX is unreachable")
+            self.force_sync()
+            return
+
         if not self._sync_required():
             return
 
@@ -1842,6 +1840,7 @@ class SyncService(object):
         try:
             # Register with EOS to ensure that it has correct credentials
             self._rpc.register_with_eos(sync=True)
+            self._rpc.check_supported_features()
             eos_tenants = self._rpc.get_tenants()
         except arista_exc.AristaRpcError:
             LOG.warning(EOS_UNREACHABLE_MSG)
@@ -2005,8 +2004,6 @@ class SyncService(object):
             # perform a complete sync.
             if not self._force_sync and self._region_in_sync():
                 LOG.info(_LI('OpenStack and EOS are in sync!'))
-                if not self._rpc.sync_supported():
-                    self._rpc.sync_end()
                 return False
         except arista_exc.AristaRpcError:
             LOG.warning(EOS_UNREACHABLE_MSG)
