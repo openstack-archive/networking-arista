@@ -1,0 +1,9 @@
+Code-Review+1: mark mcclain <mark@mcclain.xyz>
+Code-Review+2: Shashank Hegde <shashank@aristanetworks.com>
+Workflow+1: Shashank Hegde <shashank@aristanetworks.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 23 Sep 2016 23:19:32 +0000
+Reviewed-on: https://review.openstack.org/375367
+Project: openstack/networking-arista
+Branch: refs/heads/master
