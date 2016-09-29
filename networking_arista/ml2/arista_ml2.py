@@ -552,7 +552,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         request_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-Sync-ID': self.curent_sync_name
+            'X-Sync-ID': self.current_sync_name
         }
         url = self._api_host_url(host=host) + path
 
