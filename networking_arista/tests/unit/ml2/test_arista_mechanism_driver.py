@@ -241,31 +241,45 @@ class TestAristaJSONRPCWrapper(base.BaseTestCase):
         # Sort the data that we are using for verifying
         expected_calls = []
         for c in calls:
-            if len(c) > 2:
+            if len(c) == 2:
+                url, method = c
+                expected_calls.append(mock.call(url, method))
+            elif len(c) == 3:
                 url, method, data = c
                 if type(data) == list:
                     data.sort()
                 expected_calls.append(mock.call(url, method, data))
+            elif len(c) == 4:
+                url, method, data, clean_data = c
+                if type(data) == list:
+                    data.sort()
+                if type(clean_data) == list:
+                    clean_data.sort()
+                expected_calls.append(mock.call(url, method, data, clean_data))
             else:
-                url, method = c
-                expected_calls.append(mock.call(url, method))
+                assert False, "Unrecognized call length"
 
         # Sort the data sent in the mock API request
         for call in mock_send_api_req.mock_calls:
             if len(call.call_list()[0][1]) > 2:
                 if type(call.call_list()[0][1][2]) == list:
                     call.call_list()[0][1][2].sort()
+            if len(call.call_list()[0][1]) > 3:
+                if type(call.call_list()[0][1][3]) == list:
+                    call.call_list()[0][1][3].sort()
         mock_send_api_req.assert_has_calls(expected_calls, any_order=True)
 
     @patch(JSON_SEND_FUNC)
     def test_register_with_eos(self, mock_send_api_req):
         self.drv.register_with_eos()
-        sepPostData = [{'name': 'keystone', 'password': 'fun',
-                        'tenant': 'tenant_name', 'user': 'neutron',
-                        'authUrl': 'abc://host:5000/v2.0/'}]
-
+        post_data = {'name': 'keystone', 'password': 'fun',
+                     'tenant': 'tenant_name', 'user': 'neutron',
+                     'authUrl': 'abc://host:5000/v2.0/'}
+        clean_data = post_data.copy()
+        clean_data['password'] = "*****"
         calls = [
-            ('region/RegionOne/service-end-point', 'POST', sepPostData),
+            ('region/RegionOne/service-end-point', 'POST', [post_data],
+             [clean_data]),
             ('region/RegionOne', 'PUT',
              [{'name': 'RegionOne', 'syncInterval': 10}])
         ]

@@ -542,26 +542,32 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         super(AristaRPCWrapperJSON, self).__init__(ndb)
         self.current_sync_name = None
 
-    def _api_host_url(self, host=""):
+    def _get_url(self, host="", user="", pss=""):
         return ('https://%s:%s@%s/openstack/api/' %
-                (self._api_username(),
-                 self._api_password(),
-                 host))
+                (user, pss, host))
 
-    def _send_request(self, host, path, method, data=None):
+    def _api_host_url(self, host=""):
+        return self._get_url(host, self._api_username(), self._api_password())
+
+    def _send_request(self, host, path, method, data=None,
+                      sanitized_data=None):
         request_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
             'X-Sync-ID': self.current_sync_name
         }
         url = self._api_host_url(host=host) + path
+        # Don't log the username and password
+        log_url = self._get_url(host=host, user=self._api_username(),
+                                pss="***") + path
 
         resp = None
         data = json.dumps(data)
         try:
             msg = (_('JSON request type: %(type)s url %(url)s data: '
                      '%(data)s sync_id: %(sync)s') %
-                   {'type': method, 'url': url, 'data': data,
+                   {'type': method, 'url': log_url,
+                    'data': sanitized_data or data,
                     'sync': self.current_sync_name})
             LOG.info(msg)
             func_lookup = {
@@ -616,13 +622,13 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 return self._server_ip
         return None
 
-    def _send_api_request(self, path, method, data=None):
+    def _send_api_request(self, path, method, data=None, sanitized_data=None):
         host = self._get_eos_leader()
         if not host:
             msg = unicode("Could not find CVX leader")
             LOG.info(msg)
             raise arista_exc.AristaRpcError(msg=msg)
-        return self._send_request(host, path, method, data)
+        return self._send_request(host, path, method, data, sanitized_data)
 
     def _create_keystone_endpoint(self):
         path = 'region/%s/service-end-point' % self.region
@@ -633,7 +639,10 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             'password': self.keystone_conf.admin_password or "",
             'tenant': self.keystone_conf.admin_tenant_name or ""
         }
-        self._send_api_request(path, 'POST', [data])
+        # Hide the password
+        sanitized_data = data.copy()
+        sanitized_data['password'] = "*****"
+        self._send_api_request(path, 'POST', [data], [sanitized_data])
 
     def _set_region_update_interval(self):
         path = 'region/%s' % self.region
