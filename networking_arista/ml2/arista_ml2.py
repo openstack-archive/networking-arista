@@ -629,9 +629,9 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         data = {
             'name': 'keystone',
             'authUrl': self._keystone_url(),
-            'user': self.keystone_conf.admin_user,
-            'password': self.keystone_conf.admin_password,
-            'tenant': self.keystone_conf.admin_tenant_name
+            'user': self.keystone_conf.admin_user or "",
+            'password': self.keystone_conf.admin_password or "",
+            'tenant': self.keystone_conf.admin_tenant_name or ""
         }
         self._send_api_request(path, 'POST', [data])
 
