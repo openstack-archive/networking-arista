@@ -702,6 +702,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             }
             path = 'region/' + self.region + '/sync'
             self._send_api_request(path, 'POST', data)
+            self.current_sync_name = req_id
             return True
         except (KeyError, arista_exc.AristaRpcError):
             LOG.info('Not syncing due to RPC error')
