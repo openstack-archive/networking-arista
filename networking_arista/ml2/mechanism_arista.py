@@ -92,7 +92,7 @@ class AristaDriver(driver_api.MechanismDriver):
     def initialize(self):
         self.rpc.register_with_eos()
         self._cleanup_db()
-        self.rpc.check_cli_commands()
+        self.rpc.check_supported_features()
         # Registering with EOS updates self.rpc.region_updated_time. Clear it
         # to force an initial sync
         self.rpc.clear_region_updated_time()

@@ -47,7 +47,7 @@ class AristaVlanTypeDriver(type_vlan.VlanTypeDriver):
         self.sync_timeout = cfg.CONF.arista_type_driver['sync_interval']
 
     def initialize(self):
-        self.rpc.check_cli_commands()
+        self.rpc.check_supported_features()
         self.rpc.check_vlan_type_driver_commands()
         self._synchronization_thread()
         LOG.info(_LI("AristaVlanTypeDriver initialization complete"))
