@@ -933,11 +933,11 @@ class PositiveRPCWrapperValidConfigTestCase(base.BaseTestCase):
                          ('Must return network info for a valid net'))
 
     @patch(EAPI_SEND_FUNC)
-    def test_check_cli_commands(self, mock_send_eapi_req):
+    def test_check_supported_features(self, mock_send_eapi_req):
         self.drv._get_random_name = mock.MagicMock()
         self.drv._get_random_name.return_value = 'RegionOne'
 
-        self.drv.check_cli_commands()
+        self.drv.check_supported_features()
 
         timestamp_cmd = ['show openstack config region RegionOne timestamp']
         sync_lock_cmd = ['enable', 'configure', 'cvx', 'service openstack',
