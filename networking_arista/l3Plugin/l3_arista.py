@@ -103,10 +103,9 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         tenant_id = router['router']['tenant_id']
 
         # Add router to the DB
-        with context.session.begin(subtransactions=True):
-            new_router = super(AristaL3ServicePlugin, self).create_router(
-                context,
-                router)
+        new_router = super(AristaL3ServicePlugin, self).create_router(
+            context,
+            router)
         # create router on the Arista Hw
         try:
             self.driver.create_router(context, tenant_id, new_router)
@@ -122,13 +121,12 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
     def update_router(self, context, router_id, router):
         """Update an existing router in DB, and update it in Arista HW."""
 
-        with context.session.begin(subtransactions=True):
-            # Read existing router record from DB
-            original_router = super(AristaL3ServicePlugin, self).get_router(
-                context, router_id)
-            # Update router DB
-            new_router = super(AristaL3ServicePlugin, self).update_router(
-                context, router_id, router)
+        # Read existing router record from DB
+        original_router = super(AristaL3ServicePlugin, self).get_router(
+            context, router_id)
+        # Update router DB
+        new_router = super(AristaL3ServicePlugin, self).update_router(
+            context, router_id, router)
 
         # Modify router on the Arista Hw
         try:
@@ -155,9 +153,7 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
                           "router %(r)s exception=%(e)s"),
                       {'r': router, 'e': e})
 
-        with context.session.begin(subtransactions=True):
-            super(AristaL3ServicePlugin, self).delete_router(context,
-                                                             router_id)
+        super(AristaL3ServicePlugin, self).delete_router(context, router_id)
 
     @log_helpers.log_method_call
     def add_router_interface(self, context, router_id, interface_info):
