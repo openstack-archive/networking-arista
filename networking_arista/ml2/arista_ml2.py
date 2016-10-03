@@ -73,11 +73,6 @@ class AristaRPCWrapperBase(object):
         self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
             self._ndb)
 
-        # The cli_commands dict stores the mapping between the CLI command key
-        # and the actual CLI command.
-        self.cli_commands = {}
-        self._initialize_cli_commands()
-
     def _validate_config(self):
         if cfg.CONF.ml2_arista.get('eapi_host') == '':
             msg = _('Required option eapi_host is not set')
@@ -108,13 +103,6 @@ class AristaRPCWrapperBase(object):
     def _get_random_name(self, length=10):
         """Returns a base64 encoded name."""
         return base64.b64encode(os.urandom(10)).translate(None, '=+/')
-
-    def _initialize_cli_commands(self):
-        self.cli_commands['timestamp'] = []
-        self.cli_commands[CMD_REGION_SYNC] = ''
-        self.cli_commands[CMD_INSTANCE] = None
-        self.cli_commands[CMD_SYNC_HEARTBEAT] = ''
-        self.cli_commands['resource-pool'] = []
 
     def _get_cvx_hosts(self):
         cvx = []
@@ -318,6 +306,20 @@ class AristaRPCWrapperBase(object):
         self.security_group_driver.perform_sync_of_sg()
 
     @abc.abstractmethod
+    def sync_supported(self):
+        """Whether the EOS version supports sync.
+
+        Returns True if sync is supported, false otherwise.
+        """
+
+    @abc.abstractmethod
+    def bm_and_dvr_supported(self):
+        """Whether EOS supports Ironic and DVR.
+
+        Returns True if supported, false otherwise.
+        """
+
+    @abc.abstractmethod
     def register_with_eos(self, sync=False):
         """This is the registration request with EOS.
 
@@ -328,7 +330,7 @@ class AristaRPCWrapperBase(object):
         """
 
     @abc.abstractmethod
-    def check_cli_commands(self):
+    def check_supported_features(self):
         """Checks whether the CLI commands are valid.
 
            This method tries to execute the commands on EOS and if it succeedes
@@ -657,10 +659,13 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         self._create_keystone_endpoint()
         self._set_region_update_interval()
 
-    def check_cli_commands(self):
+    def check_supported_features(self):
         # We don't use this function as we know the features
         # that are available once using this API.
         pass
+
+    def bm_and_dvr_supported(self):
+        return True
 
     def get_region_updated_time(self):
         path = 'agent/'
@@ -687,6 +692,9 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             if region['name'] == name:
                 return region
         return None
+
+    def sync_supported(self):
+        return True
 
     def sync_start(self):
         try:
@@ -1030,6 +1038,15 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 class AristaRPCWrapperEapi(AristaRPCWrapperBase):
     def __init__(self, ndb):
         super(AristaRPCWrapperEapi, self).__init__(ndb)
+        # The cli_commands dict stores the mapping between the CLI command key
+        # and the actual CLI command.
+        self.cli_commands = {
+            'timestamp': [],
+            CMD_REGION_SYNC: '',
+            CMD_INSTANCE: None,
+            CMD_SYNC_HEARTBEAT: '',
+            'resource-pool': []
+        }
 
     def _send_eapi_req(self, cmds):
         # This method handles all EAPI requests (using the requests library)
@@ -1108,11 +1125,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             LOG.warn(msg)
             raise
 
-    def _get_random_name(self, length=10):
-        """Returns a base64 encoded name."""
-        return base64.b64encode(os.urandom(10)).translate(None, '=+/')
-
-    def check_cli_commands(self):
+    def check_supported_features(self):
         cmd = ['show openstack config region %s timestamp' % self.region]
         try:
             self._run_eos_cmds(cmd)
@@ -1227,13 +1240,13 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
         return tenants
 
-    def _baremetal_supported(self):
+    def bm_and_dvr_supported(self):
         return (self.cli_commands[CMD_INSTANCE] == 'instance')
 
     def _baremetal_support_check(self, vnic_type):
         # Basic error checking for baremental deployments
         if (vnic_type == portbindings.VNIC_BAREMETAL and
-           not self._baremetal_supported()):
+           not self.bm_and_dvr_supported()):
             msg = _("Baremetal instances are not supported in this"
                     " release of EOS")
             LOG.error(msg)
@@ -1326,7 +1339,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
     def plug_distributed_router_port_into_network(self, router_id, host,
                                                   port_id, net_id, tenant_id):
-        if not self.cli_commands[CMD_INSTANCE]:
+        if not self.bm_and_dvr_supported():
             LOG.info(ERR_DVR_NOT_SUPPORTED)
             return
 
@@ -1376,7 +1389,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
     def unplug_distributed_router_port_from_network(self, router_id,
                                                     port_id, host, tenant_id):
-        if not self.cli_commands[CMD_INSTANCE]:
+        if not self.bm_and_dvr_supported():
             LOG.info(ERR_DVR_NOT_SUPPORTED)
             return
 
@@ -1547,7 +1560,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                (neutron_port['id'], port_name,
                                 neutron_port['network_id']))
                 elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
-                    if not self.cli_commands[CMD_INSTANCE]:
+                    if not self.bm_and_dvr_supported():
                         LOG.info(ERR_DVR_NOT_SUPPORTED)
                         continue
                     append_cmd('instance id %s type router' % (
@@ -1631,10 +1644,13 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                 return lock_owner == client
         return False
 
+    def sync_supported(self):
+        return self.cli_commands[CMD_REGION_SYNC]
+
     def sync_start(self):
         try:
             cmds = []
-            if self.cli_commands[CMD_REGION_SYNC]:
+            if self.sync_supported():
                 # Locking the region during sync is supported.
                 client_id = socket.gethostname().split('.')[0]
                 request_id = self._get_random_name()
@@ -1708,7 +1724,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         """
 
         region_cmd = 'region %s' % self.region
-        if sync and self.cli_commands[CMD_REGION_SYNC]:
+        if sync and self.sync_supported():
             region_cmd = self.cli_commands[CMD_REGION_SYNC]
 
         full_command = [
@@ -1907,7 +1923,7 @@ class SyncService(object):
                 if vms_to_delete:
                     self._rpc.delete_vm_bulk(tenant, vms_to_delete, sync=True)
                 if routers_to_delete:
-                    if self._rpc.cli_commands[CMD_INSTANCE]:
+                    if self._rpc.bm_and_dvr_supported():
                         self._rpc.delete_instance_bulk(tenant,
                                                        routers_to_delete,
                                                        sync=True)
@@ -1915,7 +1931,7 @@ class SyncService(object):
                         LOG.info(ERR_DVR_NOT_SUPPORTED)
 
                 if bms_to_delete:
-                    if self._rpc.cli_commands[CMD_INSTANCE]:
+                    if self._rpc.bm_and_dvr_supported():
                         self._rpc.delete_instance_bulk(tenant,
                                                        bms_to_delete,
                                                        sync=True)
@@ -1989,7 +2005,7 @@ class SyncService(object):
             # perform a complete sync.
             if not self._force_sync and self._region_in_sync():
                 LOG.info(_LI('OpenStack and EOS are in sync!'))
-                if not self._rpc.cli_commands[CMD_REGION_SYNC]:
+                if not self._rpc.sync_supported():
                     self._rpc.sync_end()
                 return False
         except arista_exc.AristaRpcError:
