@@ -14,4 +14,3 @@ testrepository>=0.0.18
 testscenarios>=0.4
 testtools>=0.9.34
 testresources>=0.2.4
--e git://git.openstack.org/openstack/neutron.git#egg=neutron
