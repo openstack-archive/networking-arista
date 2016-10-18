@@ -1081,7 +1081,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                 'show openstack config region %s timestamp' % self.region],
             CMD_REGION_SYNC: 'region %s sync' % self.region,
             CMD_INSTANCE: None,
-            CMD_SYNC_HEARTBEAT: 'region %s sync',
+            CMD_SYNC_HEARTBEAT: 'sync heartbeat',
             'resource-pool': []
         }
 
