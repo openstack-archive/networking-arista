@@ -1085,7 +1085,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             'resource-pool': []
         }
 
-    def _send_eapi_req(self, cmds):
+    def _send_eapi_req(self, cmds, commands_to_log=None):
         # This method handles all EAPI requests (using the requests library)
         # and returns either None or response.json()['result'] from the EAPI
         # request.
@@ -1113,6 +1113,11 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         response = None
 
         try:
+            # NOTE(pbourke): shallow copy data and params to remove sensitive
+            # information before logging
+            log_data = dict(data)
+            log_data['params'] = dict(params)
+            log_data['params']['cmds'] = commands_to_log or cmds
             msg = (_('EAPI request to %(ip)s contains %(cmd)s') %
                    {'ip': self._server_ip, 'cmd': json.dumps(data)})
             LOG.info(msg)
@@ -1693,7 +1698,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         # this returns array of return values for every command in
         # full_command list
         try:
-            response = self._send_eapi_req(cmds=commands)
+            response = self._send_eapi_req(cmds=commands,
+                                           commands_to_log=log_cmds)
             if response is None:
                 # Reset the server as we failed communicating with it
                 self._server_ip = None
