@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
+import socket
+
 import mock
 from mock import patch
 from neutron_lib import constants as n_const
@@ -28,8 +31,6 @@ from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_ml2
 from networking_arista.ml2 import mechanism_arista
-
-import socket
 
 
 def setup_arista_wrapper_config(value=''):
@@ -607,9 +608,12 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
     def _get_exit_mode_cmds(self, modes):
         return ['exit'] * len(modes)
 
-    def _verify_send_eapi_request_calls(self, mock_send_eapi_req, cmds):
+    def _verify_send_eapi_request_calls(self, mock_send_eapi_req, cmds,
+                                        commands_to_log=None):
         calls = []
-        calls.extend(mock.call(cmds=cmd) for cmd in cmds)
+        calls.extend(
+            mock.call(cmds=cmd, commands_to_log=log_cmd)
+            for cmd, log_cmd in itertools.izip(cmds, commands_to_log or cmds))
         mock_send_eapi_req.assert_has_calls(calls)
 
     def test_no_exception_on_correct_configuration(self):
@@ -989,7 +993,7 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
         cmds = [get_eos_master_cmd, instance_command]
 
         calls = []
-        calls.extend(mock.call(cmds=cmd) for cmd in cmds)
+        calls.extend(mock.call(cmds=cmd, commands_to_log=cmd) for cmd in cmds)
         mock_send_eapi_req.assert_has_calls(calls)
 
     @patch(EAPI_SEND_FUNC)
@@ -1013,7 +1017,16 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
                 auth_cmd,
                 'sync interval %d' % cfg.CONF.ml2_arista.sync_interval,
                 ]
-        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
+
+        clean_cmd2 = list(cmd2)
+        idx = clean_cmd2.index(auth_cmd)
+        clean_cmd2[idx] = clean_cmd2[idx].replace(auth.admin_password,
+                                                  '******')
+
+        self._verify_send_eapi_request_calls(
+            mock_send_eapi_req,
+            [cmd1, cmd2],
+            commands_to_log=[cmd1, clean_cmd2])
 
     def _enable_sync_cmds(self):
         self.drv.cli_commands[
