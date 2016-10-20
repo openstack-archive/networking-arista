@@ -1101,7 +1101,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             'features': {},
         }
 
-    def _send_eapi_req(self, cmds):
+    def _send_eapi_req(self, cmds, commands_to_log=None):
         # This method handles all EAPI requests (using the requests library)
         # and returns either None or response.json()['result'] from the EAPI
         # request.
@@ -1129,8 +1129,13 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         response = None
 
         try:
+            # NOTE(pbourke): shallow copy data and params to remove sensitive
+            # information before logging
+            log_data = dict(data)
+            log_data['params'] = dict(params)
+            log_data['params']['cmds'] = commands_to_log or cmds
             msg = (_('EAPI request to %(ip)s contains %(cmd)s') %
-                   {'ip': self._server_ip, 'cmd': json.dumps(data)})
+                   {'ip': self._server_ip, 'cmd': json.dumps(log_data)})
             LOG.info(msg)
             response = requests.post(url, timeout=self.conn_timeout,
                                      verify=False, data=json.dumps(data))
@@ -1775,7 +1780,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         # this returns array of return values for every command in
         # full_command list
         try:
-            response = self._send_eapi_req(cmds=commands)
+            response = self._send_eapi_req(cmds=commands,
+                                           commands_to_log=log_cmds)
             if response is None:
                 # Reset the server as we failed communicating with it
                 self._server_ip = None
@@ -1839,7 +1845,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         # Identify which EOS instance is currently the master
         for self._server_ip in cvx:
             try:
-                if self._send_eapi_req(cmds=cmd) is not None:
+                response = self._send_eapi_req(cmds=cmd, commands_to_log=cmd)
+                if response is not None:
                     return self._server_ip
                 else:
                     continue  # Try another EOS instance
