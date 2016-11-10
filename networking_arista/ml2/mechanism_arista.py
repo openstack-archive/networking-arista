@@ -15,13 +15,12 @@
 
 import threading
 
-from neutron_lib import constants as const
+from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron._i18n import _LE
 from neutron._i18n import _LI
-from neutron.common import constants as n_const
 from neutron.extensions import portbindings
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.common import exceptions as ml2_exc
@@ -437,8 +436,8 @@ class AristaDriver(driver_api.MechanismDriver):
         port_id = orig_port['id']
 
         if (new_host != orig_host and
-            orig_status == const.PORT_STATUS_ACTIVE and
-                new_status == const.PORT_STATUS_DOWN):
+            orig_status == n_const.PORT_STATUS_ACTIVE and
+                new_status == n_const.PORT_STATUS_DOWN):
             LOG.debug("Handling port migration for: %s " % orig_port)
             network_id = orig_port['network_id']
             tenant_id = orig_port['tenant_id'] or INTERNAL_TENANT_ID
@@ -469,8 +468,8 @@ class AristaDriver(driver_api.MechanismDriver):
         new_host = context.host
 
         if (new_host != orig_host and
-            orig_status == const.PORT_STATUS_ACTIVE and
-                new_status == const.PORT_STATUS_DOWN):
+            orig_status == n_const.PORT_STATUS_ACTIVE and
+                new_status == n_const.PORT_STATUS_DOWN):
 
             self._try_to_release_dynamic_segment(context, migration=True)
 

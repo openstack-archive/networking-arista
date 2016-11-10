@@ -19,6 +19,7 @@ import json
 import os
 import socket
 
+from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
@@ -28,7 +29,6 @@ from six import add_metaclass
 from neutron._i18n import _LE
 from neutron._i18n import _LI
 from neutron._i18n import _LW
-from neutron.common import constants as n_const
 from neutron.extensions import portbindings
 
 from networking_arista.common import db_lib
