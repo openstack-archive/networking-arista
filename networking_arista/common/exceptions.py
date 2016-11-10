@@ -16,7 +16,7 @@
 
 """Exceptions used by Arista ML2 Mechanism Driver."""
 
-from neutron.common import exceptions
+from neutron_lib import exceptions
 
 
 class AristaRpcError(exceptions.NeutronException):
