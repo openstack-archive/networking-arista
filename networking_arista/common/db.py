@@ -13,11 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from neutron_lib.db import constants as db_const
+from neutron_lib.db import model_base
 import sqlalchemy as sa
-
-from neutron.api.v2 import attributes as attr
-from neutron.db import model_base
-from neutron.db import models_v2
 
 UUID_LEN = 36
 STR_LEN = 255
@@ -26,10 +24,11 @@ STR_LEN = 255
 class HasTenant(object):
     """Tenant mixin, add to subclasses that have a tenant."""
 
-    tenant_id = sa.Column(sa.String(attr.TENANT_ID_MAX_LEN), index=True)
+    tenant_id = sa.Column(sa.String(db_const.PROJECT_ID_FIELD_SIZE),
+                          index=True)
 
 
-class AristaProvisionedNets(model_base.BASEV2, models_v2.HasId,
+class AristaProvisionedNets(model_base.BASEV2, model_base.HasId,
                             HasTenant):
     """Stores networks provisioned on Arista EOS.
 
@@ -51,7 +50,7 @@ class AristaProvisionedNets(model_base.BASEV2, models_v2.HasId,
                 }
 
 
-class AristaProvisionedVms(model_base.BASEV2, models_v2.HasId,
+class AristaProvisionedVms(model_base.BASEV2, model_base.HasId,
                            HasTenant):
     """Stores VMs provisioned on Arista EOS.
 
@@ -72,7 +71,7 @@ class AristaProvisionedVms(model_base.BASEV2, models_v2.HasId,
                 u'networkId': self.network_id}
 
 
-class AristaProvisionedTenants(model_base.BASEV2, models_v2.HasId,
+class AristaProvisionedTenants(model_base.BASEV2, model_base.HasId,
                                HasTenant):
     """Stores Tenants provisioned on Arista EOS.
 
