@@ -283,7 +283,7 @@ class AristaRPCWrapperBase(object):
             except Exception:
                 msg = (_("Failed to remove ACL %(sg)s on switch %(switch)%") %
                        {'sg': sg, 'switch': s['switch_info']})
-                LOG.warn(msg)
+                LOG.warning(msg)
         raise arista_exc.AristaSecurityGroupError(msg=msg)
 
     def create_acl(self, sg):
@@ -619,7 +619,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             }
             func = func_lookup.get(method)
             if not func:
-                LOG.warn(_LI('Unrecognized HTTP method %s'), method)
+                LOG.warning(_LI('Unrecognized HTTP method %s'), method)
                 return None
 
             resp = func(url, timeout=self.conn_timeout, verify=False,
@@ -628,24 +628,24 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             return resp.json()
         except requests.exceptions.ConnectionError:
             msg = (_('Error connecting to %(url)s') % {'url': url})
-            LOG.warn(msg)
+            LOG.warning(msg)
         except requests.exceptions.ConnectTimeout:
             msg = (_('Timed out connecting to API request to %(url)s') %
                    {'url': url})
-            LOG.warn(msg)
+            LOG.warning(msg)
         except requests.exceptions.Timeout:
             msg = (_('Timed out during API request to %(url)s') %
                    {'url': url})
-            LOG.warn(msg)
+            LOG.warning(msg)
         except requests.exceptions.InvalidURL:
             msg = (_('Ignore attempt to connect to invalid URL %(url)s') %
                    {'url': self._server_ip})
-            LOG.warn(msg)
+            LOG.warning(msg)
         except ValueError:
-            LOG.warn(_LW("Ignoring invalid JSON response: %s"), resp.text)
+            LOG.warning(_LW("Ignoring invalid JSON response: %s"), resp.text)
         except Exception as error:
             msg = unicode(error)
-            LOG.warn(msg)
+            LOG.warning(msg)
             # reraise the exception
             with excutils.save_and_reraise_exception() as ctxt:
                 ctxt.reraise = True
@@ -971,8 +971,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                     # TODO(areimers) - DVR support
                     continue
                 else:
-                    LOG.warn(_LW("Unknown device owner: %s"),
-                             neutron_port['device_owner'])
+                    LOG.warning(_LW("Unknown device owner: %s"),
+                                neutron_port['device_owner'])
                     continue
 
                 network_id = neutron_port['network_id']
@@ -1153,29 +1153,29 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         except requests.exceptions.ConnectionError:
             msg = (_('Error while trying to connect to %(ip)s') %
                    {'ip': self._server_ip})
-            LOG.warn(msg)
+            LOG.warning(msg)
             return None
         except requests.exceptions.ConnectTimeout:
             msg = (_('Timed out while trying to connect to %(ip)s') %
                    {'ip': self._server_ip})
-            LOG.warn(msg)
+            LOG.warning(msg)
             return None
         except requests.exceptions.Timeout:
             msg = (_('Timed out during an EAPI request to %(ip)s') %
                    {'ip': self._server_ip})
-            LOG.warn(msg)
+            LOG.warning(msg)
             return None
         except requests.exceptions.InvalidURL:
             msg = (_('Ignore attempt to connect to invalid URL %(ip)s') %
                    {'ip': self._server_ip})
-            LOG.warn(msg)
+            LOG.warning(msg)
             return None
         except ValueError:
             LOG.info("Ignoring invalid JSON response")
             return None
         except Exception as error:
             msg = unicode(error)
-            LOG.warn(msg)
+            LOG.warning(msg)
             raise
 
     def check_supported_features(self):
@@ -1185,8 +1185,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             self.cli_commands[CMD_INSTANCE] = 'instance'
         except (arista_exc.AristaRpcError, Exception) as err:
             self.cli_commands[CMD_INSTANCE] = None
-            LOG.warn(_LW("'instance' command is not available on EOS because "
-                         "of %s"), err)
+            LOG.warning(_LW("'instance' command is not available on EOS "
+                            "because of %s"), err)
 
         # Get list of supported openstack features by CVX
         cmd = ['show openstack features']
@@ -1209,7 +1209,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             self.cli_commands['resource-pool'] = cmd
         except arista_exc.AristaRpcError:
             self.cli_commands['resource-pool'] = []
-            LOG.warn(
+            LOG.warning(
                 _LW("'resource-pool' command '%s' is not available on EOS"),
                 cmd)
 
@@ -1637,8 +1637,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                     segment['id'])
                                     for level, segment in enumerate(segments))
                 else:
-                    LOG.warn(_LW("Unknown device owner: %s"),
-                             neutron_port['device_owner'])
+                    LOG.warning(_LW("Unknown device owner: %s"),
+                                neutron_port['device_owner'])
 
                 if self._heartbeat_required(sync, counter):
                     append_cmd(self.cli_commands[CMD_SYNC_HEARTBEAT])
