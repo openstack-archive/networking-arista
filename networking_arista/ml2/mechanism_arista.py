@@ -716,7 +716,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     except ml2_exc.MechanismDriverError:
                         # If deleting a port fails, then not much can be done
                         # about it. Log a warning and move on.
-                        LOG.warn(UNABLE_TO_DELETE_PORT_MSG)
+                        LOG.warning(UNABLE_TO_DELETE_PORT_MSG)
                 if(port_provisioned and net_provisioned and hostname and
                    is_vm_boot and not port_down):
                     LOG.info(_LI("Port plugged into network"))
@@ -780,7 +780,7 @@ class AristaDriver(driver_api.MechanismDriver):
             except ml2_exc.MechanismDriverError:
                 # Can't do much if deleting a port failed.
                 # Log a warning and continue.
-                LOG.warn(UNABLE_TO_DELETE_PORT_MSG)
+                LOG.warning(UNABLE_TO_DELETE_PORT_MSG)
 
     def _delete_port(self, port, host, tenant_id):
         """Deletes the port from EOS.
@@ -803,7 +803,7 @@ class AristaDriver(driver_api.MechanismDriver):
         sg = port['security_groups']
 
         if not device_id or not host:
-            LOG.warn(UNABLE_TO_DELETE_DEVICE_MSG)
+            LOG.warning(UNABLE_TO_DELETE_DEVICE_MSG)
             return
 
         try:
