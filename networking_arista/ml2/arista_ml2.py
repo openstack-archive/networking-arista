@@ -54,6 +54,16 @@ ERR_DVR_NOT_SUPPORTED = 'EOS version on CVX does not support DVR'
 BAREMETAL_NOT_SUPPORTED = 'EOS version on CVX does not support Baremetal'
 
 
+class InstanceType:
+    BAREMETAL = 'baremetal'
+    DHCP = 'dhcp'
+    ROUTER = 'router'
+    VM = 'vm'
+
+    VIRTUAL_INSTANCE_TYPES = [DHCP, ROUTER, VM]
+    BAREMETAL_INSTANCE_TYPES = [BAREMETAL]
+
+
 @add_metaclass(abc.ABCMeta)
 class AristaRPCWrapperBase(object):
     """Wraps Arista JSON RPC.
@@ -166,12 +176,14 @@ class AristaRPCWrapperBase(object):
         """
         self.create_network_bulk(tenant_id, [network])
 
-    def delete_network(self, tenant_id, network_id):
+    def delete_network(self, tenant_id, network_id, network_segments):
         """Deletes a specified network for a given tenant
 
         :param tenant_id: globally unique neutron tenant identifier
         :param network_id: globally unique neutron network identifier
+        :param network_segments: segments associated with the network
         """
+        self.delete_network_segments(network_segments)
         self.delete_network_bulk(tenant_id, [network_id])
 
     def delete_vm(self, tenant_id, vm_id):
@@ -182,6 +194,7 @@ class AristaRPCWrapperBase(object):
         """
         self.delete_vm_bulk(tenant_id, [vm_id])
 
+    @abc.abstractmethod
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
                                sg, orig_sg, vnic_type, segments=None,
@@ -201,25 +214,8 @@ class AristaRPCWrapperBase(object):
         :param segments: list of network segments the port is bound to
         :param profile: port profile
         """
-        args = (device_id, host_id, port_id, net_id, tenant_id,
-                segments or [], port_name)
-        if device_owner == n_const.DEVICE_OWNER_DHCP:
-            self.plug_dhcp_port_into_network(*args)
-        elif device_owner.startswith('compute'):
-            self.plug_host_into_network(*args)
-        elif device_owner.startswith('baremetal'):
-            self.plug_baremetal_into_network(*args,
-                                             sg=sg, orig_sg=orig_sg,
-                                             vnic_type=vnic_type,
-                                             profile=profile)
-        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
-            self.plug_distributed_router_port_into_network(*args[:-1])
-        else:
-            LOG.debug("Did not plug port %(port)s into network %(net_id)s "
-                      "because of device_owner %(owner)s",
-                      {'port': port_id, 'net_id': net_id,
-                       'owner': device_owner})
 
+    @abc.abstractmethod
     def unplug_port_from_network(self, device_id, device_owner, hostname,
                                  port_id, network_id, tenant_id, sg, vnic_type,
                                  profile=None):
@@ -231,32 +227,6 @@ class AristaRPCWrapperBase(object):
         :param network_id: globally unique neutron network identifier
         :param tenant_id: globally unique neutron tenant identifier
         """
-        if device_owner == n_const.DEVICE_OWNER_DHCP:
-            self.unplug_dhcp_port_from_network(device_id,
-                                               hostname,
-                                               port_id,
-                                               network_id,
-                                               tenant_id)
-        elif device_owner.startswith('compute'):
-            self.unplug_host_from_network(device_id,
-                                          hostname,
-                                          port_id,
-                                          network_id,
-                                          tenant_id)
-        elif device_owner.startswith('baremetal'):
-            self.unplug_baremetal_from_network(device_id,
-                                               hostname,
-                                               port_id,
-                                               network_id,
-                                               tenant_id,
-                                               sg,
-                                               vnic_type,
-                                               profile)
-        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
-            self.unplug_distributed_router_port_from_network(device_id,
-                                                             port_id,
-                                                             hostname,
-                                                             tenant_id)
 
     def _clean_acls(self, sg, failed_switch, switches_to_clean):
         """This is a helper function to clean up ACLs on switches.
@@ -443,11 +413,13 @@ class AristaRPCWrapperBase(object):
         """
 
     @abc.abstractmethod
-    def delete_instance_bulk(self, tenant_id, instance_id_list, sync=False):
+    def delete_instance_bulk(self, tenant_id, instance_id_list, instance_type,
+                             sync=False):
         """Deletes instances from EOS for a given tenant
 
         :param tenant_id : globally unique neutron tenant identifier
         :param instance_id_list : ids of instances that needs to be deleted.
+        :param instance_type: The type of the instance which is being deleted.
         :param sync: This flags indicates that the region is being synced.
         """
 
@@ -461,122 +433,41 @@ class AristaRPCWrapperBase(object):
         """
 
     @abc.abstractmethod
-    def plug_host_into_network(self, vm_id, host, port_id,
-                               network_id, tenant_id, segments, port_name):
-        """Creates VLAN between TOR and compute host.
-
-        :param vm_id: globally unique identifier for VM instance
-        :param host: ID of the host where the VM is placed
-        :param port_id: globally unique port ID that connects VM to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param segments: list of network segments the port is bound to
-        :param port_name: Name of the port - for display purposes
-        """
-
-    @abc.abstractmethod
-    def unplug_host_from_network(self, vm_id, host, port_id,
-                                 network_id, tenant_id):
-        """Removes previously configured VLAN between TOR and a host.
-
-        :param vm_id: globally unique identifier for VM instance
-        :param host: ID of the host where the VM is placed
-        :param port_id: globally unique port ID that connects VM to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        """
-
-    @abc.abstractmethod
-    def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
-                                    network_id, tenant_id, segments,
-                                    port_name):
-        """Creates VLAN between TOR and dhcp host.
-
-        :param dhcp_id: globally unique identifier for dhcp
-        :param host: ID of the host where the dhcp is hosted
-        :param port_id: globally unique port ID that connects dhcp to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param segments: list of network segments the port is bound to
-        :param port_name: Name of the port - for display purposes
-        """
-
-    @abc.abstractmethod
-    def unplug_dhcp_port_from_network(self, dhcp_id, host, port_id,
-                                      network_id, tenant_id):
-        """Removes previously configured VLAN between TOR and a dhcp host.
-
-        :param dhcp_id: globally unique identifier for dhcp
-        :param host: ID of the host where the dhcp is hosted
-        :param port_id: globally unique port ID that connects dhcp to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        """
-
-    @abc.abstractmethod
-    def plug_distributed_router_port_into_network(self, router_id, host,
-                                                  port_id, net_id, tenant_id,
-                                                  segments):
-        """Creates a DVR port on EOS.
-
-        :param router_id: globally unique identifier for router instance
-        :param host: ID of the host where the DVR port is placed
-        :param port_id: globally unique port ID that connects port to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param segments: list of network segments the port is bound to
-        """
-
-    @abc.abstractmethod
-    def unplug_distributed_router_port_from_network(self, router_id,
-                                                    port_id, host, tenant_id):
-        """Removes a DVR port from EOS.
-
-        :param router_id: globally unique identifier for router instance
-        :param port_id: globally unique port ID that connects port to network
-        :param host: ID of the host where the dhcp is hosted
-        :param tenant_id: globally unique neutron tenant identifier
-        """
-
-    @abc.abstractmethod
-    def plug_baremetal_into_network(self, vm_id, host, port_id,
-                                    network_id, tenant_id, segments, port_name,
-                                    sg=None, orig_sg=None,
-                                    vnic_type=None, profile=None):
-        """Creates VLAN between TOR and compute host.
-
-        :param vm_id: globally unique identifier for VM instance
-        :param host: ID of the host where the VM is placed
-        :param port_id: globally unique port ID that connects VM to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param segments: list of network segments the port is bound to
-        :param port_name: Name of the port - for display purposes
-        :param sg: current security group for the port
-        :param orig_sg: original security group for the port
-        :param vnic_type: VNIC type for the port
-        :param profile: port profile
-        """
-
-    @abc.abstractmethod
-    def unplug_baremetal_from_network(self, vm_id, host, port_id,
-                                      network_id, tenant_id, sg, vnic_type,
-                                      profile=None):
-        """Removes previously configured VLAN between TOR and a host.
-
-        :param vm_id: globally unique identifier for VM instance
-        :param host: ID of the host where the VM is placed
-        :param port_id: globally unique port ID that connects VM to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        """
-
-    @abc.abstractmethod
     def hpb_supported(self):
         """Whether hierarchical port binding (HPB) is supported by CVX.
 
         Returns True if HPB is supported, False otherwise.
         """
+
+    def apply_security_group(self, security_group, switch_profiles):
+        """Applies ACLs on switch interface.
+
+        Translates neutron security group to switch ACL and applies the ACLs
+        on all the switch interfaces defined in the profiles.
+
+        :param security_group: Neutron security group
+        :param switch_profiles: Switch link information
+        """
+        for profile in switch_profiles:
+            self.security_group_driver.apply_acl(security_group,
+                                                 profile['switch_id'],
+                                                 profile['port_id'],
+                                                 profile['switch_info'])
+
+    def remove_security_group(self, security_group, switch_profiles):
+        """Removes ACLs from switch interface
+
+        Translates neutron security group to switch ACL and removes the ACLs
+        from all the switch interfaces defined in the profiles.
+
+        :param security_group: Neutron security group
+        :param switch_profiles: Switch link information
+        """
+        for profile in switch_profiles:
+            self.security_group_driver.remove_acl(security_group,
+                                                  profile['switch_id'],
+                                                  profile['port_id'],
+                                                  profile['switch_info'])
 
 
 class AristaRPCWrapperJSON(AristaRPCWrapperBase):
@@ -739,7 +630,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         return True
 
     def hpb_supported(self):
-        return False
+        return True
 
     def sync_start(self):
         try:
@@ -782,9 +673,17 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         path = 'region/' + self.region + '/dhcp?tenantId=' + tenant
         return self._send_api_request(path, 'GET')
 
+    def get_baremetals_for_tenant(self, tenant):
+        path = 'region/' + self.region + '/baremetal?tenantId=' + tenant
+        return self._send_api_request(path, 'GET')
+
+    def get_routers_for_tenant(self, tenant):
+        path = 'region/' + self.region + '/router?tenantId=' + tenant
+        return self._send_api_request(path, 'GET')
+
     def get_ports_for_tenant(self, tenant, pType):
-        path = 'api/region/%s/port?tenantId=%s&type=%s' % (self.region,
-                                                           tenant, pType)
+        path = 'region/%s/port?tenantId=%s&type=%s' % (self.region,
+                                                       tenant, pType)
         return self._send_api_request(path, 'GET')
 
     def get_tenants(self):
@@ -800,8 +699,6 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 for net in nets:
                     net['networkId'] = net.pop('id')
                     net['networkName'] = net.pop('name')
-                    net['segmentationType'] = net.pop('segType')
-                    net['segmentationTypeId'] = net.pop('segId')
                     netDict[net['networkId']] = net
             except Exception as exc:
                 LOG.error(_LE('Failed to get tenant network %(net)s. '
@@ -809,30 +706,17 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
             ten['tenantNetworks'] = netDict
 
-            vmPorts = self.get_ports_for_tenant(ten['tenantId'], 'vm')
-            dhcpPorts = self.get_ports_for_tenant(ten['tenantId'], 'dhcp')
-            ports = []
-            if vmPorts:
-                ports.append(vmPorts)
-            if dhcpPorts:
-                ports.append(dhcpPorts)
-
             vms = self.get_vms_for_tenant(ten['tenantId'])
-            vmDict = {}
-            for vm in vms:
-                # TODO(areimers): DVR support
-                vm['vmInstanceId'] = vm.pop('id')
-                vm['vmHostId'] = vm.pop('hostId')
-                vmDict[vm['vmInstanceId']] = vm
-                # Filter ports that belong to this VM
-                vmP = [p for p in ports if p['instanceId'] == vm['instanceId']]
-                pD = {}
-                for p in vmP:
-                    p['portId'] = p.pop('id')
-                    p['portVlanType'] = p.pop('vlanType')
-                    pD[p['portId']] = p
-                vm['vmPorts'] = pD
+            vmDict = dict((v['id'], v) for v in vms)
             ten['tenantVmInstances'] = vmDict
+
+            routers = self.get_routers_for_tenant(ten['tenantId'])
+            routerDict = dict((r['id'], r) for r in routers)
+            ten['tenantRouterInstances'] = routerDict
+
+            bms = self.get_baremetals_for_tenant(ten['tenantId'])
+            bmDict = dict((b['id'], b) for b in bms)
+            ten['tenantBaremetalInstances'] = bmDict
 
             d[ten['tenantId']] = ten
         return d
@@ -849,13 +733,12 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def create_network_bulk(self, tenant_id, network_list, sync=False):
         self._create_tenant_if_needed(tenant_id)
         networks = []
+        segments = []
         for net in network_list:
             n = {
                 'id': net['network_id'],
                 'tenantId': tenant_id,
                 'shared': net['shared'],
-                'segType': 'vlan',
-                'segId': DEFAULT_VLAN
             }
 
             if net.get('network_name'):
@@ -863,14 +746,37 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             if net.get('segmentation_id'):
                 n['segId'] = net['segmentation_id']
 
+            for segment in net['segments']:
+                segmentType = 'static'
+                if segment.get('is_dynamic', False):
+                    segmentType = 'dynamic'
+
+                segments.append({
+                    'id': segment['id'],
+                    'networkId': net['network_id'],
+                    'type': segment['network_type'],
+                    'segmentationId': segment['segmentation_id'],
+                    'segmentType': segmentType,
+                })
+
             networks.append(n)
 
-        path = 'region/' + self.region + '/network'
-        return self._send_api_request(path, 'POST', networks)
+        if networks:
+            path = 'region/' + self.region + '/network'
+            self._send_api_request(path, 'POST', networks)
+
+        if segments:
+            path = 'region/' + self.region + '/segment'
+            self._send_api_request(path, 'POST', segments)
 
     def create_network_segments(self, tenant_id, network_id,
                                 network_name, segments):
-        raise NotImplementedError("create_network_segments() not implemented")
+        path = 'region/' + self.region + '/segment'
+        self._send_api_request(path, 'POST', segments)
+
+    def delete_network_segments(self, segments):
+        path = 'region/' + self.region + '/segment'
+        self._send_api_request(path, 'DELETE', segments)
 
     def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
         path = 'region/' + self.region + '/network'
@@ -884,14 +790,20 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         }
 
     def _create_port_data(self, port_id, tenant_id, network_id, instance_id,
-                          name, port_type, hosts):
+                          name, instance_type, hosts):
+
+        vlan_type = 'allowed'
+        if instance_type in InstanceType.BAREMETAL_INSTANCE_TYPES:
+            vlan_type = 'native'
+
         return {
             'id': port_id,
             'tenantId': tenant_id,
             'networkId': network_id,
             'instanceId': instance_id,
             'name': name,
-            'instanceType': port_type,
+            'instanceType': instance_type,
+            'vlanType': vlan_type,
             'hosts': hosts or []
         }
 
@@ -921,7 +833,11 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
         vmInst = {}
         dhcpInst = {}
+        baremetalInst = {}
+        routerInst = {}
         portInst = []
+        networkSegments = {}
+        portBindings = {}
 
         for vm in vms.values():
             for v_port in vm['ports']:
@@ -959,30 +875,53 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
                 device_owner = neutron_port['device_owner']
                 if device_owner == n_const.DEVICE_OWNER_DHCP:
-                    instance_type = 'dhcp'
+                    instance_type = InstanceType.DHCP
                     if inst_id not in dhcpInst:
                         dhcpInst[inst_id] = instance
                 elif device_owner.startswith('compute'):
-                    instance_type = 'vm'
+                    instance_type = InstanceType.VM
                     if inst_id not in vmInst:
                         vmInst[inst_id] = instance
                 elif device_owner.startswith('baremetal'):
-                    # TODO(areimers) - Ironic support
-                    continue
+                    instance_type = InstanceType.BAREMETAL
+                    if inst_id not in baremetalInst:
+                        baremetalInst[inst_id] = instance
                 elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
-                    # TODO(areimers) - DVR support
-                    continue
+                    instance_type = InstanceType.ROUTER
+                    if inst_id not in routerInst:
+                        routerInst[inst_id] = instance
                 else:
                     LOG.warn(_LW("Unknown device owner: %s"),
                              neutron_port['device_owner'])
                     continue
 
                 network_id = neutron_port['network_id']
+                if network_id not in networkSegments:
+                    networkSegments[
+                        network_id] = self._ndb.get_all_network_segments(
+                            network_id)
+
                 port = self._create_port_data(port_id, tenant_id,
                                               network_id, inst_id,
                                               neutron_port.get('name'),
                                               instance_type, v_port['hosts'])
                 portInst.append(port)
+
+                if instance_type in InstanceType.VIRTUAL_INSTANCE_TYPES:
+                    portBinding = self._get_host_binding_dict(
+                        port_id, inst_host, network_id,
+                        networkSegments[network_id])
+                elif instance_type in InstanceType.BAREMETAL_INSTANCE_TYPES:
+                    switch_profile = json.loads(bm_port_profiles[
+                                                port_id]['profile'])
+                    portBinding = self._get_switch_binding_dict(
+                        port_id, inst_host, network_id,
+                        switch_profile['local_link_information'],
+                        networkSegments[network_id])
+                if port_id not in portBindings:
+                    portBindings[port_id] = [portBinding]
+                else:
+                    portBindings[port_id].append(portBinding)
 
         # create instances first
         if vmInst:
@@ -991,101 +930,183 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         if dhcpInst:
             path = 'region/' + self.region + '/dhcp?tenantId=' + tenant_id
             self._send_api_request(path, 'POST', dhcpInst.values())
+        if baremetalInst:
+            path = 'region/' + self.region + '/baremetal?tenantId=' + tenant_id
+            self._send_api_request(path, 'POST', baremetalInst.values())
+        if routerInst:
+            path = 'region/' + self.region + '/router?tenantId=' + tenant_id
+            self._send_api_request(path, 'POST', routerInst.values())
 
         # now create ports for the instances
         path = 'region/' + self.region + '/port'
         self._send_api_request(path, 'POST', portInst)
 
-    def delete_instance_bulk(self, tenant_id, instance_id_list, sync=False):
-        # TODO(areimers) - DVR support
-        LOG.info(ERR_DVR_NOT_SUPPORTED)
+        # TODO(shashank): Optimize this
+        for port_id, bindings in portBindings.items():
+            url = 'region/' + self.region + '/port/' + port_id + '/binding'
+            self._send_api_request(url, 'POST', bindings)
+
+    def delete_instance_bulk(self, tenant_id, instance_id_list, instance_type,
+                             sync=False):
+        path = 'region/%(region)s/%(type)s' % {
+               'region': self.region,
+               'type': instance_type}
+
+        data = [{'id': i} for i in instance_id_list]
+        return self._send_api_request(path, 'DELETE', data)
 
     def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
-        path = 'region/' + self.region + '/vm?tenantId=' + tenant_id
-        data = [{'id': v} for v in vm_id_list]
-        return self._send_api_request(path, 'DELETE', data)
+        self.delete_instance_bulk(tenant_id, vm_id_list, InstanceType.VM)
 
     def delete_dhcp_bulk(self, tenant_id, dhcp_id_list):
-        path = 'region/' + self.region + '/dhcp?tenantId=' + tenant_id
-        data = [{'id': d} for d in dhcp_id_list]
-        return self._send_api_request(path, 'DELETE', data)
+        self.delete_instance_bulk(tenant_id, dhcp_id_list, InstanceType.DHCP)
 
-    def delete_port(self, port_id, instance_id, tenant_id, instance_type):
-        path = ('region/%s/port?tenantId=%s&portId=%s&id=%s&type=%s' %
-                (self.region, tenant_id, port_id, instance_id, instance_type))
-        port = self._create_port_data(port_id, tenant_id, None, instance_id,
+    def delete_port(self, port_id, instance_id, instance_type):
+        path = ('region/%s/port?portId=%s&id=%s&type=%s' %
+                (self.region, port_id, instance_id, instance_type))
+        port = self._create_port_data(port_id, None, None, instance_id,
                                       None, instance_type, None)
         return self._send_api_request(path, 'DELETE', [port])
 
-    def get_port(self, tenant_id, port_id, instance_id, instance_type):
-        path = ('region/%s/port?tenantId=%s&portId=%s&id=%s&type=%s' %
-                (self.region, tenant_id, port_id, instance_id, instance_type))
+    def get_instance_ports(self, instance_id, instance_type):
+        path = ('region/%s/port?id=%s&type=%s' %
+                (self.region, instance_id, instance_type))
         return self._send_api_request(path, 'GET')
 
-    def plug_host_into_network(self, vm_id, host, port_id,
-                               network_id, tenant_id, segments, port_name):
+    def plug_port_into_network(self, device_id, host_id, port_id,
+                               net_id, tenant_id, port_name, device_owner,
+                               sg, orig_sg, vnic_type, segments, profile=None):
+        device_type = ''
+        if device_owner == n_const.DEVICE_OWNER_DHCP:
+            device_type = InstanceType.DHCP
+        elif device_owner.startswith('compute'):
+            device_type = InstanceType.VM
+        elif device_owner.startswith('baremetal'):
+            device_type = InstanceType.BAREMETAL
+        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+            device_type = InstanceType.ROUTER
+        else:
+            LOG.info(_LI('Unsupported device owner: %s'), device_owner)
+            return
+
         self._create_tenant_if_needed(tenant_id)
-        vm = self._create_instance_data(vm_id, host)
-        port = self._create_port_data(port_id, tenant_id, network_id, vm_id,
-                                      port_name, 'vm', [host])
-        self._send_api_request('region/' + self.region + '/vm?tenantId=' +
-                               tenant_id, 'POST', [vm])
+        instance = self._create_instance_data(device_id, host_id)
+        port = self._create_port_data(port_id, tenant_id, net_id, device_id,
+                                      port_name, device_type, [host_id])
+        url = 'region/%(region)s/%(device_type)s?tenantId=%(tenant_id)s' % {
+              'region': self.region,
+              'device_type': device_type,
+              'tenant_id': tenant_id,
+        }
+        self._send_api_request(url, 'POST', [instance])
         self._send_api_request('region/' + self.region + '/port', 'POST',
                                [port])
+        if device_type in InstanceType.VIRTUAL_INSTANCE_TYPES:
+            self.bind_port_to_host(port_id, host_id, net_id, segments)
+        elif device_type in InstanceType.BAREMETAL_INSTANCE_TYPES:
+            self.bind_port_to_switch_interface(port_id, host_id, net_id,
+                                               profile, segments)
+            self.apply_security_group(port_id, profile)
 
-    def unplug_host_from_network(self, vm_id, host, port_id,
-                                 network_id, tenant_id):
-        self.delete_port(port_id, vm_id, tenant_id, 'vm')
-        port = self.get_port(tenant_id, port_id, vm_id, 'vm')
+    def unplug_port_from_network(self, device_id, device_owner, hostname,
+                                 port_id, network_id, tenant_id, sg, vnic_type,
+                                 profile=None):
+        device_type = ''
+        if device_owner == n_const.DEVICE_OWNER_DHCP:
+            device_type = InstanceType.DHCP
+        elif device_owner.startswith('compute'):
+            device_type = InstanceType.VM
+        elif device_owner.startswith('baremetal'):
+            device_type = InstanceType.BAREMETAL
+        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+            device_type = InstanceType.ROUTER
+        else:
+            LOG.info(_LI('Unsupported device owner: %s'), device_owner)
+            return
+
+        self.unbind_port_from_host(port_id, hostname)
+        self.delete_port(port_id, device_id, device_type)
+        port = self.get_instance_ports(device_id, device_type)
         if not port:
-            self.delete_vm_bulk(tenant_id, [vm_id])
+            # If the last port attached to an instance is deleted, cleanup the
+            # instance.
+            instances = [device_id]
+            self.delete_instance_bulk(tenant_id, instances, device_type)
 
-    def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
-                                    network_id, tenant_id, segments,
-                                    port_name):
-        self._create_tenant_if_needed(tenant_id)
-        dhcp = self._create_instance_data(dhcp_id, host)
-        port = self._create_port_data(port_id, tenant_id, network_id, dhcp_id,
-                                      port_name, 'dhcp', [host])
-        self._send_api_request('region/' + self.region + '/dhcp?tenantId=' +
-                               tenant_id, 'POST', [dhcp])
-        self._send_api_request('region/' + self.region + '/port', 'POST',
-                               [port])
+    def _get_segment_list(self, network_id, segments):
+        return [{'id': s['id'],
+                 'type': s['network_type'],
+                 'segmentationId': s['segmentation_id'],
+                 'networkId': network_id,
+                 'segment_type': 'dynamic' if s.get('is_dynamic', False) else
+                                 'static',
+                 } for s in segments]
 
-    def unplug_dhcp_port_from_network(self, dhcp_id, host, port_id,
-                                      network_id, tenant_id):
-        self.delete_port(port_id, dhcp_id, tenant_id, 'dhcp')
-        port = self.get_port(tenant_id, port_id, dhcp_id, 'dhcp')
-        if not port:
-            self.delete_dhcp_bulk(tenant_id, [dhcp_id])
+    def _get_host_binding_dict(self, port_id, host, network_id, segments):
+        return {'portId': port_id,
+                'hostBinding': [{
+                    'host': host,
+                    'segment': self._get_segment_list(network_id,
+                                                      segments),
+                    }]
+                }
 
-    def plug_distributed_router_port_into_network(self, router_id, host,
-                                                  port_id, net_id, tenant_id,
-                                                  segments):
-        # TODO(areimers) - DVR support
-        raise NotImplementedError("plug_distributed_router_port_into_network()"
-                                  " not implemented")
+    def bind_port_to_host(self, port_id, host, network_id, segments):
 
-    def unplug_distributed_router_port_from_network(self, router_id,
-                                                    port_id, host, tenant_id):
-        # TODO(areimers) - DVR support
-        raise NotImplementedError("unplug_distributed_router_port_into_"
-                                  "network() not implemented")
+        url = 'region/' + self.region + '/port/' + port_id + '/binding'
+        binding = self._get_host_binding_dict(port_id, host, network_id,
+                                              segments)
+        self._send_api_request(url, 'POST', [binding])
 
-    def plug_baremetal_into_network(self, vm_id, host, port_id,
-                                    network_id, tenant_id, segments, port_name,
-                                    sg=None, orig_sg=None,
-                                    vnic_type=None, profile=None):
-        # TODO(areimers) - Ironic support
-        raise NotImplementedError("plug_baremetal_into_network() not "
-                                  "implemented")
+    def unbind_port_from_host(self, port_id, host):
+        url = 'region/' + self.region + '/port/' + port_id + '/binding'
+        binding = {'portId': port_id,
+                   'hostBinding': [{
+                       'host': host,
+                   }]}
+        self._send_api_request(url, 'DELETE', [binding])
 
-    def unplug_baremetal_from_network(self, vm_id, host, port_id,
-                                      network_id, tenant_id, sg, vnic_type,
-                                      profile=None):
-        # TODO(areimers) - Ironic support
-        raise NotImplementedError("unplug_baremetal_from_network() not "
-                                  "implemented")
+    def _get_switch_binding_dict(self, port_id, host, network_id,
+                                 switch_profiles, segments):
+        bindings = []
+        for profile in switch_profiles:
+            if not profile:
+                continue
+
+            switch = profile['switch_id']
+            interface = profile['port_id']
+
+            bindings.append({'portId': port_id,
+                             'switchBinding': [{
+                                 'host': host,
+                                 'switch': switch,
+                                 'interface': interface,
+                                 'segment': self._get_segment_list(
+                                     network_id, segments),
+                             }]})
+        return bindings
+
+    def bind_port_to_switch_interface(self, port_id, host, network_id,
+                                      switch_profiles, segments):
+
+        if not switch_profiles:
+            return
+
+        url = 'region/' + self.region + '/port/' + port_id + '/binding'
+        bindings = self._get_switch_binding_dict(port_id, host, network_id,
+                                                 switch_profiles, segments)
+        self._send_api_request(url, 'POST', bindings)
+
+    def unbind_port_from_switch_interface(self, port_id, host, switch,
+                                          interface):
+        url = 'region/' + self.region + '/port/' + port_id + '/binding'
+        binding = {'portId': port_id,
+                   'switchBinding': [{
+                       'host': host,
+                       'switch': switch,
+                       'interface': interface,
+                   }]}
+        self._send_api_request(url, 'DELETE', [binding])
 
 
 class AristaRPCWrapperEapi(AristaRPCWrapperBase):
@@ -1265,6 +1286,74 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     " release of EOS")
             LOG.error(msg)
             raise arista_exc.AristaConfigError(msg=msg)
+
+    def plug_port_into_network(self, device_id, host_id, port_id,
+                               net_id, tenant_id, port_name, device_owner,
+                               sg, orig_sg, vnic_type, segments, profile=None):
+        if device_owner == n_const.DEVICE_OWNER_DHCP:
+            self.plug_dhcp_port_into_network(device_id,
+                                             host_id,
+                                             port_id,
+                                             net_id,
+                                             tenant_id,
+                                             segments,
+                                             port_name)
+        elif device_owner.startswith('compute'):
+            self.plug_host_into_network(device_id,
+                                        host_id,
+                                        port_id,
+                                        net_id,
+                                        tenant_id,
+                                        segments,
+                                        port_name)
+        elif device_owner.startswith('baremetal'):
+            self.plug_baremetal_into_network(device_id,
+                                             host_id,
+                                             port_id,
+                                             net_id,
+                                             tenant_id,
+                                             segments,
+                                             port_name,
+                                             sg, orig_sg,
+                                             vnic_type,
+                                             profile)
+        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+            self.plug_distributed_router_port_into_network(device_id,
+                                                           host_id,
+                                                           port_id,
+                                                           net_id,
+                                                           tenant_id,
+                                                           segments)
+
+    def unplug_port_from_network(self, device_id, device_owner, hostname,
+                                 port_id, network_id, tenant_id, sg, vnic_type,
+                                 profile=None):
+        if device_owner == n_const.DEVICE_OWNER_DHCP:
+            self.unplug_dhcp_port_from_network(device_id,
+                                               hostname,
+                                               port_id,
+                                               network_id,
+                                               tenant_id)
+        elif device_owner.startswith('compute'):
+            self.unplug_host_from_network(device_id,
+                                          hostname,
+                                          port_id,
+                                          network_id,
+                                          tenant_id)
+        elif device_owner.startswith('baremetal'):
+            self.unplug_baremetal_from_network(device_id,
+                                               hostname,
+                                               port_id,
+                                               network_id,
+                                               tenant_id,
+                                               sg,
+                                               vnic_type,
+                                               profile)
+        elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+            self.unplug_distributed_router_port_from_network(device_id,
+                                                             port_id,
+                                                             hostname,
+                                                             tenant_id)
 
     def plug_host_into_network(self, vm_id, host, port_id,
                                network_id, tenant_id, segments, port_name):
@@ -1468,6 +1557,10 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                 for seg in segments)
             self._run_openstack_cmds(cmds)
 
+    def delete_network_segments(self, segments):
+        # CLI deletes the segments when the network is deleted.
+        pass
+
     def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
         cmds = ['tenant %s' % tenant_id]
         for counter, network_id in enumerate(network_id_list, 1):
@@ -1519,7 +1612,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
         self._run_openstack_cmds(cmds, sync=sync)
 
-    def delete_instance_bulk(self, tenant_id, instance_id_list, sync=False):
+    def delete_instance_bulk(self, tenant_id, instance_id_list, instance_type,
+                             sync=False):
         cmds = ['tenant %s' % tenant_id]
         counter = 0
         for instance in instance_id_list:
@@ -2051,6 +2145,7 @@ class SyncService(object):
                     if self._rpc.bm_and_dvr_supported():
                         self._rpc.delete_instance_bulk(tenant,
                                                        routers_to_delete,
+                                                       InstanceType.ROUTER,
                                                        sync=True)
                     else:
                         LOG.info(ERR_DVR_NOT_SUPPORTED)
@@ -2059,6 +2154,7 @@ class SyncService(object):
                     if self._rpc.bm_and_dvr_supported():
                         self._rpc.delete_instance_bulk(tenant,
                                                        bms_to_delete,
+                                                       InstanceType.BAREMETAL,
                                                        sync=True)
                     else:
                         LOG.info(BAREMETAL_NOT_SUPPORTED)
