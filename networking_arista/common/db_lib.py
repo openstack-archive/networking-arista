@@ -488,17 +488,20 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
            segments[0][driver_api.NETWORK_TYPE] == p_const.TYPE_VLAN):
             return nets[0]['tenant_id']
 
-    def get_all_network_segments(self, network_id, session=None):
+    def get_network_segments(self, network_id, dynamic=False, session=None):
         db_session = session if session else self.admin_ctx.session
-        static_segments = ml2_db.get_network_segments(db_session,
-                                                      network_id)
-        dynamic_segments = ml2_db.get_network_segments(db_session,
-                                                       network_id,
-                                                       filter_dynamic=True)
-        for dynamic_segment in dynamic_segments:
-            dynamic_segment['is_dynamic'] = True
+        segments = ml2_db.get_network_segments(db_session, network_id,
+                                               filter_dynamic=dynamic)
+        if dynamic:
+            for segment in segments:
+                segments['is_dynamic'] = True
+        return segments
 
-        return static_segments + dynamic_segments
+    def get_all_network_segments(self, network_id, session=None):
+        segments = self.get_network_segments(network_id, session=session)
+        segments += self.get_network_segments(network_id, dynamic=True,
+                                              session=session)
+        return segments
 
     def get_segment_by_id(self, session, segment_id):
         return ml2_db.get_segment_by_id(session,
