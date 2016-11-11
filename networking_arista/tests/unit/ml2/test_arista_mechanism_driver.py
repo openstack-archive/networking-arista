@@ -245,7 +245,7 @@ def port_dict_representation(port):
                              'network_id': port['network_id']}}
 
 
-class TestAristaJSONRPCWrapper(base.BaseTestCase):
+class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
     def setUp(self):
         super(TestAristaJSONRPCWrapper, self).setUp()
         setup_valid_config()
@@ -365,21 +365,28 @@ class TestAristaJSONRPCWrapper(base.BaseTestCase):
             'network_id': network_id,
             'tenantId': tenant_id,
             'shared': shared,
-            'segmentation_id': seg_id,
+            'segments': [{'segmentation_id': seg_id,
+                          'physical_network': 'default',
+                          'id': 'segment_id_1',
+                          'is_dynamic': False,
+                          'network_type': 'vlan'}],
         }
 
     @patch(JSON_SEND_FUNC)
     def test_create_network_bulk(self, mock_send_api_req):
         n = []
-        n.append(self._createNetworkData('t1', 'net1'))
-        n.append(self._createNetworkData('t1', 'net2'))
+        n.append(self._createNetworkData('t1', 'net1', seg_id=100))
+        n.append(self._createNetworkData('t1', 'net2', seg_id=200))
         self.drv.create_network_bulk('t1', n)
         calls = [
             ('region/RegionOne/network', 'POST',
-             [{'id': 'net1', 'tenantId': 't1', 'shared': False, 'segId': 100,
-               'segType': 'vlan'},
-              {'id': 'net2', 'tenantId': 't1', 'shared': False, 'segId': 100,
-               'segType': 'vlan'}])
+             [{'id': 'net1', 'tenantId': 't1', 'shared': False},
+              {'id': 'net2', 'tenantId': 't1', 'shared': False}]),
+            ('region/RegionOne/segment', 'POST',
+                [{'id': 'segment_id_1', 'networkId': 'net1', 'type': 'vlan',
+                  'segmentationId': 100, 'segmentType': 'static'},
+                 {'id': 'segment_id_1', 'networkId': 'net2', 'type': 'vlan',
+                  'segmentationId': 200, 'segmentType': 'static'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
@@ -430,7 +437,7 @@ class TestAristaJSONRPCWrapper(base.BaseTestCase):
                     'device_owner': device_owners[(device_id + port_id) % 3],
                     'network_id': 'network-id-%d' % net_count,
                     'name': 'port-%d-%d' % (device_id, port_id),
-                    'tenant_id': tenant_id
+                    'tenant_id': tenant_id,
                 }
                 port_list.append(port)
                 net_count += 1
@@ -454,27 +461,66 @@ class TestAristaJSONRPCWrapper(base.BaseTestCase):
                 [{'networkId': 'network-id-8', 'id': 'port-id-8-1',
                   'tenantId': 'ten-3', 'instanceId': 'dev-id-8',
                   'name': 'port-8-1', 'hosts': ['host_8'],
-                  'instanceType': 'dhcp'},
+                  'instanceType': 'dhcp', 'vlanType': 'allowed'},
                  {'networkId': 'network-id-9', 'id': 'port-id-9-1',
                   'tenantId': 'ten-3', 'instanceId': 'dev-id-9',
                   'name': 'port-9-1', 'hosts': ['host_9'],
-                  'instanceType': 'vm'},
+                  'instanceType': 'vm', 'vlanType': 'allowed'},
                  {'networkId': 'network-id-2', 'id': 'port-id-2-1',
                   'tenantId': 'ten-3', 'instanceId': 'dev-id-2',
                   'name': 'port-2-1', 'hosts': ['host_2'],
-                  'instanceType': 'dhcp'},
+                  'instanceType': 'dhcp', 'vlanType': 'allowed'},
                  {'networkId': 'network-id-3', 'id': 'port-id-3-1',
                   'tenantId': 'ten-3', 'instanceId': 'dev-id-3',
                   'name': 'port-3-1', 'hosts': ['host_3'],
-                  'instanceType': 'vm'},
+                  'instanceType': 'vm', 'vlanType': 'allowed'},
                  {'networkId': 'network-id-6', 'id': 'port-id-6-1',
                   'tenantId': 'ten-3', 'instanceId': 'dev-id-6',
                   'name': 'port-6-1', 'hosts': ['host_6'],
-                  'instanceType': 'vm'},
+                  'instanceType': 'vm', 'vlanType': 'allowed'},
                  {'networkId': 'network-id-5', 'id': 'port-id-5-1',
                   'tenantId': 'ten-3', 'instanceId': 'dev-id-5',
                   'name': 'port-5-1', 'hosts': ['host_5'],
-                  'instanceType': 'dhcp'}])
+                  'instanceType': 'dhcp', 'vlanType': 'allowed'},
+                 {'networkId': 'network-id-1', 'id': 'port-id-1-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-1',
+                  'name': 'port-1-1', 'hosts': ['host_1'],
+                  'instanceType': 'router', 'vlanType': 'allowed'},
+                 {'networkId': 'network-id-4', 'id': 'port-id-4-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-4',
+                  'name': 'port-4-1', 'hosts': ['host_4'],
+                  'instanceType': 'router', 'vlanType': 'allowed'},
+                 {'networkId': 'network-id-7', 'id': 'port-id-7-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-7',
+                  'name': 'port-7-1', 'hosts': ['host_7'],
+                  'instanceType': 'router', 'vlanType': 'allowed'}]),
+            ('region/RegionOne/port/port-id-1-1/binding',
+             'POST', [{'portId': 'port-id-1-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_1'}]}]),
+            ('region/RegionOne/port/port-id-2-1/binding',
+             'POST', [{'portId': 'port-id-2-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_2'}]}]),
+            ('region/RegionOne/port/port-id-3-1/binding',
+             'POST', [{'portId': 'port-id-3-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_3'}]}]),
+            ('region/RegionOne/port/port-id-4-1/binding',
+             'POST', [{'portId': 'port-id-4-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_4'}]}]),
+            ('region/RegionOne/port/port-id-5-1/binding',
+             'POST', [{'portId': 'port-id-5-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_5'}]}]),
+            ('region/RegionOne/port/port-id-6-1/binding',
+             'POST', [{'portId': 'port-id-6-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_6'}]}]),
+            ('region/RegionOne/port/port-id-7-1/binding',
+             'POST', [{'portId': 'port-id-7-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_7'}]}]),
+            ('region/RegionOne/port/port-id-8-1/binding',
+             'POST', [{'portId': 'port-id-8-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_8'}]}]),
+            ('region/RegionOne/port/port-id-9-1/binding',
+             'POST', [{'portId': 'port-id-9-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_9'}]}]),
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
@@ -482,7 +528,7 @@ class TestAristaJSONRPCWrapper(base.BaseTestCase):
     def test_delete_vm_bulk(self, mock_send_api_req):
         self.drv.delete_vm_bulk('t1', ['vm1', 'vm2'])
         calls = [
-            ('region/RegionOne/vm?tenantId=t1', 'DELETE',
+            ('region/RegionOne/vm', 'DELETE',
              [{'id': 'vm1'}, {'id': 'vm2'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
@@ -491,100 +537,107 @@ class TestAristaJSONRPCWrapper(base.BaseTestCase):
     def test_delete_dhcp_bulk(self, mock_send_api_req):
         self.drv.delete_dhcp_bulk('t1', ['dhcp1', 'dhcp2'])
         calls = [
-            ('region/RegionOne/dhcp?tenantId=t1', 'DELETE',
+            ('region/RegionOne/dhcp', 'DELETE',
              [{'id': 'dhcp1'}, {'id': 'dhcp2'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
     def test_delete_port(self, mock_send_api_req):
-        self.drv.delete_port('p1', 'inst1', 't1', 'vm')
-        self.drv.delete_port('p2', 'inst2', 't1', 'dhcp')
+        self.drv.delete_port('p1', 'inst1', 'vm')
+        self.drv.delete_port('p2', 'inst2', 'dhcp')
         calls = [
-            ('region/RegionOne/port?tenantId=t1&portId=p1&id=inst1&type=vm',
+            ('region/RegionOne/port?portId=p1&id=inst1&type=vm',
              'DELETE',
-             [{'hosts': [], 'id': 'p1', 'tenantId': 't1', 'networkId': None,
-               'instanceId': 'inst1', 'name': None, 'instanceType': 'vm'}]),
-            ('region/RegionOne/port?tenantId=t1&portId=p2&id=inst2&type=dhcp',
+             [{'hosts': [], 'id': 'p1', 'tenantId': None, 'networkId': None,
+               'instanceId': 'inst1', 'name': None, 'instanceType': 'vm',
+               'vlanType': 'allowed'}]),
+            ('region/RegionOne/port?portId=p2&id=inst2&type=dhcp',
              'DELETE',
-             [{'hosts': [], 'id': 'p2', 'tenantId': 't1', 'networkId': None,
-               'instanceId': 'inst2', 'name': None, 'instanceType': 'dhcp'}])
+             [{'hosts': [], 'id': 'p2', 'tenantId': None, 'networkId': None,
+               'instanceId': 'inst2', 'name': None, 'instanceType': 'dhcp',
+               'vlanType': 'allowed'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
     def test_get_port(self, mock_send_api_req):
-        self.drv.get_port('t1', 'p1', 'inst1', 'vm')
+        self.drv.get_instance_port('inst1', 'vm')
         calls = [
-            ('region/RegionOne/port?tenantId=t1&portId=p1&id=inst1&type=vm',
+            ('region/RegionOne/port?id=inst1&type=vm',
              'GET')
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
     def test_plug_host_into_network(self, mock_send_api_req):
-        segments = [{'segmentationId': 101,
-                     'networkId': 'net-101',
+        segments = [{'segmentation_id': 101,
                      'id': 'segment_id_1',
-                     'type': 'vlan',
-                     'segmentType': 'static'}]
-        self.drv.plug_host_into_network('vm1', 'h1', 'p1', 'n1', 't1',
-                                        segments, 'port1')
+                     'network_type': 'vlan',
+                     'is_dynamic': False}]
+        self.drv.plug_port_into_network('vm1', 'h1', 'p1', 'n1', 't1', 'port1',
+                                        'compute', None, None, None, segments)
         calls = [
             ('region/RegionOne/vm?tenantId=t1', 'POST',
              [{'id': 'vm1', 'hostId': 'h1'}]),
             ('region/RegionOne/port', 'POST',
              [{'id': 'p1', 'hosts': ['h1'], 'tenantId': 't1',
                'networkId': 'n1', 'instanceId': 'vm1', 'name': 'port1',
-               'instanceType': 'vm'}])
+               'instanceType': 'vm', 'vlanType': 'allowed'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON.get_port')
-    def test_unplug_host_from_network(self, mock_get_port, mock_send_api_req):
-        mock_get_port.return_value = []
-        self.drv.unplug_host_from_network('vm1', 'h1', 'p1', 'n1', 't1')
-        port = self.drv._create_port_data('p1', 't1', None, 'vm1', None, 'vm',
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON.'
+           'get_instance_port')
+    def test_unplug_host_from_network(self, mock_get_instance_port,
+                                      mock_send_api_req):
+        mock_get_instance_port.return_value = []
+        self.drv.unplug_port_from_network('vm1', 'compute', 'h1', 'p1', 'n1',
+                                          't1', None, None)
+        port = self.drv._create_port_data('p1', None, None, 'vm1', None, 'vm',
                                           None)
         calls = [
-            ('region/RegionOne/port?tenantId=t1&portId=p1&id=vm1&type=vm',
+            ('region/RegionOne/port?portId=p1&id=vm1&type=vm',
              'DELETE', [port]),
-            ('region/RegionOne/vm?tenantId=t1', 'DELETE', [{'id': 'vm1'}])
+            ('region/RegionOne/vm', 'DELETE', [{'id': 'vm1'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
     def test_plug_dhcp_port_into_network(self, mock_send_api_req):
-        segments = [{'segmentationId': 101,
-                     'networkId': 'net-101',
+        segments = [{'segmentation_id': 101,
                      'id': 'segment_id_1',
-                     'type': 'vlan',
-                     'segmentType': 'static'}]
-        self.drv.plug_dhcp_port_into_network('vm1', 'h1', 'p1', 'n1', 't1',
-                                             segments, 'port1')
+                     'network_type': 'vlan',
+                     'is_dynamic': False}]
+        self.drv.plug_port_into_network('vm1', 'h1', 'p1', 'n1', 't1', 'port1',
+                                        n_const.DEVICE_OWNER_DHCP, None, None,
+                                        None, segments)
         calls = [
             ('region/RegionOne/dhcp?tenantId=t1', 'POST',
              [{'id': 'vm1', 'hostId': 'h1'}]),
             ('region/RegionOne/port', 'POST',
              [{'id': 'p1', 'hosts': ['h1'], 'tenantId': 't1',
                'networkId': 'n1', 'instanceId': 'vm1', 'name': 'port1',
-               'instanceType': 'dhcp'}])
+               'instanceType': 'dhcp', 'vlanType': 'allowed'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
-    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON.get_port')
-    def test_unplug_dhcp_port_from_network(self, mock_get_port,
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON.'
+           'get_instance_port')
+    def test_unplug_dhcp_port_from_network(self, mock_get_instance_port,
                                            mock_send_api_req):
-        mock_get_port.return_value = []
-        self.drv.unplug_dhcp_port_from_network('dhcp1', 'h1', 'p1', 'n1', 't1')
+        mock_get_instance_port.return_value = []
+        self.drv.unplug_port_from_network('dhcp1', n_const.DEVICE_OWNER_DHCP,
+                                          'h1', 'p1', 'n1', 't1', None, None)
         calls = [
-            ('region/RegionOne/port?tenantId=t1&portId=p1&id=dhcp1&type=dhcp',
+            ('region/RegionOne/port?portId=p1&id=dhcp1&type=dhcp',
              'DELETE',
-             [{'id': 'p1', 'hosts': [], 'tenantId': 't1', 'networkId': None,
-               'instanceId': 'dhcp1', 'name': None, 'instanceType': 'dhcp'}]),
-            ('region/RegionOne/dhcp?tenantId=t1', 'DELETE',
+             [{'id': 'p1', 'hosts': [], 'tenantId': None, 'networkId': None,
+               'instanceId': 'dhcp1', 'name': None, 'instanceType': 'dhcp',
+               'vlanType': 'allowed'}]),
+            ('region/RegionOne/dhcp', 'DELETE',
              [{'id': 'dhcp1'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
@@ -651,9 +704,10 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
         port_name = '123-port'
         segments = []
 
-        self.drv.plug_dhcp_port_into_network(vm_id, host, port_id,
-                                             network_id, tenant_id, segments,
-                                             port_name)
+        self.drv.plug_port_into_network(vm_id, host, port_id, network_id,
+                                        tenant_id, port_name,
+                                        n_const.DEVICE_OWNER_DHCP, None, None,
+                                        None, segments)
         cmd1 = ['show openstack agent uuid']
         cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
@@ -788,7 +842,11 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
     def test_delete_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         network_id = 'net-id'
-        self.drv.delete_network(tenant_id, network_id)
+        segments = [{'segmentation_id': 101,
+                     'physical_network': 'default',
+                     'id': 'segment_id_1',
+                     'network_type': 'vlan'}]
+        self.drv.delete_network(tenant_id, network_id, segments)
         cmd1 = ['show openstack agent uuid']
         cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',

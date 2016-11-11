@@ -242,7 +242,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.delete_network_postcommit(network_context)
         expected_calls = [
             mock.call.hpb_supported(),
-            mock.call.delete_network(tenant_id, network_id),
+            mock.call.delete_network(tenant_id, network_id, []),
             mock.call.num_nets_provisioned(tenant_id),
             mock.call.num_vms_provisioned(tenant_id),
             mock.call.forget_tenant(tenant_id),
@@ -266,7 +266,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.delete_network_postcommit(network_context)
         expected_calls += [
             mock.call.hpb_supported(),
-            mock.call.delete_network(INTERNAL_TENANT_ID, network_id),
+            mock.call.delete_network(INTERNAL_TENANT_ID, network_id, []),
             mock.call.num_nets_provisioned(INTERNAL_TENANT_ID),
             mock.call.num_vms_provisioned(INTERNAL_TENANT_ID),
             mock.call.forget_tenant(INTERNAL_TENANT_ID),
@@ -530,6 +530,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                                port_id, network_id, tenant_id,
                                                None, vnic_type,
                                                profile=profile),
+            mock.call.remove_security_group(None, profile),
             mock.call.num_nets_provisioned(tenant_id),
             mock.call.num_vms_provisioned(tenant_id),
             mock.call.forget_tenant(tenant_id),
@@ -578,6 +579,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                                port_id, network_id,
                                                INTERNAL_TENANT_ID, None,
                                                vnic_type, profile=profile),
+            mock.call.remove_security_group(None, profile),
             mock.call.num_nets_provisioned(INTERNAL_TENANT_ID),
             mock.call.num_vms_provisioned(INTERNAL_TENANT_ID),
             mock.call.forget_tenant(INTERNAL_TENANT_ID),
@@ -810,6 +812,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                                network_id, tenant_id,
                                                None, vnic_type,
                                                profile=profile),
+            mock.call.remove_security_group(None, profile),
             mock.call.num_nets_provisioned(tenant_id),
             mock.call.num_vms_provisioned(tenant_id),
             mock.call.plug_port_into_network(device_id, host_id, port_id,
@@ -878,6 +881,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                                INTERNAL_TENANT_ID,
                                                None, vnic_type,
                                                profile=profile),
+            mock.call.remove_security_group(None, profile),
             mock.call.num_nets_provisioned(INTERNAL_TENANT_ID),
             mock.call.num_vms_provisioned(INTERNAL_TENANT_ID),
             mock.call.plug_port_into_network(device_id, host_id, port_id,
@@ -969,6 +973,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                                tenant_id,
                                                None, vnic_type,
                                                profile=profile),
+            mock.call.remove_security_group(None, profile),
             mock.call.num_nets_provisioned(tenant_id),
             mock.call.num_vms_provisioned(tenant_id),
         ]
