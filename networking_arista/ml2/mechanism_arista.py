@@ -73,10 +73,14 @@ class AristaDriver(driver_api.MechanismDriver):
         self.managed_physnets = confg['managed_physnets']
         self.eos_sync_lock = threading.Lock()
 
+        self.eapi = None
+
         if rpc:
             LOG.info("Using passed in parameter for RPC")
             self.rpc = rpc
+            self.eapi = rpc
         else:
+            self.eapi = arista_ml2.AristaRPCWrapperEapi(self.ndb)
             api_type = confg['api_type'].upper()
             if api_type == 'EAPI':
                 LOG.info("Using EAPI for RPC")
@@ -212,6 +216,7 @@ class AristaDriver(driver_api.MechanismDriver):
     def delete_network_postcommit(self, context):
         """Send network delete request to Arista HW."""
         network = context.current
+        segments = []
         if not self.rpc.hpb_supported():
             # Hierarchical port binding is not supported by CVX, only
             # send the request if network type is VLAN.
@@ -227,7 +232,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # EOS state will be updated by sync thread once EOS gets
             # alive.
             try:
-                self.rpc.delete_network(tenant_id, network_id)
+                self.rpc.delete_network(tenant_id, network_id, segments)
                 # if necessary, delete tenant as well.
                 self.delete_tenant(tenant_id)
             except arista_exc.AristaRpcError as err:
@@ -317,7 +322,7 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         host_id = context.host
         port = context.current
-        physnet_info = self.rpc.get_physical_network(host_id)
+        physnet_info = self.eapi.get_physical_network(host_id)
         physnet = physnet_info.get('physnet')
         switch_id = physnet_info.get('switch_id')
         if not physnet or not switch_id:
@@ -682,22 +687,26 @@ class AristaDriver(driver_api.MechanismDriver):
             net_provisioned = self._network_provisioned(
                 tenant_id, network_id, segmentation_id=segmentation_id)
             segments = []
-            if net_provisioned and self.rpc.hpb_supported():
-                for binding_level in context.binding_levels:
-                    bound_segment = binding_level.get(
-                        driver_api.BOUND_SEGMENT)
-                    if bound_segment:
-                        segments.append(bound_segment)
-                all_segments = self.ndb.get_all_network_segments(
-                    network_id, session=context._plugin_context.session)
-                LOG.debug("segments = %s" % all_segments)
-                try:
-                    self.rpc.create_network_segments(
-                        tenant_id, network_id, context.network.current['name'],
-                        all_segments)
-                except arista_exc.AristaRpcError:
-                    LOG.error(_LE("Failed to create network segments"))
-                    raise ml2_exc.MechanismDriverError()
+            if net_provisioned:
+                if self.rpc.hpb_supported():
+                    for binding_level in context.binding_levels:
+                        bound_segment = binding_level.get(
+                            driver_api.BOUND_SEGMENT)
+                        if bound_segment:
+                            segments.append(bound_segment)
+                    all_segments = self.ndb.get_all_network_segments(
+                        network_id, session=context._plugin_context.session)
+                    try:
+                        self.rpc.create_network_segments(
+                            tenant_id, network_id,
+                            context.network.current['name'], all_segments)
+                    except arista_exc.AristaRpcError:
+                        LOG.error(_LE("Failed to create network segments"))
+                        raise ml2_exc.MechanismDriverError()
+                else:
+                    # For non HPB cases, the port is bound to the static
+                    # segment
+                    segments = self.ndb.get_network_segments(network_id)
 
             try:
                 orig_host = context.original_host
@@ -815,6 +824,7 @@ class AristaDriver(driver_api.MechanismDriver):
                                               hostname, port_id, network_id,
                                               tenant_id, sg, vnic_type,
                                               profile=profile)
+            self.rpc.remove_security_group(sg, profile)
 
             # if necessary, delete tenant as well.
             self.delete_tenant(tenant_id)
@@ -872,7 +882,7 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         host = context.original_host if migration else context.host
 
-        physnet_info = self.rpc.get_physical_network(host)
+        physnet_info = self.eapi.get_physical_network(host)
         physnet = physnet_info.get('physnet')
         if not physnet:
             return
