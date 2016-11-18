@@ -1,0 +1,9 @@
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Code-Review+2: Mitchell Jameson <mitchell@arista.com>
+Workflow+1: Mitchell Jameson <mitchell@arista.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 18 Nov 2016 19:16:54 +0000
+Reviewed-on: https://review.openstack.org/396482
+Project: openstack/networking-arista
+Branch: refs/heads/master
