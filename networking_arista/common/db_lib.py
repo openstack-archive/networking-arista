@@ -480,7 +480,7 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
     def get_shared_network_owner_id(self, network_id):
         filters = {'id': [network_id]}
         nets = self.get_networks(self.admin_ctx, filters=filters) or []
-        segments = segments_db.get_network_segments(self.admin_ctx.session,
+        segments = segments_db.get_network_segments(self.admin_ctx,
                                                     network_id)
         if not nets or not segments:
             return
@@ -488,23 +488,23 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
            segments[0][driver_api.NETWORK_TYPE] == p_const.TYPE_VLAN):
             return nets[0]['tenant_id']
 
-    def get_network_segments(self, network_id, dynamic=False, session=None):
-        db_session = session if session else self.admin_ctx.session
-        segments = segments_db.get_network_segments(db_session, network_id,
+    def get_network_segments(self, network_id, dynamic=False, context=None):
+        context = context if context is not None else self.admin_ctx
+        segments = segments_db.get_network_segments(context, network_id,
                                                     filter_dynamic=dynamic)
         if dynamic:
             for segment in segments:
                 segments['is_dynamic'] = True
         return segments
 
-    def get_all_network_segments(self, network_id, session=None):
-        segments = self.get_network_segments(network_id, session=session)
+    def get_all_network_segments(self, network_id, context=None):
+        segments = self.get_network_segments(network_id, context=context)
         segments += self.get_network_segments(network_id, dynamic=True,
-                                              session=session)
+                                              context=context)
         return segments
 
-    def get_segment_by_id(self, session, segment_id):
-        return segments_db.get_segment_by_id(session,
+    def get_segment_by_id(self, context, segment_id):
+        return segments_db.get_segment_by_id(context,
                                              segment_id)
 
     def get_network_from_net_id(self, network_id, context=None):
