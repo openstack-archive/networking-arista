@@ -497,7 +497,7 @@ class AristaDriver(driver_api.MechanismDriver):
                         # If segment id is not bound to any port, then
                         # remove it from EOS
                         segment = self.ndb.get_segment_by_id(
-                            context._plugin_context.session,
+                            context._plugin_context,
                             binding_level.segment_id)
                         if not segment:
                             try:
@@ -852,7 +852,7 @@ class AristaDriver(driver_api.MechanismDriver):
             if self._network_provisioned(tenant_id, network_id,
                                          segment_id=binding_level.segment_id):
                 segment = self.ndb.get_segment_by_id(
-                    context._plugin_context.session, binding_level.segment_id)
+                    context._plugin_context, binding_level.segment_id)
                 if not segment:
                     # The segment is already released. Delete it from EOS
                     LOG.debug("Deleting segment %s", binding_level.segment_id)
