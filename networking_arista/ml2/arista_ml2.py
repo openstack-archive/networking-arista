@@ -215,7 +215,7 @@ class AristaRPCWrapperBase(object):
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
                                sg, orig_sg, vnic_type, segments=None,
-                               switch_bindings=None):
+                               switch_bindings=None, vlan_type=None):
         """Generic routine plug a port of a VM instace into network.
 
         :param device_id: globally unique identifier for the device
@@ -975,7 +975,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                                                 port_id]['profile'])
                     portBinding = self._get_switch_bindings(
                         port_id, inst_host, network_id,
-                        switch_profile['local_link_information'],
+                        switch_profile.get('local_link_information', []),
                         networkSegments[network_id])
                 if port_id not in portBindings:
                     portBindings[port_id] = portBinding
@@ -1035,7 +1035,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
                                sg, orig_sg, vnic_type, segments,
-                               switch_bindings=None):
+                               switch_bindings=None, vlan_type=None):
         device_type = ''
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             device_type = InstanceType.DHCP
@@ -1364,7 +1364,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
                                sg, orig_sg, vnic_type, segments,
-                               switch_bindings=None):
+                               switch_bindings=None, vlan_type=None):
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             self.plug_dhcp_port_into_network(device_id,
                                              host_id,
@@ -1391,7 +1391,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                              port_name,
                                              sg, orig_sg,
                                              vnic_type,
-                                             switch_bindings)
+                                             switch_bindings,
+                                             vlan_type)
         elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
             self.plug_distributed_router_port_into_network(device_id,
                                                            host_id,
@@ -1448,7 +1449,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
     def plug_baremetal_into_network(self, vm_id, host, port_id,
                                     network_id, tenant_id, segments, port_name,
                                     sg=None, orig_sg=None,
-                                    vnic_type=None, switch_bindings=None):
+                                    vnic_type=None, switch_bindings=None,
+                                    vlan_type='native'):
         # Basic error checking for baremental deployments
         # notice that the following method throws and exception
         # if an error condition exists
@@ -1470,14 +1472,14 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                 if binding['switch_id'] and binding['port_id']:
                     if port_name:
                         cmds.append('port id %s name "%s" network-id %s '
-                                    'type native switch-id %s switchport %s' %
-                                    (port_id, port_name, network_id,
+                                    'type %s switch-id %s switchport %s' %
+                                    (port_id, port_name, network_id, vlan_type,
                                      binding['switch_id'], binding['port_id']))
                     else:
-                        cmds.append('port id %s network-id %s type native '
+                        cmds.append('port id %s network-id %s type %s '
                                     'switch-id %s switchport %s' %
-                                    (port_id, network_id, binding['switch_id'],
-                                        binding['port_id']))
+                                    (port_id, network_id, vlan_type,
+                                     binding['switch_id'], binding['port_id']))
                     cmds.extend('segment level %d id %s' % (level,
                                 segment['id'])
                                 for level, segment in enumerate(segments))
@@ -1727,24 +1729,25 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                (vm['vmId'], v_port['hosts'][0]))
                     profile = bm_port_profiles[neutron_port['id']]
                     profile = json.loads(profile['profile'])
-                    for binding in profile['local_link_information']:
-                        if not binding or not isinstance(binding, dict):
+                    vlan_type = profile.get('vlan_type', 'native')
+                    for binding in profile.get('local_link_information', []):
+                        if not binding or not isinstance(profile, dict):
                             # skip all empty entries
                             continue
                         # Ensure that profile contains switch and port ID info
                         if binding['switch_id'] and binding['port_id']:
                             if port_name:
                                 cmds.append('port id %s name "%s" '
-                                            'network-id %s type native '
+                                            'network-id %s type %s '
                                             'switch-id %s switchport %s' %
                                             (port_id, port_name, network_id,
-                                             binding['switch_id'],
+                                             vlan_type, binding['switch_id'],
                                              binding['port_id']))
                             else:
                                 cmds.append('port id %s network-id %s '
-                                            'type native '
+                                            'type %s '
                                             'switch-id %s switchport %s' %
-                                            (port_id, network_id,
+                                            (port_id, network_id, vlan_type,
                                              binding['switch_id'],
                                              binding['port_id']))
                             cmds.extend('segment level %d id %s' % (
