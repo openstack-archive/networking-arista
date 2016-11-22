@@ -643,9 +643,9 @@ class AristaDriver(driver_api.MechanismDriver):
 
         vnic_type = port['binding:vnic_type']
         binding_profile = port['binding:profile']
-        profile = []
+        bindings = []
         if binding_profile:
-            profile = binding_profile['local_link_information']
+            bindings = binding_profile['local_link_information']
 
         port_id = port['id']
         port_name = port['name']
@@ -741,7 +741,7 @@ class AristaDriver(driver_api.MechanismDriver):
                                                     sg, orig_sg,
                                                     vnic_type,
                                                     segments=segments,
-                                                    profile=profile)
+                                                    switch_bindings=bindings)
                 else:
                     LOG.info(_LI("Port not plugged into network"))
             except arista_exc.AristaRpcError as err:
@@ -806,9 +806,9 @@ class AristaDriver(driver_api.MechanismDriver):
         device_owner = port['device_owner']
         vnic_type = port['binding:vnic_type']
         binding_profile = port['binding:profile']
-        profile = []
+        switch_bindings = []
         if binding_profile:
-            profile = binding_profile['local_link_information']
+            switch_bindings = binding_profile['local_link_information']
         sg = port['security_groups']
 
         if not device_id or not host:
@@ -823,8 +823,8 @@ class AristaDriver(driver_api.MechanismDriver):
             self.rpc.unplug_port_from_network(device_id, device_owner,
                                               hostname, port_id, network_id,
                                               tenant_id, sg, vnic_type,
-                                              profile=profile)
-            self.rpc.remove_security_group(sg, profile)
+                                              switch_bindings=switch_bindings)
+            self.rpc.remove_security_group(sg, switch_bindings)
 
             # if necessary, delete tenant as well.
             self.delete_tenant(tenant_id)

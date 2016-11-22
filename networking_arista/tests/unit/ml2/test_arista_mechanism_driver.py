@@ -404,19 +404,18 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
     @patch(JSON_SEND_FUNC)
     def test_create_instance_bulk(self, mock_send_api_req):
         tenant_id = 'ten-3'
-        num_devices = 10
+        num_devices = 8
         num_ports_per_device = 2
 
         device_count = 0
         devices = {}
-        for device_id in range(1, num_devices):
-            device_count += 1
+        for device_id in range(0, num_devices):
             dev_id = 'dev-id-%d' % device_id
             devices[dev_id] = {'vmId': dev_id,
                                'baremetal_instance': False,
                                'ports': []
                                }
-            for port_id in range(1, num_ports_per_device):
+            for port_id in range(0, num_ports_per_device):
                 port_id = 'port-id-%d-%d' % (device_id, port_id)
                 port = {
                     'device_id': 'dev-id-%d' % device_id,
@@ -424,18 +423,21 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                     'portId': port_id
                 }
                 devices[dev_id]['ports'].append(port)
+            device_count += 1
 
-        device_owners = [n_const.DEVICE_OWNER_DHCP, 'compute',
+        device_owners = [n_const.DEVICE_OWNER_DHCP,
+                         'compute',
+                         'baremetal',
                          n_const.DEVICE_OWNER_DVR_INTERFACE]
         port_list = []
 
-        net_count = 1
-        for device_id in range(1, num_devices):
-            for port_id in range(1, num_ports_per_device):
+        net_count = 0
+        for device_id in range(0, num_devices):
+            for port_id in range(0, num_ports_per_device):
                 port = {
                     'portId': 'port-id-%d-%d' % (device_id, port_id),
                     'device_id': 'dev-id-%d' % device_id,
-                    'device_owner': device_owners[(device_id + port_id) % 3],
+                    'device_owner': device_owners[device_id % 4],
                     'network_id': 'network-id-%d' % net_count,
                     'name': 'port-%d-%d' % (device_id, port_id),
                     'tenant_id': tenant_id,
@@ -447,81 +449,160 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         for port in port_list:
             create_ports.update(port_dict_representation(port))
 
-        self.drv.create_instance_bulk(tenant_id, create_ports, devices, None)
+        profiles = {}
+        for port in port_list:
+            if port['device_owner'] == 'baremetal':
+                profiles[port['portId']] = {
+                    'profile': '{"local_link_information":'
+                    '[{"switch_id": "switch01", "port_id": "Ethernet1"}]}'}
+        self.drv.create_instance_bulk(tenant_id, create_ports, devices,
+                                      profiles)
         calls = [
             ('region/RegionOne/tenant?tenantId=ten-3', 'GET'),
-            ('region/RegionOne/vm?tenantId=ten-3', 'POST',
-                [{'id': 'dev-id-9', 'hostId': 'host_9'},
-                 {'id': 'dev-id-3', 'hostId': 'host_3'},
-                 {'id': 'dev-id-6', 'hostId': 'host_6'}]),
             ('region/RegionOne/dhcp?tenantId=ten-3', 'POST',
+                [{'id': 'dev-id-0', 'hostId': 'host_0'},
+                 {'id': 'dev-id-4', 'hostId': 'host_4'}]),
+            ('region/RegionOne/vm?tenantId=ten-3', 'POST',
+                [{'id': 'dev-id-1', 'hostId': 'host_1'},
+                 {'id': 'dev-id-5', 'hostId': 'host_5'}]),
+            ('region/RegionOne/baremetal?tenantId=ten-3', 'POST',
                 [{'id': 'dev-id-2', 'hostId': 'host_2'},
-                 {'id': 'dev-id-5', 'hostId': 'host_5'},
-                 {'id': 'dev-id-8', 'hostId': 'host_8'}]),
+                 {'id': 'dev-id-6', 'hostId': 'host_6'}]),
+            ('region/RegionOne/router?tenantId=ten-3', 'POST',
+                [{'id': 'dev-id-3', 'hostId': 'host_3'},
+                 {'id': 'dev-id-7', 'hostId': 'host_7'}]),
             ('region/RegionOne/port', 'POST',
-                [{'networkId': 'network-id-8', 'id': 'port-id-8-1',
-                  'tenantId': 'ten-3', 'instanceId': 'dev-id-8',
-                  'name': 'port-8-1', 'hosts': ['host_8'],
+                [{'networkId': 'network-id-0', 'id': 'port-id-0-0',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-0',
+                  'name': 'port-0-0', 'hosts': ['host_0'],
                   'instanceType': 'dhcp', 'vlanType': 'allowed'},
-                 {'networkId': 'network-id-9', 'id': 'port-id-9-1',
-                  'tenantId': 'ten-3', 'instanceId': 'dev-id-9',
-                  'name': 'port-9-1', 'hosts': ['host_9'],
-                  'instanceType': 'vm', 'vlanType': 'allowed'},
-                 {'networkId': 'network-id-2', 'id': 'port-id-2-1',
-                  'tenantId': 'ten-3', 'instanceId': 'dev-id-2',
-                  'name': 'port-2-1', 'hosts': ['host_2'],
+                 {'networkId': 'network-id-1', 'id': 'port-id-0-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-0',
+                  'name': 'port-0-1', 'hosts': ['host_0'],
                   'instanceType': 'dhcp', 'vlanType': 'allowed'},
-                 {'networkId': 'network-id-3', 'id': 'port-id-3-1',
-                  'tenantId': 'ten-3', 'instanceId': 'dev-id-3',
-                  'name': 'port-3-1', 'hosts': ['host_3'],
+
+                 {'networkId': 'network-id-2', 'id': 'port-id-1-0',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-1',
+                  'name': 'port-1-0', 'hosts': ['host_1'],
                   'instanceType': 'vm', 'vlanType': 'allowed'},
-                 {'networkId': 'network-id-6', 'id': 'port-id-6-1',
-                  'tenantId': 'ten-3', 'instanceId': 'dev-id-6',
-                  'name': 'port-6-1', 'hosts': ['host_6'],
-                  'instanceType': 'vm', 'vlanType': 'allowed'},
-                 {'networkId': 'network-id-5', 'id': 'port-id-5-1',
-                  'tenantId': 'ten-3', 'instanceId': 'dev-id-5',
-                  'name': 'port-5-1', 'hosts': ['host_5'],
-                  'instanceType': 'dhcp', 'vlanType': 'allowed'},
-                 {'networkId': 'network-id-1', 'id': 'port-id-1-1',
+                 {'networkId': 'network-id-3', 'id': 'port-id-1-1',
                   'tenantId': 'ten-3', 'instanceId': 'dev-id-1',
                   'name': 'port-1-1', 'hosts': ['host_1'],
+                  'instanceType': 'vm', 'vlanType': 'allowed'},
+
+                 {'networkId': 'network-id-4', 'id': 'port-id-2-0',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-2',
+                  'name': 'port-2-0', 'hosts': ['host_2'],
+                  'instanceType': 'baremetal', 'vlanType': 'native'},
+                 {'networkId': 'network-id-5', 'id': 'port-id-2-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-2',
+                  'name': 'port-2-1', 'hosts': ['host_2'],
+                  'instanceType': 'baremetal', 'vlanType': 'native'},
+
+                 {'networkId': 'network-id-6', 'id': 'port-id-3-0',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-3',
+                  'name': 'port-3-0', 'hosts': ['host_3'],
                   'instanceType': 'router', 'vlanType': 'allowed'},
-                 {'networkId': 'network-id-4', 'id': 'port-id-4-1',
+                 {'networkId': 'network-id-7', 'id': 'port-id-3-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-3',
+                  'name': 'port-3-1', 'hosts': ['host_3'],
+                  'instanceType': 'router', 'vlanType': 'allowed'},
+
+                 {'networkId': 'network-id-8', 'id': 'port-id-4-0',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-4',
+                  'name': 'port-4-0', 'hosts': ['host_4'],
+                  'instanceType': 'dhcp', 'vlanType': 'allowed'},
+                 {'networkId': 'network-id-9', 'id': 'port-id-4-1',
                   'tenantId': 'ten-3', 'instanceId': 'dev-id-4',
                   'name': 'port-4-1', 'hosts': ['host_4'],
+                  'instanceType': 'dhcp', 'vlanType': 'allowed'},
+
+                 {'networkId': 'network-id-10', 'id': 'port-id-5-0',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-5',
+                  'name': 'port-5-0', 'hosts': ['host_5'],
+                  'instanceType': 'vm', 'vlanType': 'allowed'},
+                 {'networkId': 'network-id-11', 'id': 'port-id-5-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-5',
+                  'name': 'port-5-1', 'hosts': ['host_5'],
+                  'instanceType': 'vm', 'vlanType': 'allowed'},
+
+                 {'networkId': 'network-id-12', 'id': 'port-id-6-0',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-6',
+                  'name': 'port-6-0', 'hosts': ['host_6'],
+                  'instanceType': 'baremetal', 'vlanType': 'native'},
+                 {'networkId': 'network-id-13', 'id': 'port-id-6-1',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-6',
+                  'name': 'port-6-1', 'hosts': ['host_6'],
+                  'instanceType': 'baremetal', 'vlanType': 'native'},
+
+                 {'networkId': 'network-id-14', 'id': 'port-id-7-0',
+                  'tenantId': 'ten-3', 'instanceId': 'dev-id-7',
+                  'name': 'port-7-0', 'hosts': ['host_7'],
                   'instanceType': 'router', 'vlanType': 'allowed'},
-                 {'networkId': 'network-id-7', 'id': 'port-id-7-1',
+                 {'networkId': 'network-id-15', 'id': 'port-id-7-1',
                   'tenantId': 'ten-3', 'instanceId': 'dev-id-7',
                   'name': 'port-7-1', 'hosts': ['host_7'],
                   'instanceType': 'router', 'vlanType': 'allowed'}]),
+
+            ('region/RegionOne/port/port-id-0-0/binding',
+             'POST', [{'portId': 'port-id-0-0', 'hostBinding': [
+                      {'segment': [], 'host': 'host_0'}]}]),
+            ('region/RegionOne/port/port-id-0-1/binding',
+             'POST', [{'portId': 'port-id-0-1', 'hostBinding': [
+                      {'segment': [], 'host': 'host_0'}]}]),
+
+            ('region/RegionOne/port/port-id-1-0/binding',
+             'POST', [{'portId': 'port-id-1-0', 'hostBinding': [
+                      {'segment': [], 'host': 'host_1'}]}]),
             ('region/RegionOne/port/port-id-1-1/binding',
              'POST', [{'portId': 'port-id-1-1', 'hostBinding': [
                       {'segment': [], 'host': 'host_1'}]}]),
+
+            ('region/RegionOne/port/port-id-2-0/binding',
+             'POST', [{'portId': 'port-id-2-0', 'switchBinding': [
+                      {'interface': u'Ethernet1', 'host': 'host_2',
+                       'segment': [], 'switch': u'switch01'}]}]),
             ('region/RegionOne/port/port-id-2-1/binding',
-             'POST', [{'portId': 'port-id-2-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_2'}]}]),
+             'POST', [{'portId': 'port-id-2-1', 'switchBinding': [
+                      {'interface': u'Ethernet1', 'host': 'host_2',
+                       'segment': [], 'switch': u'switch01'}]}]),
+
+            ('region/RegionOne/port/port-id-3-0/binding',
+             'POST', [{'portId': 'port-id-3-0', 'hostBinding': [
+                      {'segment': [], 'host': 'host_3'}]}]),
             ('region/RegionOne/port/port-id-3-1/binding',
              'POST', [{'portId': 'port-id-3-1', 'hostBinding': [
                       {'segment': [], 'host': 'host_3'}]}]),
+
+            ('region/RegionOne/port/port-id-4-0/binding',
+             'POST', [{'portId': 'port-id-4-0', 'hostBinding': [
+                      {'segment': [], 'host': 'host_4'}]}]),
             ('region/RegionOne/port/port-id-4-1/binding',
              'POST', [{'portId': 'port-id-4-1', 'hostBinding': [
                       {'segment': [], 'host': 'host_4'}]}]),
+
+            ('region/RegionOne/port/port-id-5-0/binding',
+             'POST', [{'portId': 'port-id-5-0', 'hostBinding': [
+                      {'segment': [], 'host': 'host_5'}]}]),
             ('region/RegionOne/port/port-id-5-1/binding',
              'POST', [{'portId': 'port-id-5-1', 'hostBinding': [
                       {'segment': [], 'host': 'host_5'}]}]),
+
+            ('region/RegionOne/port/port-id-6-0/binding',
+             'POST', [{'portId': 'port-id-6-0', 'switchBinding': [
+                      {'interface': u'Ethernet1', 'host': 'host_6',
+                       'segment': [], 'switch': u'switch01'}]}]),
             ('region/RegionOne/port/port-id-6-1/binding',
-             'POST', [{'portId': 'port-id-6-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_6'}]}]),
+             'POST', [{'portId': 'port-id-6-1', 'switchBinding': [
+                      {'interface': u'Ethernet1', 'host': 'host_6',
+                       'segment': [], 'switch': u'switch01'}]}]),
+
+            ('region/RegionOne/port/port-id-7-0/binding',
+             'POST', [{'portId': 'port-id-7-0', 'hostBinding': [
+                      {'segment': [], 'host': 'host_7'}]}]),
             ('region/RegionOne/port/port-id-7-1/binding',
              'POST', [{'portId': 'port-id-7-1', 'hostBinding': [
                       {'segment': [], 'host': 'host_7'}]}]),
-            ('region/RegionOne/port/port-id-8-1/binding',
-             'POST', [{'portId': 'port-id-8-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_8'}]}]),
-            ('region/RegionOne/port/port-id-9-1/binding',
-             'POST', [{'portId': 'port-id-9-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_9'}]}]),
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
@@ -571,7 +652,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
-    def test_plug_host_into_network(self, mock_send_api_req):
+    def test_plug_virtual_port_into_network(self, mock_send_api_req):
         segments = [{'segmentation_id': 101,
                      'id': 'segment_id_1',
                      'network_type': 'vlan',
@@ -584,24 +665,80 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
             ('region/RegionOne/port', 'POST',
              [{'id': 'p1', 'hosts': ['h1'], 'tenantId': 't1',
                'networkId': 'n1', 'instanceId': 'vm1', 'name': 'port1',
-               'instanceType': 'vm', 'vlanType': 'allowed'}])
+               'instanceType': 'vm', 'vlanType': 'allowed'}]),
+            ('region/RegionOne/port/p1/binding', 'POST',
+             [{'portId': 'p1', 'hostBinding': [{'host': 'h1', 'segment': [{
+               'id': 'segment_id_1', 'type': 'vlan', 'segmentationId': 101,
+               'networkId': 'n1', 'segment_type': 'static'}]}]}]),
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
     @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON.'
            'get_instance_ports')
-    def test_unplug_host_from_network(self, mock_get_instance_ports,
-                                      mock_send_api_req):
+    def test_unplug_virtual_port_from_network(self, mock_get_instance_ports,
+                                              mock_send_api_req):
         mock_get_instance_ports.return_value = []
         self.drv.unplug_port_from_network('vm1', 'compute', 'h1', 'p1', 'n1',
                                           't1', None, None)
         port = self.drv._create_port_data('p1', None, None, 'vm1', None, 'vm',
                                           None)
         calls = [
+            ('region/RegionOne/port/p1/binding', 'DELETE',
+             [{'portId': 'p1', 'hostBinding': [{'host': 'h1'}]}]),
             ('region/RegionOne/port?portId=p1&id=vm1&type=vm',
              'DELETE', [port]),
             ('region/RegionOne/vm', 'DELETE', [{'id': 'vm1'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_plug_baremetal_port_into_network(self, mock_send_api_req):
+        segments = [{'segmentation_id': 101,
+                     'id': 'segment_id_1',
+                     'network_type': 'vlan',
+                     'is_dynamic': False}]
+        sg = {'id': 'security-group-1'}
+        switch_bindings = [{'switch_id': 'switch01', 'port_id': 'Ethernet1',
+                            'switch_info': 'switch01'}]
+        self.drv.plug_port_into_network('bm1', 'h1', 'p1', 'n1', 't1', 'port1',
+                                        'baremetal', sg, None, None,
+                                        segments,
+                                        switch_bindings=switch_bindings)
+        calls = [
+            ('region/RegionOne/baremetal?tenantId=t1', 'POST',
+             [{'id': 'bm1', 'hostId': 'h1'}]),
+            ('region/RegionOne/port', 'POST',
+             [{'id': 'p1', 'hosts': ['h1'], 'tenantId': 't1',
+               'networkId': 'n1', 'instanceId': 'bm1', 'name': 'port1',
+               'instanceType': 'baremetal', 'vlanType': 'native'}]),
+            ('region/RegionOne/port/p1/binding', 'POST',
+             [{'portId': 'p1', 'switchBinding': [{'host': 'h1',
+               'switch': 'switch01', 'interface': 'Ethernet1', 'segment': [{
+                   'id': 'segment_id_1', 'type': 'vlan', 'segmentationId': 101,
+                   'networkId': 'n1', 'segment_type': 'static'}]}]}]),
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON.'
+           'get_instance_ports')
+    def test_unplug_baremetal_port_from_network(self, mock_get_instance_ports,
+                                                mock_send_api_req):
+        mock_get_instance_ports.return_value = []
+        switch_bindings = [{'switch_id': 'switch01', 'port_id': 'Ethernet1'}]
+        self.drv.unplug_port_from_network('bm1', 'baremetal', 'h1', 'p1', 'n1',
+                                          't1', None, None, switch_bindings)
+        port = self.drv._create_port_data('p1', None, None, 'bm1', None,
+                                          'baremetal', None)
+        calls = [
+            ('region/RegionOne/port/p1/binding', 'DELETE',
+             [{'portId': 'p1', 'switchBinding':
+              [{'host': 'h1', 'switch': 'switch01', 'segment': [],
+                'interface': 'Ethernet1'}]}]),
+            ('region/RegionOne/port?portId=p1&id=bm1&type=baremetal',
+             'DELETE', [port]),
+            ('region/RegionOne/baremetal', 'DELETE', [{'id': 'bm1'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
@@ -640,6 +777,46 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                'vlanType': 'allowed'}]),
             ('region/RegionOne/dhcp', 'DELETE',
              [{'id': 'dhcp1'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_plug_router_port_into_network(self, mock_send_api_req):
+        segments = [{'segmentation_id': 101,
+                     'id': 'segment_id_1',
+                     'network_type': 'vlan',
+                     'is_dynamic': False}]
+        self.drv.plug_port_into_network('router1', 'h1', 'p1', 'n1', 't1',
+                                        'port1',
+                                        n_const.DEVICE_OWNER_DVR_INTERFACE,
+                                        None, None, None, segments)
+        calls = [
+            ('region/RegionOne/router?tenantId=t1', 'POST',
+             [{'id': 'router1', 'hostId': 'h1'}]),
+            ('region/RegionOne/port', 'POST',
+             [{'id': 'p1', 'hosts': ['h1'], 'tenantId': 't1',
+               'networkId': 'n1', 'instanceId': 'router1', 'name': 'port1',
+               'instanceType': 'router', 'vlanType': 'allowed'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    @patch('networking_arista.ml2.arista_ml2.AristaRPCWrapperJSON.'
+           'get_instance_ports')
+    def test_unplug_router_port_from_network(self, mock_get_instance_ports,
+                                             mock_send_api_req):
+        mock_get_instance_ports.return_value = []
+        self.drv.unplug_port_from_network('router1',
+                                          n_const.DEVICE_OWNER_DVR_INTERFACE,
+                                          'h1', 'p1', 'n1', 't1', None, None)
+        calls = [
+            ('region/RegionOne/port?portId=p1&id=router1&type=router',
+             'DELETE',
+             [{'id': 'p1', 'hosts': [], 'tenantId': None, 'networkId': None,
+               'instanceId': 'router1', 'name': None, 'instanceType': 'router',
+               'vlanType': 'allowed'}]),
+            ('region/RegionOne/router', 'DELETE',
+             [{'id': 'router1'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
