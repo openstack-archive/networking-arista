@@ -327,7 +327,25 @@ class AristaDriver(driver_api.MechanismDriver):
         if not physnet or not switch_id:
             if port.get('binding:vnic_type') == portbindings.VNIC_BAREMETAL:
                 # Find physnet using link_local_information in baremetal case
-                physnet = self._get_physnet_from_link_info(port, physnet_info)
+                binding_profile = port.get(portbindings.PROFILE)
+                if binding_profile.get('vlan_type') == 'allowed':
+                    for segment in context.segments_to_bind:
+                        vif_details = {
+                           portbindings.VIF_DETAILS_VLAN: str(
+                              segment[driver_api.SEGMENTATION_ID])
+                        }
+                        context.set_binding(segment[driver_api.ID],
+                                            portbindings.VIF_TYPE_OTHER,
+                                            vif_details,
+                                            p_const.ACTIVE)
+                        LOG.debug("AristaDriver: bound port info- port ID "
+                                  "%(id)s on network %(network)s",
+                                  {'id': port['id'],
+                                   'network': context.network.current['id']})
+                    return
+                else:
+                    physnet = self._get_physnet_from_link_info(port,
+                                                               physnet_info)
             else:
                 LOG.debug("The host %(host)s not connected to arista "
                           "switches. Physical Network info = %(pi)s",
@@ -643,8 +661,10 @@ class AristaDriver(driver_api.MechanismDriver):
         vnic_type = port['binding:vnic_type']
         binding_profile = port['binding:profile']
         bindings = []
+        vlan_type = 'native' if vnic_type == 'baremetal' else 'allowed'
         if binding_profile:
-            bindings = binding_profile['local_link_information']
+            bindings = binding_profile.get('local_link_information', bindings)
+            vlan_type = binding_profile.get('vlan_type', vlan_type)
 
         port_id = port['id']
         port_name = port['name']
@@ -740,7 +760,8 @@ class AristaDriver(driver_api.MechanismDriver):
                                                     sg, orig_sg,
                                                     vnic_type,
                                                     segments=segments,
-                                                    switch_bindings=bindings)
+                                                    switch_bindings=bindings,
+                                                    vlan_type=vlan_type)
                 else:
                     LOG.info(_LI("Port not plugged into network"))
             except arista_exc.AristaRpcError as err:
@@ -807,7 +828,9 @@ class AristaDriver(driver_api.MechanismDriver):
         binding_profile = port['binding:profile']
         switch_bindings = []
         if binding_profile:
-            switch_bindings = binding_profile['local_link_information']
+            switch_bindings = binding_profile.get('local_link_information',
+                                                  switch_bindings)
+            profile = binding_profile.get('local_link_information', [])
         sg = port['security_groups']
 
         if not device_id or not host:
