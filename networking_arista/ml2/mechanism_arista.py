@@ -281,16 +281,17 @@ class AristaDriver(driver_api.MechanismDriver):
         if not binding_profile:
             return
 
-        link_info = binding_profile.get('local_link_information')
-        if not link_info:
-            return
+        if not binding_profile.get('vlan_type') == 'allowed':
+            link_info = binding_profile.get('local_link_information')
+            if not link_info:
+                return
 
-        switch_list = []
-        for link in link_info:
-            switch_list.append(link.get('switch_id'))
+            switch_list = []
+            for link in link_info:
+                switch_list.append(link.get('switch_id'))
 
-        if not switch_list:
-            return
+            if not switch_list:
+                return
 
         vif_details = {
             portbindings.VIF_DETAILS_VLAN: str(
@@ -637,8 +638,10 @@ class AristaDriver(driver_api.MechanismDriver):
         vnic_type = port['binding:vnic_type']
         binding_profile = port['binding:profile']
         bindings = []
+        vlan_type = 'native' if vnic_type == 'baremetal' else 'allowed'
         if binding_profile:
-            bindings = binding_profile.get('local_link_information', [])
+            bindings = binding_profile.get('local_link_information', bindings)
+            vlan_type = binding_profile.get('vlan_type', vlan_type)
 
         port_id = port['id']
         port_name = port['name']
@@ -734,7 +737,8 @@ class AristaDriver(driver_api.MechanismDriver):
                                                     sg, orig_sg,
                                                     vnic_type,
                                                     segments=segments,
-                                                    switch_bindings=bindings)
+                                                    switch_bindings=bindings,
+                                                    vlan_type=vlan_type)
                 else:
                     LOG.info(_LI("Port not plugged into network"))
             except arista_exc.AristaRpcError as err:

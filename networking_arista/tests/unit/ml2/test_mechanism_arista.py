@@ -825,7 +825,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              port_name, device_owner, None,
                                              None, vnic_type,
                                              segments=segments,
-                                             switch_bindings=profile)
+                                             switch_bindings=profile,
+                                             vlan_type='allowed')
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
@@ -896,7 +897,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              port_name, device_owner, None,
                                              None, vnic_type,
                                              segments=segments,
-                                             switch_bindings=profile)
+                                             switch_bindings=profile,
+                                             vlan_type='allowed')
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
@@ -956,7 +958,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              port_name, device_owner, None,
                                              None, vnic_type,
                                              segments=segments,
-                                             switch_bindings=profile)
+                                             switch_bindings=profile,
+                                             vlan_type='allowed')
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
