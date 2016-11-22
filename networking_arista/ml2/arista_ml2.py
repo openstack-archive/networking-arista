@@ -196,7 +196,7 @@ class AristaRPCWrapperBase(object):
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
                                sg, orig_sg, vnic_type, segments=None,
-                               profile=None):
+                               switch_bindings=None):
         """Generic routine plug a port of a VM instace into network.
 
         :param device_id: globally unique identifier for the device
@@ -210,13 +210,13 @@ class AristaRPCWrapperBase(object):
         :param orig_sg: original security group for the port
         :param vnic_type: VNIC type for the port
         :param segments: list of network segments the port is bound to
-        :param profile: port profile
+        :param switch_bindings: List of switch_bindings
         """
 
     @abc.abstractmethod
     def unplug_port_from_network(self, device_id, device_owner, hostname,
                                  port_id, network_id, tenant_id, sg, vnic_type,
-                                 profile=None):
+                                 switch_bindings=None):
         """Removes a port from the device
 
         :param device_id: globally unique identifier for the device
@@ -437,35 +437,49 @@ class AristaRPCWrapperBase(object):
         Returns True if HPB is supported, False otherwise.
         """
 
-    def apply_security_group(self, security_group, switch_profiles):
+    def apply_security_group(self, security_group, switch_bindings):
         """Applies ACLs on switch interface.
 
         Translates neutron security group to switch ACL and applies the ACLs
-        on all the switch interfaces defined in the profiles.
+        on all the switch interfaces defined in the switch_bindings.
 
         :param security_group: Neutron security group
-        :param switch_profiles: Switch link information
+        :param switch_bindings: Switch link information
         """
-        for profile in switch_profiles:
-            self.security_group_driver.apply_acl(security_group,
-                                                 profile['switch_id'],
-                                                 profile['port_id'],
-                                                 profile['switch_info'])
+        switches_with_acl = []
+        for binding in switch_bindings:
+            try:
+                self.security_group_driver.apply_acl(security_group,
+                                                     binding['switch_id'],
+                                                     binding['port_id'],
+                                                     binding['switch_info'])
+                switches_with_acl.append(binding)
+            except Exception:
+                message = _LW('Unable to apply security group on %s') % (
+                    binding['switch_id'])
+                LOG.warning(message)
+                self._clean_acls(security_group, binding['switch_id'],
+                                 switches_with_acl)
 
-    def remove_security_group(self, security_group, switch_profiles):
+    def remove_security_group(self, security_group, switch_bindings):
         """Removes ACLs from switch interface
 
         Translates neutron security group to switch ACL and removes the ACLs
-        from all the switch interfaces defined in the profiles.
+        from all the switch interfaces defined in the switch_bindings.
 
         :param security_group: Neutron security group
-        :param switch_profiles: Switch link information
+        :param switch_bindings: Switch link information
         """
-        for profile in switch_profiles:
-            self.security_group_driver.remove_acl(security_group,
-                                                  profile['switch_id'],
-                                                  profile['port_id'],
-                                                  profile['switch_info'])
+        for binding in switch_bindings:
+            try:
+                self.security_group_driver.remove_acl(security_group,
+                                                      binding['switch_id'],
+                                                      binding['port_id'],
+                                                      binding['switch_info'])
+            except Exception:
+                message = _LW('Unable to remove security group from %s') % (
+                    binding['switch_id'])
+                LOG.warning(message)
 
 
 class AristaRPCWrapperJSON(AristaRPCWrapperBase):
@@ -906,20 +920,20 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 portInst.append(port)
 
                 if instance_type in InstanceType.VIRTUAL_INSTANCE_TYPES:
-                    portBinding = self._get_host_binding_dict(
+                    portBinding = self._get_host_bindings(
                         port_id, inst_host, network_id,
                         networkSegments[network_id])
                 elif instance_type in InstanceType.BAREMETAL_INSTANCE_TYPES:
                     switch_profile = json.loads(bm_port_profiles[
                                                 port_id]['profile'])
-                    portBinding = self._get_switch_binding_dict(
+                    portBinding = self._get_switch_bindings(
                         port_id, inst_host, network_id,
                         switch_profile['local_link_information'],
                         networkSegments[network_id])
                 if port_id not in portBindings:
-                    portBindings[port_id] = [portBinding]
+                    portBindings[port_id] = portBinding
                 else:
-                    portBindings[port_id].append(portBinding)
+                    portBindings[port_id] += portBinding
 
         # create instances first
         if vmInst:
@@ -973,7 +987,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
-                               sg, orig_sg, vnic_type, segments, profile=None):
+                               sg, orig_sg, vnic_type, segments,
+                               switch_bindings=None):
         device_type = ''
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             device_type = InstanceType.DHCP
@@ -1003,12 +1018,18 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             self.bind_port_to_host(port_id, host_id, net_id, segments)
         elif device_type in InstanceType.BAREMETAL_INSTANCE_TYPES:
             self.bind_port_to_switch_interface(port_id, host_id, net_id,
-                                               profile, segments)
-            self.apply_security_group(port_id, profile)
+                                               switch_bindings, segments)
+            if sg:
+                self.apply_security_group(sg, switch_bindings)
+            else:
+                # Security group was removed. Clean up the existing security
+                # groups.
+                if orig_sg:
+                    self.remove_security_group(orig_sg, switch_bindings)
 
     def unplug_port_from_network(self, device_id, device_owner, hostname,
                                  port_id, network_id, tenant_id, sg, vnic_type,
-                                 profile=None):
+                                 switch_bindings=None):
         device_type = ''
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             device_type = InstanceType.DHCP
@@ -1022,7 +1043,11 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             LOG.info(_LI('Unsupported device owner: %s'), device_owner)
             return
 
-        self.unbind_port_from_host(port_id, hostname)
+        if device_type in InstanceType.VIRTUAL_INSTANCE_TYPES:
+            self.unbind_port_from_host(port_id, hostname)
+        elif device_type in InstanceType.BAREMETAL_INSTANCE_TYPES:
+            self.unbind_port_from_switch_interface(port_id, hostname,
+                                                   switch_bindings)
         self.delete_port(port_id, device_id, device_type)
         port = self.get_instance_ports(device_id, device_type)
         if not port:
@@ -1032,6 +1057,9 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             self.delete_instance_bulk(tenant_id, instances, device_type)
 
     def _get_segment_list(self, network_id, segments):
+        if not network_id or not segments:
+            return []
+
         return [{'id': s['id'],
                  'type': s['network_type'],
                  'segmentationId': s['segmentation_id'],
@@ -1040,21 +1068,21 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                                  'static',
                  } for s in segments]
 
-    def _get_host_binding_dict(self, port_id, host, network_id, segments):
-        return {'portId': port_id,
+    def _get_host_bindings(self, port_id, host, network_id, segments):
+        return [{'portId': port_id,
                 'hostBinding': [{
                     'host': host,
                     'segment': self._get_segment_list(network_id,
                                                       segments),
-                    }]
-                }
+                }]
+            }]
 
     def bind_port_to_host(self, port_id, host, network_id, segments):
 
         url = 'region/' + self.region + '/port/' + port_id + '/binding'
-        binding = self._get_host_binding_dict(port_id, host, network_id,
-                                              segments)
-        self._send_api_request(url, 'POST', [binding])
+        bindings = self._get_host_bindings(port_id, host, network_id,
+                                           segments)
+        self._send_api_request(url, 'POST', bindings)
 
     def unbind_port_from_host(self, port_id, host):
         url = 'region/' + self.region + '/port/' + port_id + '/binding'
@@ -1064,15 +1092,15 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                    }]}
         self._send_api_request(url, 'DELETE', [binding])
 
-    def _get_switch_binding_dict(self, port_id, host, network_id,
-                                 switch_profiles, segments):
+    def _get_switch_bindings(self, port_id, host, network_id,
+                             switch_bindings, segments):
         bindings = []
-        for profile in switch_profiles:
-            if not profile:
+        for binding in switch_bindings:
+            if not binding:
                 continue
 
-            switch = profile['switch_id']
-            interface = profile['port_id']
+            switch = binding['switch_id']
+            interface = binding['port_id']
 
             bindings.append({'portId': port_id,
                              'switchBinding': [{
@@ -1085,26 +1113,22 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         return bindings
 
     def bind_port_to_switch_interface(self, port_id, host, network_id,
-                                      switch_profiles, segments):
+                                      switch_bindings, segments):
 
-        if not switch_profiles:
+        if not switch_bindings:
             return
 
         url = 'region/' + self.region + '/port/' + port_id + '/binding'
-        bindings = self._get_switch_binding_dict(port_id, host, network_id,
-                                                 switch_profiles, segments)
+        bindings = self._get_switch_bindings(port_id, host, network_id,
+                                             switch_bindings, segments)
         self._send_api_request(url, 'POST', bindings)
 
-    def unbind_port_from_switch_interface(self, port_id, host, switch,
-                                          interface):
+    def unbind_port_from_switch_interface(self, port_id, host,
+                                          switch_bindings):
         url = 'region/' + self.region + '/port/' + port_id + '/binding'
-        binding = {'portId': port_id,
-                   'switchBinding': [{
-                       'host': host,
-                       'switch': switch,
-                       'interface': interface,
-                   }]}
-        self._send_api_request(url, 'DELETE', [binding])
+        bindings = self._get_switch_bindings(port_id, host, None,
+                                             switch_bindings, None)
+        self._send_api_request(url, 'DELETE', bindings)
 
 
 class AristaRPCWrapperEapi(AristaRPCWrapperBase):
@@ -1292,7 +1316,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
-                               sg, orig_sg, vnic_type, segments, profile=None):
+                               sg, orig_sg, vnic_type, segments,
+                               switch_bindings=None):
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             self.plug_dhcp_port_into_network(device_id,
                                              host_id,
@@ -1319,7 +1344,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                              port_name,
                                              sg, orig_sg,
                                              vnic_type,
-                                             profile)
+                                             switch_bindings)
         elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
             self.plug_distributed_router_port_into_network(device_id,
                                                            host_id,
@@ -1330,7 +1355,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
     def unplug_port_from_network(self, device_id, device_owner, hostname,
                                  port_id, network_id, tenant_id, sg, vnic_type,
-                                 profile=None):
+                                 switch_bindings=None):
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             self.unplug_dhcp_port_from_network(device_id,
                                                hostname,
@@ -1351,7 +1376,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                                tenant_id,
                                                sg,
                                                vnic_type,
-                                               profile)
+                                               switch_bindings)
         elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
             self.unplug_distributed_router_port_from_network(device_id,
                                                              port_id,
@@ -1376,67 +1401,53 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
     def plug_baremetal_into_network(self, vm_id, host, port_id,
                                     network_id, tenant_id, segments, port_name,
                                     sg=None, orig_sg=None,
-                                    vnic_type=None, profile=None):
+                                    vnic_type=None, switch_bindings=None):
         # Basic error checking for baremental deployments
         # notice that the following method throws and exception
         # if an error condition exists
         self._baremetal_support_check(vnic_type)
 
         # For baremetal, add host to the topology
-        if profile and vnic_type == portbindings.VNIC_BAREMETAL:
+        if switch_bindings and vnic_type == portbindings.VNIC_BAREMETAL:
             cmds = ['tenant %s' % tenant_id]
             cmds.append('instance id %s hostid %s type baremetal' %
                         (vm_id, host))
             # This list keeps track of any ACLs that need to be rolled back
             # in case we hit a failure trying to apply ACLs, and we end
             # failing the transaction.
-            switches_to_clean = []
-            for p in profile:
-                if not p:
+            for binding in switch_bindings:
+                if not binding:
                     # skip all empty entries
                     continue
-                s_id = p['switch_id']
-                p_id = p['port_id']
-                s_info = p['switch_info']
-                # Ensure that profile contains switch and port ID info
-                if p['switch_id'] and p['port_id']:
+                # Ensure that binding contains switch and port ID info
+                if binding['switch_id'] and binding['port_id']:
                     if port_name:
                         cmds.append('port id %s name "%s" network-id %s '
                                     'type native switch-id %s switchport %s' %
                                     (port_id, port_name, network_id,
-                                        p['switch_id'], p['port_id']))
+                                     binding['switch_id'], binding['port_id']))
                     else:
                         cmds.append('port id %s network-id %s type native '
                                     'switch-id %s switchport %s' %
-                                    (port_id, network_id, p['switch_id'],
-                                        p['port_id']))
+                                    (port_id, network_id, binding['switch_id'],
+                                        binding['port_id']))
                     cmds.extend('segment level %d id %s' % (level,
                                 segment['id'])
                                 for level, segment in enumerate(segments))
-
-                    # SG -  Apply security group rules to the port
-                    if sg:
-                        try:
-                            self.security_group_driver.apply_acl(sg,
-                                                                 s_id,
-                                                                 p_id,
-                                                                 s_info)
-                            switches_to_clean.append(p)
-                        except Exception:
-                            self._clean_acls(sg, s_info, switches_to_clean)
-                    elif not sg and orig_sg:
-                        # Port is being updated to remove security groups
-                        self.security_group_driver.remove_acl(orig_sg,
-                                                              s_id,
-                                                              p_id,
-                                                              s_info)
                 else:
                     msg = _('switch and port ID not specified for baremetal')
                     LOG.error(msg)
                     raise arista_exc.AristaConfigError(msg=msg)
             cmds.append('exit')
-
             self._run_openstack_cmds(cmds)
+
+            if sg:
+                self.apply_security_group(sg, switch_bindings)
+            else:
+                # Security group was removed. Clean up the existing security
+                # groups.
+                if orig_sg:
+                    self.remove_security_group(orig_sg, switch_bindings)
 
     def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
                                     network_id, tenant_id, segments,
@@ -1477,7 +1488,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
     def unplug_baremetal_from_network(self, vm_id, host, port_id,
                                       network_id, tenant_id, sg, vnic_type,
-                                      profile=None):
+                                      switch_bindings=None):
         # Basic error checking for baremental deployments
         # notice that the following method throws and exception
         # if an error condition exists
@@ -1491,12 +1502,12 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
         # SG -  Remove security group rules from the port
         # after deleting the instance
-        for p in profile:
-            if not p:
+        for binding in switch_bindings:
+            if not binding:
                 continue
-            self.security_group_driver.remove_acl(sg, p['switch_id'],
-                                                  p['port_id'],
-                                                  p['switch_info'])
+            self.security_group_driver.remove_acl(sg, binding['switch_id'],
+                                                  binding['port_id'],
+                                                  binding['switch_info'])
 
     def unplug_dhcp_port_from_network(self, dhcp_id, host, port_id,
                                       network_id, tenant_id):
@@ -1691,24 +1702,26 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                (vm['vmId'], v_port['hosts'][0]))
                     profile = bm_port_profiles[neutron_port['id']]
                     profile = json.loads(profile['profile'])
-                    for p in profile['local_link_information']:
-                        if not p or not isinstance(p, dict):
+                    for binding in profile['local_link_information']:
+                        if not binding or not isinstance(binding, dict):
                             # skip all empty entries
                             continue
                         # Ensure that profile contains switch and port ID info
-                        if p['switch_id'] and p['port_id']:
+                        if binding['switch_id'] and binding['port_id']:
                             if port_name:
                                 cmds.append('port id %s name "%s" '
                                             'network-id %s type native '
                                             'switch-id %s switchport %s' %
                                             (port_id, port_name, network_id,
-                                             p['switch_id'], p['port_id']))
+                                             binding['switch_id'],
+                                             binding['port_id']))
                             else:
                                 cmds.append('port id %s network-id %s '
                                             'type native '
                                             'switch-id %s switchport %s' %
                                             (port_id, network_id,
-                                             p['switch_id'], p['port_id']))
+                                             binding['switch_id'],
+                                             binding['port_id']))
                             cmds.extend('segment level %d id %s' % (
                                 level, segment['id'])
                                 for level, segment in enumerate(segments))
@@ -2096,7 +2109,7 @@ class SyncService(object):
             self._ndb.get_all_networks()
         )
 
-        # Get Baremetal port profiles, if any
+        # Get Baremetal port switch_bindings, if any
         bm_port_profiles = db_lib.get_all_baremetal_ports()
         # To support shared networks, split the sync loop in two parts:
         # In first loop, delete unwanted VM and networks and update networks

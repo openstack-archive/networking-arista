@@ -17,8 +17,8 @@ from neutron import context as nctx
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import securitygroups_db as sec_db
+from neutron.db import segments_db
 from neutron.plugins.common import constants as p_const
-from neutron.plugins.ml2 import db as ml2_db
 from neutron.plugins.ml2 import driver_api
 from neutron.plugins.ml2 import models as ml2_models
 
@@ -480,7 +480,7 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
     def get_shared_network_owner_id(self, network_id):
         filters = {'id': [network_id]}
         nets = self.get_networks(self.admin_ctx, filters=filters) or []
-        segments = ml2_db.get_network_segments(self.admin_ctx.session,
+        segments = segments_db.get_network_segments(self.admin_ctx.session,
                                                network_id)
         if not nets or not segments:
             return
@@ -490,7 +490,7 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
 
     def get_network_segments(self, network_id, dynamic=False, session=None):
         db_session = session if session else self.admin_ctx.session
-        segments = ml2_db.get_network_segments(db_session, network_id,
+        segments = segments_db.get_network_segments(db_session, network_id,
                                                filter_dynamic=dynamic)
         if dynamic:
             for segment in segments:
@@ -504,7 +504,7 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
         return segments
 
     def get_segment_by_id(self, session, segment_id):
-        return ml2_db.get_segment_by_id(session,
+        return segments_db.get_segment_by_id(session,
                                         segment_id)
 
     def get_network_from_net_id(self, network_id, context=None):
