@@ -196,7 +196,7 @@ class AristaRPCWrapperBase(object):
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
                                sg, orig_sg, vnic_type, segments=None,
-                               profile=None):
+                               profile=None, vlan_type=None):
         """Generic routine plug a port of a VM instace into network.
 
         :param device_id: globally unique identifier for the device
@@ -973,7 +973,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
-                               sg, orig_sg, vnic_type, segments, profile=None):
+                               sg, orig_sg, vnic_type, segments, profile=None,
+                               vlan_type=None):
         device_type = ''
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             device_type = InstanceType.DHCP
@@ -1292,7 +1293,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
-                               sg, orig_sg, vnic_type, segments, profile=None):
+                               sg, orig_sg, vnic_type, segments, profile=None,
+                               vlan_type=None):
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             self.plug_dhcp_port_into_network(device_id,
                                              host_id,
@@ -1319,7 +1321,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                              port_name,
                                              sg, orig_sg,
                                              vnic_type,
-                                             profile)
+                                             profile,
+                                             vlan_type)
         elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
             self.plug_distributed_router_port_into_network(device_id,
                                                            host_id,
@@ -1376,7 +1379,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
     def plug_baremetal_into_network(self, vm_id, host, port_id,
                                     network_id, tenant_id, segments, port_name,
                                     sg=None, orig_sg=None,
-                                    vnic_type=None, profile=None):
+                                    vnic_type=None, profile=None, vlan_type=None):
         # Basic error checking for baremental deployments
         # notice that the following method throws and exception
         # if an error condition exists
@@ -1436,6 +1439,21 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     raise arista_exc.AristaConfigError(msg=msg)
             cmds.append('exit')
 
+            self._run_openstack_cmds(cmds)
+        if vlan_type == 'allowed':
+            cmds = ['tenant %s' % tenant_id]
+            cmds.append('instance id %s hostid %s type baremetal' %
+                        (vm_id, host))
+            if port_name:
+                cmds.append('port id %s name "%s" network-id %s' %
+                            (port_id, port_name, network_id))
+            else:
+                cmds.append('port id %s network-id %s' %
+                            (port_id, network_id))
+            cmds.extend('segment level %d id %s' % (level,
+                        segment['id'])
+                        for level, segment in enumerate(segments))
+            cmds.append('exit')
             self._run_openstack_cmds(cmds)
 
     def plug_dhcp_port_into_network(self, dhcp_id, host, port_id,
@@ -1691,7 +1709,18 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                (vm['vmId'], v_port['hosts'][0]))
                     profile = bm_port_profiles[neutron_port['id']]
                     profile = json.loads(profile['profile'])
-                    for p in profile['local_link_information']:
+                    if profile.get('vlan_type') == 'allowed':
+                        if port_name:
+                            cmds.append('port id %s name "%s" '
+                                        'network-id %s' %
+                                        (port_id, port_name, network_id))
+                        else:
+                            cmds.append('port id %s network-id %s' %
+                                        (port_id, network_id))
+                        cmds.extend('segment level %d id %s' % (
+                                    level, segment['id'])
+                                    for level, segment in enumerate(segments))
+                    for p in profile.get('local_link_information', []):
                         if not p or not isinstance(p, dict):
                             # skip all empty entries
                             continue
