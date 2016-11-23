@@ -361,7 +361,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     def _createNetworkData(self, tenant_id, network_id, shared=False,
-                           seg_id=100):
+                           seg_id=100, network_type='vlan'):
         return {
             'network_id': network_id,
             'tenantId': tenant_id,
@@ -370,7 +370,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                           'physical_network': 'default',
                           'id': 'segment_id_1',
                           'is_dynamic': False,
-                          'network_type': 'vlan'}],
+                          'network_type': network_type}],
         }
 
     @patch(JSON_SEND_FUNC)
@@ -378,11 +378,13 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         n = []
         n.append(self._createNetworkData('t1', 'net1', seg_id=100))
         n.append(self._createNetworkData('t1', 'net2', seg_id=200))
+        n.append(self._createNetworkData('t1', 'net3', network_type='flat'))
         self.drv.create_network_bulk('t1', n)
         calls = [
             ('region/RegionOne/network', 'POST',
              [{'id': 'net1', 'tenantId': 't1', 'shared': False},
-              {'id': 'net2', 'tenantId': 't1', 'shared': False}]),
+              {'id': 'net2', 'tenantId': 't1', 'shared': False},
+              {'id': 'net3', 'tenantId': 't1', 'shared': False}]),
             ('region/RegionOne/segment', 'POST',
                 [{'id': 'segment_id_1', 'networkId': 'net1', 'type': 'vlan',
                   'segmentationId': 100, 'segmentType': 'static'},

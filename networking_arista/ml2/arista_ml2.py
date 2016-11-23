@@ -51,6 +51,9 @@ ERR_CVX_NOT_LEADER = 'only available on cluster leader'
 ERR_DVR_NOT_SUPPORTED = 'EOS version on CVX does not support DVR'
 BAREMETAL_NOT_SUPPORTED = 'EOS version on CVX does not support Baremetal'
 
+# Flat network constant
+NETWORK_TYPE_FLAT = 'flat'
+
 
 class InstanceType:
     BAREMETAL = 'baremetal'
@@ -759,6 +762,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 n['segId'] = net['segmentation_id']
 
             for segment in net['segments']:
+                if segment['network_type'] == NETWORK_TYPE_FLAT:
+                    continue
                 segmentType = 'static'
                 if segment.get('is_dynamic', False):
                     segmentType = 'dynamic'
@@ -1547,6 +1552,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     ('dynamic' if seg.get('is_dynamic', False) else 'static'
                      if self.hpb_supported() else ''))
                 for seg in network['segments']
+                if seg['network_type'] != NETWORK_TYPE_FLAT
             )
             shared_cmd = 'shared' if network['shared'] else 'no shared'
             append_cmd(shared_cmd)
