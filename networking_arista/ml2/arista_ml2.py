@@ -783,12 +783,31 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def create_network_segments(self, tenant_id, network_id,
                                 network_name, segments):
+        segment_data = []
+        for segment in segments:
+            segmentType = 'static'
+            if segment.get('is_dynamic', False):
+                segmentType = 'dynamic'
+
+            segment_data.append({
+                'id': segment['id'],
+                'networkId': network_id,
+                'type': segment['network_type'],
+                'segmentationId': segment['segmentation_id'],
+                'segmentType': segmentType,
+            })
+
         path = 'region/' + self.region + '/segment'
-        self._send_api_request(path, 'POST', segments)
+        self._send_api_request(path, 'POST', segment_data)
 
     def delete_network_segments(self, segments):
+        segment_data = []
+        for segment in segments:
+            segment_data.append({
+                'id': segment['id'],
+            })
         path = 'region/' + self.region + '/segment'
-        self._send_api_request(path, 'DELETE', segments)
+        self._send_api_request(path, 'DELETE', segment_data)
 
     def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
         path = 'region/' + self.region + '/network'

@@ -216,11 +216,10 @@ class AristaDriver(driver_api.MechanismDriver):
     def delete_network_postcommit(self, context):
         """Send network delete request to Arista HW."""
         network = context.current
-        segments = []
+        segments = context.network_segments
         if not self.rpc.hpb_supported():
             # Hierarchical port binding is not supported by CVX, only
             # send the request if network type is VLAN.
-            segments = context.network_segments
             if segments[0][driver_api.NETWORK_TYPE] != p_const.TYPE_VLAN:
                 # If networtk type is not VLAN, do nothing
                 return
