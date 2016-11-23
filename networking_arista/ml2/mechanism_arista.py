@@ -500,14 +500,14 @@ class AristaDriver(driver_api.MechanismDriver):
                             binding_level.segment_id)
                         if not segment:
                             try:
-                                segment_info = {
+                                segment_info = [{
                                     'id': binding_level.segment_id,
                                     'network_id': network_id,
-                                }
+                                }]
                                 LOG.debug("migration_postcommit:"
                                           "deleting segment %s", segment_info)
-                                self.rpc.delete_network_segment(tenant_id,
-                                                                segment_info)
+                                self.rpc.delete_network_segments(tenant_id,
+                                                                 segment_info)
                                 # Remove the segment from the provisioned
                                 # network DB.
                                 db_lib.forget_network_segment(
@@ -860,8 +860,8 @@ class AristaDriver(driver_api.MechanismDriver):
                             'id': binding_level.segment_id,
                             'network_id': network_id,
                         }
-                        self.rpc.delete_network_segment(tenant_id,
-                                                        segment_info)
+                        self.rpc.delete_network_segments(tenant_id,
+                                                         [segment_info])
                         # Remove the segment from the provisioned network DB.
                         db_lib.forget_network_segment(
                             tenant_id, network_id, binding_level.segment_id)

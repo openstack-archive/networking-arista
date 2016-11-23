@@ -437,7 +437,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                      'id': 'segment_id_2',
                      'is_dynamic': True,
                      'network_type': 'vlan'}]
-        self.drv.delete_network_segments(segments)
+        self.drv.delete_network_segments('t1', segments)
         calls = [
             ('region/RegionOne/segment', 'DELETE',
                 [{'id': 'segment_id_1'},
@@ -1070,14 +1070,23 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
         segments = [{'segmentation_id': 101,
                      'physical_network': 'default',
                      'id': 'segment_id_1',
+                     'network_id': network_id,
                      'network_type': 'vlan'}]
         self.drv.delete_network(tenant_id, network_id, segments)
         cmd1 = ['show openstack agent uuid']
         cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
                 'region RegionOne',
-                'tenant ten-1', 'no network id net-id',
+                'tenant ten-1',
+                'network id net-id',
+                'no segment segment_id_1',
                 ]
-        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
+        cmd3 = ['enable', 'configure', 'cvx', 'service openstack',
+                'region RegionOne',
+                'tenant ten-1',
+                'no network id net-id',
+                ]
+        self._verify_send_eapi_request_calls(mock_send_eapi_req,
+                                             [cmd1, cmd2, cmd1, cmd3])
 
     @patch(EAPI_SEND_FUNC)
     def test_delete_network_bulk(self, mock_send_eapi_req):

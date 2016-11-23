@@ -184,7 +184,7 @@ class AristaRPCWrapperBase(object):
         :param network_id: globally unique neutron network identifier
         :param network_segments: segments associated with the network
         """
-        self.delete_network_segments(network_segments)
+        self.delete_network_segments(tenant_id, network_segments)
         self.delete_network_bulk(tenant_id, [network_id])
 
     def delete_vm(self, tenant_id, vm_id):
@@ -400,6 +400,13 @@ class AristaRPCWrapperBase(object):
         :param network_id_list: list of globally unique neutron network
                                 identifiers
         :param sync: This flags indicates that the region is being synced.
+        """
+
+    @abc.abstractmethod
+    def delete_network_segments(self, tenant_id, network_segments):
+        """Deletes the network segments
+
+        :param network_segments: List of network segments to be delted.
         """
 
     @abc.abstractmethod
@@ -805,7 +812,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         path = 'region/' + self.region + '/segment'
         self._send_api_request(path, 'POST', segment_data)
 
-    def delete_network_segments(self, segments):
+    def delete_network_segments(self, tenant_id, segments):
         segment_data = []
         for segment in segments:
             segment_data.append({
@@ -1596,41 +1603,18 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                 for seg in segments)
             self._run_openstack_cmds(cmds)
 
-    def delete_network_segments(self, segments):
-        # CLI deletes the segments when the network is deleted.
-        pass
+    def delete_network_segments(self, tenant_id, segments):
+        cmds = ['tenant %s' % tenant_id]
+        for segment in segments:
+            cmds.append('network id %s' % segment['network_id'])
+            cmds.append('no segment %s' % segment['id'])
+
+        self._run_openstack_cmds(cmds)
 
     def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
         cmds = ['tenant %s' % tenant_id]
         for counter, network_id in enumerate(network_id_list, 1):
             cmds.append('no network id %s' % network_id)
-            if self._heartbeat_required(sync, counter):
-                cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
-
-        if self._heartbeat_required(sync):
-            cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
-        self._run_openstack_cmds(cmds, sync=sync)
-
-    def delete_network_segment(self, tenant_id, segment):
-        """Deletes a specified network segment for a given tenant
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param segment: a network segment
-        """
-        self.delete_network_segment_bulk(tenant_id, [segment])
-
-    def delete_network_segment_bulk(self, tenant_id, segment_list, sync=False):
-        """Deletes the network segments specified for a tenant
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param segment_list: list of network segments
-        :param sync: This flags indicates that the region is being synced.
-        """
-        cmds = ['tenant %s' % tenant_id]
-        for counter, segment in enumerate(segment_list, 1):
-            cmds.append('network id %s' % segment['network_id'])
-            cmds.append('no segment %s' % segment['id'])
-
             if self._heartbeat_required(sync, counter):
                 cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
 
