@@ -404,6 +404,48 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
+    def test_create_network_segments(self, mock_send_api_req):
+        segments = [{'segmentation_id': 101,
+                     'physical_network': 'default',
+                     'id': 'segment_id_1',
+                     'is_dynamic': False,
+                     'network_type': 'vlan'},
+                    {'segmentation_id': 102,
+                     'physical_network': 'default',
+                     'id': 'segment_id_2',
+                     'is_dynamic': True,
+                     'network_type': 'vlan'}]
+        self.drv.create_network_segments('t1', 'n1', 'net1', segments)
+        calls = [
+            ('region/RegionOne/segment', 'POST',
+                [{'id': 'segment_id_1', 'networkId': 'n1', 'type': 'vlan',
+                  'segmentationId': 101, 'segmentType': 'static'},
+                 {'id': 'segment_id_2', 'networkId': 'n1', 'type': 'vlan',
+                  'segmentationId': 102, 'segmentType': 'dynamic'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_delete_network_segments(self, mock_send_api_req):
+        segments = [{'segmentation_id': 101,
+                     'physical_network': 'default',
+                     'id': 'segment_id_1',
+                     'is_dynamic': False,
+                     'network_type': 'vlan'},
+                    {'segmentation_id': 102,
+                     'physical_network': 'default',
+                     'id': 'segment_id_2',
+                     'is_dynamic': True,
+                     'network_type': 'vlan'}]
+        self.drv.delete_network_segments(segments)
+        calls = [
+            ('region/RegionOne/segment', 'DELETE',
+                [{'id': 'segment_id_1'},
+                 {'id': 'segment_id_2'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
     def test_create_instance_bulk(self, mock_send_api_req):
         tenant_id = 'ten-3'
         num_devices = 8

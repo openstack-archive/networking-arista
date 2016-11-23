@@ -242,7 +242,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.delete_network_postcommit(network_context)
         expected_calls = [
             mock.call.hpb_supported(),
-            mock.call.delete_network(tenant_id, network_id, []),
+            mock.call.delete_network(tenant_id, network_id,
+                                     network_context.network_segments),
             mock.call.num_nets_provisioned(tenant_id),
             mock.call.num_vms_provisioned(tenant_id),
             mock.call.forget_tenant(tenant_id),
@@ -266,7 +267,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.delete_network_postcommit(network_context)
         expected_calls += [
             mock.call.hpb_supported(),
-            mock.call.delete_network(INTERNAL_TENANT_ID, network_id, []),
+            mock.call.delete_network(INTERNAL_TENANT_ID, network_id,
+                                     network_context.network_segments),
             mock.call.num_nets_provisioned(INTERNAL_TENANT_ID),
             mock.call.num_vms_provisioned(INTERNAL_TENANT_ID),
             mock.call.forget_tenant(INTERNAL_TENANT_ID),
