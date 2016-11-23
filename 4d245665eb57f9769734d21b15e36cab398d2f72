@@ -1,0 +1,10 @@
+Code-Review+1: Nader Lahouti <nlahouti@arista.com>
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Code-Review+2: Mitchell Jameson <mitchell@arista.com>
+Workflow+1: Mitchell Jameson <mitchell@arista.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 23 Nov 2016 19:23:55 +0000
+Reviewed-on: https://review.openstack.org/400996
+Project: openstack/networking-arista
+Branch: refs/heads/master
