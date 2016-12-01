@@ -31,21 +31,11 @@ from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_ml2
 from networking_arista.ml2 import mechanism_arista
-
-
-def setup_arista_wrapper_config(value=''):
-    cfg.CONF.keystone_authtoken = fake_keystone_info_class()
-    cfg.CONF.set_override('eapi_host', value, "ml2_arista")
-    cfg.CONF.set_override('eapi_username', value, "ml2_arista")
-    cfg.CONF.set_override('sync_interval', 10, "ml2_arista")
-    cfg.CONF.set_override('conn_timeout', 20, "ml2_arista")
-    cfg.CONF.set_override('switch_info', ['switch1:user:pass'], "ml2_arista")
-    cfg.CONF.set_override('sec_group_support', False, "ml2_arista")
+import networking_arista.tests.unit.ml2.utils as utils
 
 
 def setup_valid_config():
-    # Config is not valid if value is not set
-    setup_arista_wrapper_config('value')
+    utils.setup_arista_wrapper_config(cfg)
 
 
 class AristaProvisionedVlansStorageTestCase(testlib_api.SqlTestCase):
@@ -1287,7 +1277,7 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
     @patch(EAPI_SEND_FUNC)
     def test_register_with_eos(self, mock_send_eapi_req):
         self.drv.register_with_eos()
-        auth = fake_keystone_info_class()
+        auth = utils.fake_keystone_info_class()
         keystone_url = '%s://%s:%s/v2.0/' % (auth.auth_protocol,
                                              auth.auth_host,
                                              auth.auth_port)
@@ -1550,7 +1540,7 @@ class AristaRPCWrapperInvalidConfigTestCase(base.BaseTestCase):
         self.setup_invalid_config()  # Invalid config, required options not set
 
     def setup_invalid_config(self):
-        setup_arista_wrapper_config('')
+        utils.setup_arista_wrapper_config(cfg, host='', user='')
 
     def test_raises_exception_on_wrong_configuration(self):
         ndb = db_lib.NeutronNets()
@@ -2151,18 +2141,3 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         db_lib.forget_network_segment(tenant_2_id, tenant_2_net_1_id)
         db_lib.forget_tenant(tenant_1_id)
         db_lib.forget_tenant(tenant_2_id)
-
-
-class fake_keystone_info_class(object):
-    """To generate fake Keystone Authentication token information
-
-    Arista Driver expects Keystone auth info. This fake information
-    is for testing only
-    """
-    auth_uri = False
-    auth_protocol = 'abc'
-    auth_host = 'host'
-    auth_port = 5000
-    admin_user = 'neutron'
-    admin_password = 'fun'
-    admin_tenant_name = 'tenant_name'
