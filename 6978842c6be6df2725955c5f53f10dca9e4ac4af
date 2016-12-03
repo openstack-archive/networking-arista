@@ -1,0 +1,9 @@
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Code-Review+2: Alex Reimers <areimers@arista.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 03 Dec 2016 00:18:35 +0000
+Reviewed-on: https://review.openstack.org/406405
+Project: openstack/networking-arista
+Branch: refs/heads/stable/newton
