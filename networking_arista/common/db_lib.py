@@ -494,7 +494,7 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
                                                     filter_dynamic=dynamic)
         if dynamic:
             for segment in segments:
-                segments['is_dynamic'] = True
+                segment['is_dynamic'] = True
         return segments
 
     def get_all_network_segments(self, network_id, context=None):
