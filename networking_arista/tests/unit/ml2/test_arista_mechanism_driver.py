@@ -1060,7 +1060,6 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
         segments = [{'segmentation_id': 101,
                      'physical_network': 'default',
                      'id': 'segment_id_1',
-                     'network_id': network_id,
                      'network_type': 'vlan'}]
         self.drv.delete_network(tenant_id, network_id, segments)
         cmd1 = ['show openstack agent uuid']

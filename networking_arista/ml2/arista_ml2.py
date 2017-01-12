@@ -184,7 +184,10 @@ class AristaRPCWrapperBase(object):
         :param network_id: globally unique neutron network identifier
         :param network_segments: segments associated with the network
         """
-        self.delete_network_segments(tenant_id, network_segments)
+        segments_info = []
+        segments_info.extend({'id': segment['id'], 'network_id': network_id}
+                             for segment in network_segments)
+        self.delete_network_segments(tenant_id, segments_info)
         self.delete_network_bulk(tenant_id, [network_id])
 
     def delete_vm(self, tenant_id, vm_id):
