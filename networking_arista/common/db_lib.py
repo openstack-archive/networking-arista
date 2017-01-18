@@ -17,14 +17,23 @@ from neutron import context as nctx
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import securitygroups_db as sec_db
-from neutron.db import segments_db
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import driver_api
 from neutron.plugins.ml2 import models as ml2_models
 
+from oslo_log import log as logging
+
 from networking_arista.common import db as db_models
 
 VLAN_SEGMENTATION = 'vlan'
+
+LOG = logging.getLogger(__name__)
+
+try:
+    from neutron.db import segments_db
+except ImportError:
+    LOG.warn('Failing back to Mitaka location for segments_db')
+    from neutron.plugins.ml2 import db as segments_db
 
 
 def remember_tenant(tenant_id):
