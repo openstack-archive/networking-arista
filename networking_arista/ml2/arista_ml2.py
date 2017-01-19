@@ -19,14 +19,13 @@ import json
 import os
 import socket
 
+from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 import requests
 from six import add_metaclass
-
-from neutron.extensions import portbindings
 
 from networking_arista._i18n import _, _LI, _LW, _LE
 from networking_arista.common import db_lib
