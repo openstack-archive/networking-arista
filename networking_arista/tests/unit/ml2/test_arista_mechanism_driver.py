@@ -18,11 +18,11 @@ import socket
 
 import mock
 from mock import patch
+from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from oslo_config import cfg
 
 import neutron.db.api as db
-from neutron.extensions import portbindings
 from neutron.plugins.ml2 import driver_api as api
 from neutron.tests import base
 from neutron.tests.unit import testlib_api
