@@ -19,6 +19,7 @@ from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
 
+from neutron.common import constants as neutron_const
 from neutron.extensions import portbindings
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.common import exceptions as ml2_exc
@@ -531,6 +532,11 @@ class AristaDriver(driver_api.MechanismDriver):
         if new_port['name'] != orig_port['name']:
             LOG.info(_LI('Port name changed to %s'), new_port['name'])
         device_id = new_port['device_id']
+        if device_id == neutron_const.DEVICE_ID_RESERVED_DHCP_PORT:
+            # DHCP port is being preserved by attaching it to a dummy device.
+            # Ignore this update
+            return
+
         host = context.host
 
         pretty_log("update_port_precommit: new", new_port)
@@ -636,6 +642,10 @@ class AristaDriver(driver_api.MechanismDriver):
         orig_port = context.original
 
         device_id = port['device_id']
+        if device_id == neutron_const.DEVICE_ID_RESERVED_DHCP_PORT:
+            # DHCP port is being preserved by attaching it to a dummy device.
+            # Ignore this update
+            return
         device_owner = port['device_owner']
         host = context.host
         is_vm_boot = device_id and device_owner
@@ -800,6 +810,10 @@ class AristaDriver(driver_api.MechanismDriver):
                          the case of HA router).
         """
         device_id = port['device_id']
+        if device_id == neutron_const.DEVICE_ID_RESERVED_DHCP_PORT:
+            # DHCP port which was attached to a dummy device is being deleted.
+            return
+
         port_id = port['id']
         network_id = port['network_id']
         device_owner = port['device_owner']
