@@ -1212,10 +1212,10 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             log_data['params']['cmds'] = commands_to_log or cmds
             msg = (_('EAPI request to %(ip)s contains %(cmd)s') %
                    {'ip': self._server_ip, 'cmd': json.dumps(log_data)})
-            LOG.info(msg)
+            LOG.debug(msg)
             response = requests.post(url, timeout=self.conn_timeout,
                                      verify=False, data=json.dumps(data))
-            LOG.info(_LI('EAPI response contains: %s'), response.json())
+            LOG.debug(_('EAPI response contains: %s'), response.json())
             try:
                 return response.json()['result']
             except KeyError:
