@@ -14,8 +14,8 @@
 # limitations under the License.
 
 import mock
-from neutron_lib import constants as n_const
 
+from neutron.common import constants as n_const
 from neutron.extensions import portbindings
 from neutron.plugins.ml2 import driver_api as api
 from neutron.tests.unit import testlib_api
