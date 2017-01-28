@@ -1,0 +1,8 @@
+Code-Review+2: Nader Lahouti <nlahouti@arista.com>
+Workflow+1: Nader Lahouti <nlahouti@arista.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 28 Jan 2017 00:45:25 +0000
+Reviewed-on: https://review.openstack.org/424854
+Project: openstack/networking-arista
+Branch: refs/heads/stable/mitaka-hpb
