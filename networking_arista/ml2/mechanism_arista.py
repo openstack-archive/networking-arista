@@ -400,7 +400,8 @@ class AristaDriver(driver_api.MechanismDriver):
                     # We care about port status only for DVR ports
                     port_down = context.status == n_const.PORT_STATUS_DOWN
 
-                if orig_host and (port_down or host != orig_host):
+                if orig_host and (port_down or host != orig_host or
+                   device_id == n_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     try:
                         LOG.info("Deleting the port %s" % str(orig_port))
                         # The port moved to a different host or the VM
@@ -412,7 +413,8 @@ class AristaDriver(driver_api.MechanismDriver):
                         # about it. Log a warning and move on.
                         LOG.warn(UNABLE_TO_DELETE_PORT_MSG)
                 if(port_provisioned and net_provisioned and hostname and
-                   is_vm_boot and not port_down):
+                   is_vm_boot and not port_down and
+                   device_id != n_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     LOG.info(_LI("Port plugged into network"))
                     # Plug port into the network only if it exists in the db
                     # and is bound to a host and the port is up.

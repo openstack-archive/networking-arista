@@ -843,6 +843,326 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
 
+    def test_update_port_precommit_dhcp_reserved_port(self):
+        '''Test to ensure the dhcp port migration is handled correctly.
+
+        Whenever a DHCP agent dies, the port is attached to a dummy device
+        identified by DEVICE_ID_RESERVED_DHCP_PORT. Once the dhcp agent is
+        respawned, the port is reattached to the newly created DHCP instance.
+        This deletes the old dhcp port from the old host and creates the port
+        on the new host. The dhcp port transitions from
+
+        (Active <old host, old dhcp, vif:ovs>) to
+        (Active <old host, reserved, vif:ovs>) to
+        (Down   <new host, new dhcp, vif:unbound>) to
+        (Down   <new host, new dhcp, vif:ovs>) to
+        (Build  <new host, new dhcp, vif:ovs>) to
+        (Active <new host, new dhcp, vif:ovs>)
+
+        When the port is updated to (Active <old host, reserved, vif:ovs>),
+        the port needs to be removed from old host and when the port is updated
+        to (Down <new host, new dhcp, vif:unbound>), it should be created on
+        the new host. Removal and creation should take place in two updates
+        because when the port is updated to
+        (Down <new host, new dhcp, vif:unbound>), the original port would have
+        the device id set to 'reserved_dhcp_port' and so it can't be removed
+        from CVX at that point.
+
+        '''
+
+        tenant_id = 't1'
+        network_id = 'n1'
+        old_device_id = 'old_device_id'
+        new_device_id = 'new_device_id'
+        reserved_device = n_const.DEVICE_ID_RESERVED_DHCP_PORT
+        old_host = 'ubuntu1'
+        new_host = 'ubuntu2'
+        port_id = 101
+        segmentation_id = 1000
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    segmentation_id,
+                                                    False)
+
+        # (Active <old host, old dhcp, vif:ovs>) to
+        # (Active <old host, reserved, vif:ovs>)
+        context = self._get_port_context(
+            tenant_id, network_id, old_device_id,
+            network_context, device_owner=n_const.DEVICE_OWNER_DHCP)
+        context.current['device_id'] = reserved_device
+
+        network = {'tenant_id': tenant_id}
+        self.drv.ndb.get_network_from_net_id.return_value = [network]
+
+        mechanism_arista.db_lib.is_port_provisioned.return_value = True
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_precommit(context)
+
+        expected_calls = [
+            mock.call.is_network_provisioned(tenant_id, network_id, None),
+            mock.call.is_port_provisioned(port_id, None),
+            mock.call.update_port(reserved_device,
+                                  old_host, port_id,
+                                  network_id, tenant_id)
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # (Active <old host, reserved, vif:ovs>) to
+        # (Down   <new host, new dhcp, vif:unbound>)
+        context = self._get_port_context(
+            tenant_id, network_id, reserved_device, network_context,
+            device_owner=n_const.DEVICE_OWNER_DHCP)
+        context.current['device_id'] = new_device_id
+        context.current['binding:host_id'] = new_host
+        context.current['status'] = 'DOWN'
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_precommit(context)
+
+        expected_calls = [
+            mock.call.is_network_provisioned(tenant_id, network_id, None),
+            mock.call.is_port_provisioned(port_id, None),
+            mock.call.update_port(new_device_id,
+                                  new_host, port_id,
+                                  network_id, tenant_id)
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # (Down   <new host, new dhcp, vif:unbound>) to
+        # (Down   <new host, new dhcp, vif:ovs>) to
+        context = self._get_port_context(
+            tenant_id, network_id, new_device_id, network_context,
+            device_owner=n_const.DEVICE_OWNER_DHCP, status='DOWN')
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_precommit(context)
+
+        expected_calls = [
+            mock.call.is_network_provisioned(tenant_id, network_id, None),
+            mock.call.is_port_provisioned(port_id, None),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # (Down   <new host, new dhcp, vif:ovs>) to
+        # (Build  <new host, new dhcp, vif:ovs>) to
+        context = self._get_port_context(
+            tenant_id, network_id, new_device_id, network_context,
+            device_owner=n_const.DEVICE_OWNER_DHCP, status='DOWN')
+
+        context.current['status'] = 'BUILD'
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_precommit(context)
+
+        expected_calls = [
+            mock.call.is_network_provisioned(tenant_id, network_id, None),
+            mock.call.is_port_provisioned(port_id, None),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # (Build  <new host, new dhcp, vif:ovs>) to
+        # (Active <new host, new dhcp, vif:ovs>)
+        context = self._get_port_context(
+            tenant_id, network_id, new_device_id, network_context,
+            device_owner=n_const.DEVICE_OWNER_DHCP, status='BUILD')
+
+        context.current['status'] = 'ACTIVE'
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_precommit(context)
+
+        expected_calls = [
+            mock.call.is_network_provisioned(tenant_id, network_id, None),
+            mock.call.is_port_provisioned(port_id, None),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+    def test_update_port_postcommit_dhcp_reserved_port(self):
+        '''Test to ensure the dhcp port migration is handled correctly.
+
+        Whenever a DHCP agent dies, the port is attached to a dummy device
+        identified by DEVICE_ID_RESERVED_DHCP_PORT. Once the dhcp agent is
+        respawned, the port is reattached to the newly created DHCP instance.
+        This deletes the old dhcp port from the old host and creates the port
+        on the new host. The dhcp port transitions from
+
+        (Active <old host, old dhcp, vif:ovs>) to
+        (Active <old host, reserved, vif:ovs>) to
+        (Down   <new host, new dhcp, vif:unbound>) to
+        (Down   <new host, new dhcp, vif:ovs>) to
+        (Build  <new host, new dhcp, vif:ovs>) to
+        (Active <new host, new dhcp, vif:ovs>)
+
+        When the port is updated to (Active <old host, reserved, vif:ovs>),
+        the port needs to be removed from old host and when the port is updated
+        to (Down <new host, new dhcp, vif:unbound>), it should be created on
+        the new host. Removal and creation should take place in two updates
+        because when the port is updated to
+        (Down <new host, new dhcp, vif:unbound>), the original port would have
+        the device id set to 'reserved_dhcp_port' and so it can't be removed
+        from CVX at that point.
+
+        '''
+
+        tenant_id = 't1'
+        network_id = 'n1'
+        old_device_id = 'old_device_id'
+        new_device_id = 'new_device_id'
+        reserved_device = n_const.DEVICE_ID_RESERVED_DHCP_PORT
+        old_host = 'ubuntu1'
+        new_host = 'ubuntu2'
+        port_id = 101
+        seg_id = 1000
+        network_context = self._get_network_context(tenant_id,
+                                                    network_id,
+                                                    seg_id,
+                                                    False)
+
+        # (Active <old host, old dhcp, vif:ovs>) to
+        # (Active <old host, reserved, vif:ovs>)
+        context = self._get_port_context(
+            tenant_id, network_id, old_device_id, network_context,
+            device_owner=n_const.DEVICE_OWNER_DHCP)
+        context.current['device_id'] = reserved_device
+        port_name = context.current['name']
+
+        network = {'tenant_id': tenant_id}
+        self.drv.ndb.get_network_from_net_id.return_value = [network]
+
+        mechanism_arista.db_lib.is_port_provisioned.return_value = True
+        mechanism_arista.db_lib.is_network_provisioned.return_value = True
+        mechanism_arista.db_lib.get_shared_network_owner_id.return_value = 1
+        mechanism_arista.db_lib.num_nets_provisioned.return_value = 1
+        mechanism_arista.db_lib.num_vms_provisioned.return_value = 1
+        mechanism_arista.db_lib.get_segmentation_id.return_value = seg_id
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_postcommit(context)
+
+        expected_calls = [
+            mock.call.is_port_provisioned(port_id, None),
+            mock.call.is_network_provisioned(tenant_id, network_id, seg_id),
+            mock.call.is_network_provisioned(tenant_id, network_id, None),
+            mock.call.unplug_port_from_network(old_device_id,
+                                               n_const.DEVICE_OWNER_DHCP,
+                                               old_host,
+                                               port_id, network_id,
+                                               tenant_id),
+            mock.call.num_nets_provisioned(tenant_id),
+            mock.call.num_vms_provisioned(tenant_id),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # (Active <old host, reserved, vif:ovs>) to
+        # (Down   <new host, new dhcp, vif:unbound>)
+        context = self._get_port_context(
+            tenant_id, network_id, reserved_device, network_context,
+            device_owner=n_const.DEVICE_OWNER_DHCP)
+        context.current['device_id'] = new_device_id
+        context.current['binding:host_id'] = new_host
+        context.current['status'] = 'DOWN'
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_postcommit(context)
+
+        expected_calls = [
+            mock.call.get_segmentation_id('t1', 'n1'),
+            mock.call.is_port_provisioned(port_id, None),
+            mock.call.is_network_provisioned(tenant_id, network_id, seg_id),
+            mock.call.is_network_provisioned(tenant_id, network_id, None),
+            mock.call.unplug_port_from_network(reserved_device,
+                                               n_const.DEVICE_OWNER_DHCP,
+                                               old_host,
+                                               port_id, network_id,
+                                               tenant_id),
+            mock.call.num_nets_provisioned(tenant_id),
+            mock.call.num_vms_provisioned(tenant_id),
+            mock.call.plug_port_into_network(new_device_id,
+                                             new_host,
+                                             port_id, network_id,
+                                             tenant_id, port_name,
+                                             n_const.DEVICE_OWNER_DHCP),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # (Down   <new host, new dhcp, vif:unbound>) to
+        # (Down   <new host, new dhcp, vif:ovs>) to
+        context = self._get_port_context(
+            tenant_id, network_id, new_device_id, network_context,
+            device_owner=n_const.DEVICE_OWNER_DHCP, status='DOWN')
+        context.current['binding:host_id'] = new_host
+        context.original['binding:host_id'] = new_host
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_postcommit(context)
+
+        expected_calls = [
+            mock.call.get_segmentation_id('t1', 'n1'),
+            mock.call.is_port_provisioned(port_id, None),
+            mock.call.is_network_provisioned(tenant_id, network_id, seg_id),
+            mock.call.plug_port_into_network(new_device_id,
+                                             new_host,
+                                             port_id, network_id,
+                                             tenant_id, port_name,
+                                             n_const.DEVICE_OWNER_DHCP),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # (Down   <new host, new dhcp, vif:ovs>) to
+        # (Build  <new host, new dhcp, vif:ovs>) to
+        context = self._get_port_context(
+            tenant_id, network_id, new_device_id, network_context,
+            device_owner=n_const.DEVICE_OWNER_DHCP, status='DOWN')
+        context.current['binding:host_id'] = new_host
+        context.original['binding:host_id'] = new_host
+        context.current['status'] = 'BUILD'
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_postcommit(context)
+
+        expected_calls = [
+            mock.call.get_segmentation_id('t1', 'n1'),
+            mock.call.is_port_provisioned(port_id, None),
+            mock.call.is_network_provisioned(tenant_id, network_id, seg_id),
+            mock.call.plug_port_into_network(new_device_id,
+                                             new_host,
+                                             port_id, network_id,
+                                             tenant_id, port_name,
+                                             n_const.DEVICE_OWNER_DHCP),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
+        # (Build  <new host, new dhcp, vif:ovs>) to
+        # (Active <new host, new dhcp, vif:ovs>)
+        context = self._get_port_context(
+            tenant_id, network_id, new_device_id, network_context,
+            device_owner=n_const.DEVICE_OWNER_DHCP, status='BUILD')
+        context.current['binding:host_id'] = new_host
+        context.original['binding:host_id'] = new_host
+        context.current['status'] = 'ACTIVE'
+
+        mechanism_arista.db_lib.reset_mock()
+        self.drv.update_port_postcommit(context)
+
+        expected_calls = [
+            mock.call.get_segmentation_id('t1', 'n1'),
+            mock.call.is_port_provisioned(port_id, None),
+            mock.call.is_network_provisioned(tenant_id, network_id, seg_id),
+        ]
+
+        mechanism_arista.db_lib.assert_has_calls(expected_calls)
+
     def _get_network_context(self, tenant_id, net_id, seg_id, shared):
         network = {'id': net_id,
                    'tenant_id': tenant_id,
