@@ -19,6 +19,7 @@ from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
 
+from neutron.common import constants as neutron_const
 from neutron.extensions import portbindings
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.common import exceptions as ml2_exc
@@ -436,6 +437,7 @@ class AristaDriver(driver_api.MechanismDriver):
         orig_status = context.original_status
         new_status = context.status
         new_host = context.host
+        new_port = context.current
         port_id = orig_port['id']
 
         if (new_host != orig_host and
@@ -447,7 +449,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # Ensure that we use tenant Id for the network owner
             tenant_id = self._network_owner_tenant(context, network_id,
                                                    tenant_id)
-            device_id = orig_port['device_id']
+            device_id = new_port['device_id']
             with self.eos_sync_lock:
                 port_provisioned = db_lib.is_port_provisioned(port_id,
                                                               orig_host)
@@ -701,7 +703,8 @@ class AristaDriver(driver_api.MechanismDriver):
                             context.network.current['name'], all_segments)
                     except arista_exc.AristaRpcError:
                         LOG.error(_LE("Failed to create network segments"))
-                        raise ml2_exc.MechanismDriverError()
+                        raise ml2_exc.MechanismDriverError(
+                            method='update_port_postcommit')
                 else:
                     # For non HPB cases, the port is bound to the static
                     # segment
@@ -714,7 +717,8 @@ class AristaDriver(driver_api.MechanismDriver):
                     # We care about port status only for DVR ports
                     port_down = context.status == n_const.PORT_STATUS_DOWN
 
-                if orig_host and (port_down or host != orig_host):
+                if orig_host and (port_down or host != orig_host or
+                   device_id == neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     try:
                         LOG.info("Deleting the port %s" % str(orig_port))
                         # The port moved to a different host or the VM
@@ -726,7 +730,8 @@ class AristaDriver(driver_api.MechanismDriver):
                         # about it. Log a warning and move on.
                         LOG.warning(UNABLE_TO_DELETE_PORT_MSG)
                 if(port_provisioned and net_provisioned and hostname and
-                   is_vm_boot and not port_down):
+                   is_vm_boot and not port_down and
+                   device_id != neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     LOG.info(_LI("Port plugged into network"))
                     # Plug port into the network only if it exists in the db
                     # and is bound to a host and the port is up.
