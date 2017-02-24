@@ -358,17 +358,15 @@ def get_vms(tenant_id):
 
 
 def are_ports_attached_to_network(net_id):
-    """Returns all records associated with network in EOS-compatible format.
+    """Checks if a given network is used by any port, excluding dhcp port.
 
     :param net_id: globally unique network ID
     """
     session = db.get_session()
     with session.begin():
         model = db_models.AristaProvisionedVms
-        num_ports = (session.query(model).
-                     filter(model.network_id == net_id).count())
-
-        return num_ports > 0
+        return session.query(model).filter_by(network_id=net_id).filter(
+            ~model.vm_id.startswith('dhcp')).count() > 0
 
 
 def get_ports(tenant_id=None):
