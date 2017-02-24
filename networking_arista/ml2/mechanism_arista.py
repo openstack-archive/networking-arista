@@ -702,10 +702,6 @@ class AristaDriver(driver_api.MechanismDriver):
                     except arista_exc.AristaRpcError:
                         LOG.error(_LE("Failed to create network segments"))
                         raise ml2_exc.MechanismDriverError()
-                else:
-                    # For non HPB cases, the port is bound to the static
-                    # segment
-                    segments = self.ndb.get_network_segments(network_id)
 
             try:
                 orig_host = context.original_host
