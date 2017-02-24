@@ -686,8 +686,7 @@ class AristaDriver(driver_api.MechanismDriver):
             net_provisioned = self._network_provisioned(
                 tenant_id, network_id, segmentation_id=segmentation_id)
             segments = []
-            if net_provisioned:
-                if self.rpc.hpb_supported():
+            if net_provisioned and self.rpc.hpb_supported():
                     for binding_level in context.binding_levels:
                         bound_segment = binding_level.get(
                             driver_api.BOUND_SEGMENT)
@@ -702,10 +701,6 @@ class AristaDriver(driver_api.MechanismDriver):
                     except arista_exc.AristaRpcError:
                         LOG.error(_LE("Failed to create network segments"))
                         raise ml2_exc.MechanismDriverError()
-                else:
-                    # For non HPB cases, the port is bound to the static
-                    # segment
-                    segments = self.ndb.get_network_segments(network_id)
 
             try:
                 orig_host = context.original_host
