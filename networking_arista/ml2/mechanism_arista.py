@@ -113,6 +113,8 @@ class AristaDriver(driver_api.MechanismDriver):
 
         network = context.current
         segments = context.network_segments
+        if not segments:
+            return
         if not self.rpc.hpb_supported():
             # Hierarchical port binding is not supported by CVX, only
             # allow VLAN network type.
@@ -217,6 +219,8 @@ class AristaDriver(driver_api.MechanismDriver):
         """Send network delete request to Arista HW."""
         network = context.current
         segments = context.network_segments
+        if not segments:
+            return
         if not self.rpc.hpb_supported():
             # Hierarchical port binding is not supported by CVX, only
             # send the request if network type is VLAN.
@@ -686,26 +690,21 @@ class AristaDriver(driver_api.MechanismDriver):
             net_provisioned = self._network_provisioned(
                 tenant_id, network_id, segmentation_id=segmentation_id)
             segments = []
-            if net_provisioned:
-                if self.rpc.hpb_supported():
-                    for binding_level in context.binding_levels:
-                        bound_segment = binding_level.get(
-                            driver_api.BOUND_SEGMENT)
-                        if bound_segment:
-                            segments.append(bound_segment)
-                    all_segments = self.ndb.get_all_network_segments(
-                        network_id, context=context._plugin_context)
-                    try:
-                        self.rpc.create_network_segments(
-                            tenant_id, network_id,
-                            context.network.current['name'], all_segments)
-                    except arista_exc.AristaRpcError:
-                        LOG.error(_LE("Failed to create network segments"))
-                        raise ml2_exc.MechanismDriverError()
-                else:
-                    # For non HPB cases, the port is bound to the static
-                    # segment
-                    segments = self.ndb.get_network_segments(network_id)
+            if net_provisioned and self.rpc.hpb_supported():
+                for binding_level in context.binding_levels:
+                    bound_segment = binding_level.get(
+                        driver_api.BOUND_SEGMENT)
+                    if bound_segment:
+                        segments.append(bound_segment)
+                all_segments = self.ndb.get_all_network_segments(
+                    network_id, context=context._plugin_context)
+                try:
+                    self.rpc.create_network_segments(
+                        tenant_id, network_id,
+                        context.network.current['name'], all_segments)
+                except arista_exc.AristaRpcError:
+                    LOG.error(_LE("Failed to create network segments"))
+                    raise ml2_exc.MechanismDriverError()
 
             try:
                 orig_host = context.original_host
