@@ -1607,6 +1607,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             self._run_openstack_cmds(cmds)
 
     def delete_network_segments(self, tenant_id, segments):
+        if not segments:
+            return
         cmds = ['tenant %s' % tenant_id]
         for segment in segments:
             cmds.append('network id %s' % segment['network_id'])
