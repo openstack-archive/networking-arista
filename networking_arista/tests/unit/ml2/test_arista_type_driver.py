@@ -18,7 +18,7 @@ from mock import patch
 from oslo_config import cfg
 
 from neutron.db import api as db_api
-from neutron.plugins.ml2.drivers import type_vlan
+from neutron.db.models.plugins.ml2 import vlanallocation
 from neutron.tests import base
 from neutron.tests.unit import testlib_api
 
@@ -64,7 +64,7 @@ class VlanSyncServiceTest(testlib_api.SqlTestCase):
     def _ensure_in_db(self, assigned, allocated, available):
         session = db_api.get_session()
         with session.begin():
-            vlans = session.query(type_vlan.VlanAllocation).all()
+            vlans = session.query(vlanallocation.VlanAllocation).all()
             for vlan in vlans:
                 self.assertIn(vlan.vlan_id, assigned)
 
