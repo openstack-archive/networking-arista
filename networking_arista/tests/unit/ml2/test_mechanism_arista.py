@@ -804,6 +804,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.__nonzero__(),
             mock.call.is_port_provisioned(port_id, None),
             mock.call.is_network_provisioned(tenant_id, network_id,
+                                             None, None),
+            mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id, None),
             mock.call.hpb_supported(),
             mock.call.create_network_segments(tenant_id, network_id,
@@ -871,6 +873,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls += [
             mock.call.is_port_provisioned(port_id, None),
+            mock.call.is_network_provisioned(INTERNAL_TENANT_ID, network_id,
+                                             None, None),
             mock.call.is_network_provisioned(INTERNAL_TENANT_ID, network_id,
                                              segmentation_id, None),
             mock.call.hpb_supported(),
@@ -941,6 +945,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         expected_calls += [
             mock.call.is_port_provisioned(port_id, port_context.host),
             mock.call.is_network_provisioned(tenant_id, network_id,
+                                             None, None),
+            mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id, None),
             mock.call.hpb_supported(),
             mock.call.create_network_segments(tenant_id, network_id,
@@ -963,6 +969,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls += [
             mock.call.is_port_provisioned(port_id, port_context.host),
+            mock.call.is_network_provisioned(tenant_id, network_id,
+                                             None, None),
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id, None),
             mock.call.hpb_supported(),
