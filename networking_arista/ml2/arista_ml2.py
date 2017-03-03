@@ -55,7 +55,7 @@ BAREMETAL_NOT_SUPPORTED = 'EOS version on CVX does not support Baremetal'
 NETWORK_TYPE_FLAT = 'flat'
 
 
-class InstanceType:
+class InstanceType(object):
     BAREMETAL = 'baremetal'
     DHCP = 'dhcp'
     ROUTER = 'router'

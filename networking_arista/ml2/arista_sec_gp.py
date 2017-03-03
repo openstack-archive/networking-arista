@@ -72,7 +72,7 @@ acl_cmd = {
                             'exit']}}
 
 
-class AristaSecGroupSwitchDriver():
+class AristaSecGroupSwitchDriver(object):
     """Wraps Arista JSON RPC.
 
     All communications between Neutron and EOS are over JSON RPC.
