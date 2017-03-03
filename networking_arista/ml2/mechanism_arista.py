@@ -352,6 +352,9 @@ class AristaDriver(driver_api.MechanismDriver):
                                          'physnet': physnet,
                                          'swid': switch_id})
         for segment in context.segments_to_bind:
+            if not self._is_in_managed_physnets(
+                segment.get(driver_api.PHYSICAL_NETWORK)):
+                continue
             if segment[driver_api.NETWORK_TYPE] == p_const.TYPE_VXLAN:
                 # Check if CVX supports HPB
                 if not self.rpc.hpb_supported():
@@ -422,15 +425,19 @@ class AristaDriver(driver_api.MechanismDriver):
         segment is included in the managed physical network list.
         """
         if not self.managed_physnets:
-            return (context.bottom_bound_segment
-                    if context.binding_levels else None)
+            return [
+                binding_level.get(driver_api.BOUND_SEGMENT)
+                for binding_level in (context.binding_levels or [])
+            ]
 
+        bound_segments = []
         for binding_level in (context.binding_levels or []):
             bound_segment = binding_level.get(driver_api.BOUND_SEGMENT)
             if (bound_segment and
                 self._is_in_managed_physnets(
                     bound_segment.get(driver_api.PHYSICAL_NETWORK))):
-                return bound_segment
+                bound_segments.append(bound_segment)
+        return bound_segments
 
     def _handle_port_migration_precommit(self, context):
         """Handles port migration in precommit
@@ -564,23 +571,18 @@ class AristaDriver(driver_api.MechanismDriver):
         # Ensure that we use tenant Id for the network owner
         tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
 
-        if not self._network_provisioned(tenant_id, network_id,
-                                         seg_info[driver_api.SEGMENTATION_ID],
-                                         seg_info[driver_api.ID]):
-            if not self.rpc.hpb_supported():
-                LOG.info(_LI("Ignoring port %(port)s conntected to "
-                             "%(net_id)s"), {'port': port_id,
-                                             'net_id': network_id})
-                return
-
-            LOG.info(
-                _LI("Adding %s to provisioned network database"), seg_info)
-            with self.eos_sync_lock:
-                db_lib.remember_tenant(tenant_id)
-                db_lib.remember_network_segment(
-                    tenant_id, network_id,
-                    seg_info[driver_api.SEGMENTATION_ID],
-                    seg_info[driver_api.ID])
+        for seg in seg_info:
+            if not self._network_provisioned(tenant_id, network_id,
+                                             seg[driver_api.SEGMENTATION_ID],
+                                             seg[driver_api.ID]):
+                LOG.info(
+                    _LI("Adding %s to provisioned network database"), seg)
+                with self.eos_sync_lock:
+                    db_lib.remember_tenant(tenant_id)
+                    db_lib.remember_network_segment(
+                        tenant_id, network_id,
+                        seg[driver_api.SEGMENTATION_ID],
+                        seg[driver_api.ID])
 
         with self.eos_sync_lock:
             port_down = False
@@ -678,7 +680,6 @@ class AristaDriver(driver_api.MechanismDriver):
 
         with self.eos_sync_lock:
             hostname = self._host_name(host)
-            segmentation_id = seg_info[driver_api.SEGMENTATION_ID]
             port_host_filter = None
             if(port['device_owner'] ==
                n_const.DEVICE_OWNER_DVR_INTERFACE):
@@ -691,14 +692,15 @@ class AristaDriver(driver_api.MechanismDriver):
             # If network does not exist under this tenant,
             # it may be a shared network. Get shared network owner Id
             net_provisioned = self._network_provisioned(
-                tenant_id, network_id, segmentation_id=segmentation_id)
+                tenant_id, network_id)
+            for seg in seg_info:
+                if not self._network_provisioned(
+                    tenant_id, network_id,
+                    segmentation_id=seg[driver_api.SEGMENTATION_ID]):
+                    net_provisioned = False
             segments = []
             if net_provisioned and self.rpc.hpb_supported():
-                for binding_level in context.binding_levels:
-                    bound_segment = binding_level.get(
-                        driver_api.BOUND_SEGMENT)
-                    if bound_segment:
-                        segments.append(bound_segment)
+                segments = seg_info
                 all_segments = self.ndb.get_all_network_segments(
                     network_id, session=context._plugin_context.session)
                 try:
