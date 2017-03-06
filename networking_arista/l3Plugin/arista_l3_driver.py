@@ -258,7 +258,9 @@ class AristaL3Driver(object):
         if router:
             router_name = self._arista_router_name(tenant_id, router['name'])
 
-            rdm = str(int(hashlib.sha256(router_name).hexdigest(), 16) % 65536)
+            hashed = hashlib.sha256(router_name.encode('utf-8'))
+            rdm = str(int(hashed.hexdigest(), 16) % 65536)
+
             mlag_peer_failed = False
             for s in self._servers:
                 try:

@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import functools
-import itertools
 import operator
 import socket
 
@@ -23,6 +22,7 @@ from mock import patch
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from oslo_config import cfg
+import six
 
 import neutron.db.api as db
 from neutron.plugins.ml2 import driver_api as api
@@ -877,7 +877,7 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
         calls = []
         calls.extend(
             mock.call(cmds=cmd, commands_to_log=log_cmd)
-            for cmd, log_cmd in itertools.izip(cmds, commands_to_log or cmds))
+            for cmd, log_cmd in six.moves.zip(cmds, commands_to_log or cmds))
         mock_send_eapi_req.assert_has_calls(calls)
 
     def test_no_exception_on_correct_configuration(self):
@@ -2028,12 +2028,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.get_region_updated_time()
         ]
 
-        self.assertTrue(self.rpc.mock_calls == expected_calls,
-                        "Seen: %s\nExpected: %s" % (
-                            self.rpc.mock_calls,
-                            expected_calls,
-                            )
-                        )
+        self.rpc.assert_has_calls(expected_calls)
 
         db_lib.forget_network_segment(tenant_1_id, tenant_1_net_1_id)
         db_lib.forget_network_segment(tenant_2_id, tenant_2_net_1_id)

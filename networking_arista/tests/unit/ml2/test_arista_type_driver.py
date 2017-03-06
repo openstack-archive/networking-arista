@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
+
 import mock
 from mock import patch
 from oslo_config import cfg
@@ -82,7 +84,7 @@ class VlanSyncServiceTest(testlib_api.SqlTestCase):
             'allocatedVlans': '6-10,22,24,26,28,30'
         }
 
-        assigned = range(1, 11) + range(21, 31)
+        assigned = list(itertools.chain(range(1, 11), range(21, 31)))
 
         available = [1, 2, 3, 4, 5, 21, 23, 25, 27, 29]
         allocated = list(set(assigned) - set(available))
@@ -99,7 +101,7 @@ class VlanSyncServiceTest(testlib_api.SqlTestCase):
             'allocatedVlans': '56-60,72,74,76,78,80'
         }
 
-        assigned = range(51, 61) + range(71, 81)
+        assigned = list(itertools.chain(range(51, 61), range(71, 81)))
 
         available = [51, 52, 53, 54, 55, 71, 73, 75, 77, 79]
         allocated = list(set(assigned) - set(available))

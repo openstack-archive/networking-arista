@@ -596,7 +596,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
 
     def test_update_port_precommit(self):
-
         # Test the case where the port was not provisioned previsouly
         # If port is not provisioned, we should bail out
         mechanism_arista.db_lib.is_port_provisioned.return_value = False
