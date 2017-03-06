@@ -15,9 +15,13 @@
 import gettext
 
 import pbr.version
+import six
 
 
 __version__ = pbr.version.VersionInfo(
     'networking_arista').version_string()
 
-gettext.install('networking_arista', unicode=1)
+if six.PY2:
+    gettext.install('networking_arista', unicode=1)
+else:
+    gettext.install('networking_arista')

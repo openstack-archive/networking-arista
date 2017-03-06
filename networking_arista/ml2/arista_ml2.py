@@ -971,16 +971,16 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         # create instances first
         if vmInst:
             path = 'region/' + self.region + '/vm?tenantId=' + tenant_id
-            self._send_api_request(path, 'POST', vmInst.values())
+            self._send_api_request(path, 'POST', list(vmInst.values()))
         if dhcpInst:
             path = 'region/' + self.region + '/dhcp?tenantId=' + tenant_id
-            self._send_api_request(path, 'POST', dhcpInst.values())
+            self._send_api_request(path, 'POST', list(dhcpInst.values()))
         if baremetalInst:
             path = 'region/' + self.region + '/baremetal?tenantId=' + tenant_id
-            self._send_api_request(path, 'POST', baremetalInst.values())
+            self._send_api_request(path, 'POST', list(baremetalInst.values()))
         if routerInst:
             path = 'region/' + self.region + '/router?tenantId=' + tenant_id
-            self._send_api_request(path, 'POST', routerInst.values())
+            self._send_api_request(path, 'POST', list(routerInst.values()))
 
         # now create ports for the instances
         path = 'region/' + self.region + '/port'
