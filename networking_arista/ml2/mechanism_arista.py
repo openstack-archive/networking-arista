@@ -71,6 +71,7 @@ class AristaDriver(driver_api.MechanismDriver):
         self.timer = None
         self.sync_timeout = confg['sync_interval']
         self.managed_physnets = confg['managed_physnets']
+        self.manage_fabric = confg['manage_fabric']
         self.eos_sync_lock = threading.Lock()
 
         self.eapi = None
@@ -408,8 +409,11 @@ class AristaDriver(driver_api.MechanismDriver):
         return tid
 
     def _is_in_managed_physnets(self, physnet):
+        # Check if this is a fabric segment
+        if not physnet:
+            return self.manage_fabric
+        # If managed physnet is empty, accept all.
         if not self.managed_physnets:
-            # If managed physnet is empty, accept all.
             return True
         # managed physnet is not empty, find for matching physnet
         return any(pn == physnet for pn in self.managed_physnets)
