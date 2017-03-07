@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from neutron import context as nctx
+from neutron_lib import context as nctx
+
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import securitygroups_db as sec_db
@@ -436,8 +437,9 @@ def get_all_baremetal_ports():
                 for bm_port in bm_ports}
 
 
-def get_port_binding_level(session, filters):
+def get_port_binding_level(filters):
     """Returns entries from PortBindingLevel based on the specified filters."""
+    session = db.get_session()
     with session.begin():
         return (session.query(ml2_models.PortBindingLevel).
                 filter_by(**filters).all())
