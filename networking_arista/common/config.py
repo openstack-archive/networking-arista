@@ -82,8 +82,8 @@ ARISTA_DRIVER_OPTS = [
                        'to be False')),
     cfg.ListOpt('switch_info',
                 default=[],
-                help=_('This is a comma separated list of Arista Switches '
-                       'where the Security groups (i.e. ACLs) need to be '
+                help=_('This is a comma separated list of Arista switches '
+                       'where security groups (i.e. ACLs) need to be '
                        'applied. Each string has three values separated  '
                        'by : in the follow format '
                        '<IP of switch>:<username>:<password>, ...... '
@@ -95,17 +95,23 @@ ARISTA_DRIVER_OPTS = [
                default='EAPI',
                help=_('Tells the plugin to use a sepcific API interfaces '
                       'to communicate with CVX. Valid options are:'
-                      'EAPI - Use EOS\' external API.'
+                      'EAPI - Use EOS\' extensible API.'
                       'JSON - Use EOS\' JSON/REST API.')),
     cfg.ListOpt('managed_physnets',
                 default=[],
                 help=_('This is a comma separated list of physical networks '
-                       'which are managed by Arista Switches.'
-                       'This list will be used in bind_port/update_port by '
-                       'Arista mechanism driver to make decision if it can '
-                       'participate on binding or updating a port.'
+                       'which are managed by Arista switches.'
+                       'This list will be used by the Arista ML2 plugin'
+                       'to make the decision if it can participate in binding'
+                       'or updating a port.'
                        'For Example: '
                        'managed_physnets = arista_network')),
+    cfg.BoolOpt('manage_fabric',
+                default=False,
+                help=_('Specifies whether the Arista ML2 plugin should bind '
+                       'ports to vxlan fabric segments and dynamically '
+                       'allocate vlan segments based on the host to connect '
+                       'the port to the vxlan fabric')),
 ]
 
 
