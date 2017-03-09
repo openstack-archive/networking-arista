@@ -16,7 +16,7 @@ import hashlib
 import socket
 import struct
 
-import jsonrpclib
+import jsonrpc_requests
 from oslo_config import cfg
 from oslo_log import log as logging
 
@@ -100,13 +100,23 @@ class AristaL3Driver(object):
         self._validate_config()
         host = cfg.CONF.l3_arista.primary_l3_host
         self._hosts.append(host)
-        self._servers.append(jsonrpclib.Server(self._eapi_host_url(host)))
+        self._servers.append(
+            jsonrpc_requests.Server(
+                self._eapi_host_url(host),
+                verify=False
+            )
+        )
         self._mlag_configured = cfg.CONF.l3_arista.mlag_config
         self._use_vrf = cfg.CONF.l3_arista.use_vrf
         if self._mlag_configured:
             host = cfg.CONF.l3_arista.secondary_l3_host
             self._hosts.append(host)
-            self._servers.append(jsonrpclib.Server(self._eapi_host_url(host)))
+            self._servers.append(
+                jsonrpc_requests.Server(
+                    self._eapi_host_url(host),
+                    verify=False
+                )
+            )
             self._additionalRouterCmdsDict = additional_cmds_for_mlag['router']
             self._additionalInterfaceCmdsDict = (
                 additional_cmds_for_mlag['interface'])

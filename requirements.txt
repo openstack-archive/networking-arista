@@ -3,7 +3,7 @@
 # process, which may cause wedges in the gate later.
 
 Babel>=1.3
-jsonrpclib
+jsonrpc-requests
 neutron-lib>=1.1.0 # Apache-2.0
 oslo.log>=3.11.0 # Apache-2.0
 pbr>=1.8

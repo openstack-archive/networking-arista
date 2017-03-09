@@ -14,7 +14,7 @@
 
 import json
 
-import jsonrpclib
+import jsonrpc_requests
 from oslo_config import cfg
 from oslo_log import log as logging
 
@@ -91,8 +91,12 @@ class AristaSecGroupSwitchDriver(object):
                 switch_pass = ''
             self._hosts[switch_ip] = (
                 {'user': switch_user, 'password': switch_pass})
-            self._servers.append(jsonrpclib.Server(
-                self._eapi_host_url(switch_ip)))
+            self._servers.append(
+                jsonrpc_requests.Server(
+                    self._eapi_host_url(switch_ip),
+                    verify=False
+                )
+            )
         self.aclCreateDict = acl_cmd['acl']
         self.aclApplyDict = acl_cmd['apply']
 
@@ -458,7 +462,10 @@ class AristaSecGroupSwitchDriver(object):
         # Ingress ACL, egress ACL or both
         direction = ['ingress', 'egress']
 
-        server = jsonrpclib.Server(self._eapi_host_url(switch_info))
+        server = jsonrpc_requests.Server(
+            self._eapi_host_url(switch_info),
+            verify=False
+        )
         for d in range(len(direction)):
             name = self._arista_acl_name(sg['id'], direction[d])
             try:
@@ -504,7 +511,10 @@ class AristaSecGroupSwitchDriver(object):
         # THIS IS TOTAL HACK NOW - just for testing
         # Assumes the credential of all switches are same as specified
         # in the condig file
-        server = jsonrpclib.Server(self._eapi_host_url(switch_info))
+        server = jsonrpc_requests.Server(
+            self._eapi_host_url(switch_info),
+            verify=False
+        )
         for d in range(len(direction)):
             name = self._arista_acl_name(sg['id'], direction[d])
             try:
