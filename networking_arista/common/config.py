@@ -146,6 +146,12 @@ ARISTA_L3_PLUGIN = [
                       'mlag_config flag is set, then this is required. '
                       'If not set, all communications to Arista EOS '
                       'will fail')),
+    cfg.IntOpt('conn_timeout',
+               default=10,
+               help=_('Connection timeout interval in seconds. This interval '
+                      'defines how long an EAPI request from the driver to '
+                      'EOS waits before timing out. If not set, a value of 10 '
+                      'seconds is assumed.')),
     cfg.BoolOpt('mlag_config',
                 default=False,
                 help=_('This flag is used indicate if Arista Switches are '
