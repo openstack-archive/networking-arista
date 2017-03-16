@@ -14,11 +14,11 @@
 
 import json
 
-import jsonrpc_requests
 from oslo_config import cfg
 from oslo_log import log as logging
 
 from networking_arista._i18n import _, _LI
+from networking_arista.common import api
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 
@@ -91,22 +91,18 @@ class AristaSecGroupSwitchDriver(object):
                 switch_pass = ''
             self._hosts[switch_ip] = (
                 {'user': switch_user, 'password': switch_pass})
-            self._servers.append(
-                jsonrpc_requests.Server(
-                    self._eapi_host_url(switch_ip),
-                    verify=False
-                )
-            )
+            self._servers.append(self._make_eapi_client(switch_ip))
         self.aclCreateDict = acl_cmd['acl']
         self.aclApplyDict = acl_cmd['apply']
 
-    def _eapi_host_url(self, host):
-        user = self._hosts[host]['user']
-        pwd = self._hosts[host]['password']
-
-        eapi_server_url = ('https://%s:%s@%s/command-api' %
-                           (user, pwd, host))
-        return eapi_server_url
+    def _make_eapi_client(self, host):
+        return api.EAPIClient(
+            host,
+            username=self._hosts[host]['user'],
+            password=self._hosts[host]['password'],
+            verify=False,
+            timeout=cfg.CONF.ml2_arista.conn_timeout
+        )
 
     def _validate_config(self):
         if not self.sg_enabled:
@@ -462,10 +458,8 @@ class AristaSecGroupSwitchDriver(object):
         # Ingress ACL, egress ACL or both
         direction = ['ingress', 'egress']
 
-        server = jsonrpc_requests.Server(
-            self._eapi_host_url(switch_info),
-            verify=False
-        )
+        server = self._make_eapi_client(switch_info)
+
         for d in range(len(direction)):
             name = self._arista_acl_name(sg['id'], direction[d])
             try:
@@ -511,10 +505,7 @@ class AristaSecGroupSwitchDriver(object):
         # THIS IS TOTAL HACK NOW - just for testing
         # Assumes the credential of all switches are same as specified
         # in the condig file
-        server = jsonrpc_requests.Server(
-            self._eapi_host_url(switch_info),
-            verify=False
-        )
+        server = self._make_eapi_client(switch_info)
         for d in range(len(direction)):
             name = self._arista_acl_name(sg['id'], direction[d])
             try:
@@ -543,7 +534,7 @@ class AristaSecGroupSwitchDriver(object):
         try:
             # this returns array of return values for every command in
             # full_command list
-            ret = server.runCmds(version=1, cmds=full_command)
+            ret = server.execute(full_command)
             LOG.info(_LI('Results of execution on Arista EOS: %s'), ret)
 
         except Exception:

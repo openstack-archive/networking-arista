@@ -57,8 +57,7 @@ class AristaL3DriverTestCasesDefaultVrf(base.BaseTestCase):
                                       self.drv._servers[0])
         cmds = ['enable', 'configure', 'exit']
 
-        self.drv._servers[0].runCmds.assert_called_once_with(version=1,
-                                                             cmds=cmds)
+        self.drv._servers[0].execute.assert_called_once_with(cmds)
 
     def test_delete_router_from_eos(self):
         router_name = 'test-router-1'
@@ -66,8 +65,7 @@ class AristaL3DriverTestCasesDefaultVrf(base.BaseTestCase):
         self.drv.delete_router_from_eos(router_name, self.drv._servers[0])
         cmds = ['enable', 'configure', 'exit']
 
-        self.drv._servers[0].runCmds.assert_called_once_with(version=1,
-                                                             cmds=cmds)
+        self.drv._servers[0].execute.assert_called_once_with(cmds)
 
     def test_add_interface_to_router_on_eos(self):
         router_name = 'test-router-1'
@@ -83,8 +81,7 @@ class AristaL3DriverTestCasesDefaultVrf(base.BaseTestCase):
                 'interface vlan %s' % segment_id,
                 'ip address %s/%s' % (gw_ip, mask), 'exit']
 
-        self.drv._servers[0].runCmds.assert_called_once_with(version=1,
-                                                             cmds=cmds)
+        self.drv._servers[0].execute.assert_called_once_with(cmds)
 
     def test_delete_interface_from_router_on_eos(self):
         router_name = 'test-router-1'
@@ -95,8 +92,7 @@ class AristaL3DriverTestCasesDefaultVrf(base.BaseTestCase):
         cmds = ['enable', 'configure', 'no interface vlan %s' % segment_id,
                 'exit']
 
-        self.drv._servers[0].runCmds.assert_called_once_with(version=1,
-                                                             cmds=cmds)
+        self.drv._servers[0].execute.assert_called_once_with(cmds)
 
 
 class AristaL3DriverTestCasesUsingVRFs(base.BaseTestCase):
@@ -129,8 +125,7 @@ class AristaL3DriverTestCasesUsingVRFs(base.BaseTestCase):
                     'vrf definition %s' % r,
                     'rd %(rd)s:%(rd)s' % {'rd': d}, 'exit', 'exit']
 
-            self.drv._servers[0].runCmds.assert_called_with(version=1,
-                                                            cmds=cmds)
+            self.drv._servers[0].execute.assert_called_with(cmds)
 
     def test_delete_router_from_eos(self):
         max_vrfs = 5
@@ -141,8 +136,7 @@ class AristaL3DriverTestCasesUsingVRFs(base.BaseTestCase):
             cmds = ['enable', 'configure', 'no vrf definition %s' % r,
                     'exit']
 
-            self.drv._servers[0].runCmds.assert_called_with(version=1,
-                                                            cmds=cmds)
+            self.drv._servers[0].execute.assert_called_with(cmds)
 
     def test_add_interface_to_router_on_eos(self):
         router_name = 'test-router-1'
@@ -160,8 +154,7 @@ class AristaL3DriverTestCasesUsingVRFs(base.BaseTestCase):
                 'vrf forwarding %s' % router_name,
                 'ip address %s/%s' % (gw_ip, mask), 'exit']
 
-        self.drv._servers[0].runCmds.assert_called_once_with(version=1,
-                                                             cmds=cmds)
+        self.drv._servers[0].execute.assert_called_once_with(cmds)
 
     def test_delete_interface_from_router_on_eos(self):
         router_name = 'test-router-1'
@@ -172,8 +165,7 @@ class AristaL3DriverTestCasesUsingVRFs(base.BaseTestCase):
         cmds = ['enable', 'configure', 'no interface vlan %s' % segment_id,
                 'exit']
 
-        self.drv._servers[0].runCmds.assert_called_once_with(version=1,
-                                                             cmds=cmds)
+        self.drv._servers[0].execute.assert_called_once_with(cmds)
 
 
 class AristaL3DriverTestCasesMlagConfig(base.BaseTestCase):
@@ -206,7 +198,7 @@ class AristaL3DriverTestCasesMlagConfig(base.BaseTestCase):
             cmds = ['enable', 'configure',
                     'ip virtual-router mac-address %s' % router_mac, 'exit']
 
-            s.runCmds.assert_called_with(version=1, cmds=cmds)
+            s.execute.assert_called_with(cmds)
 
     def test_delete_router_from_eos(self):
         router_name = 'test-router-1'
@@ -215,7 +207,7 @@ class AristaL3DriverTestCasesMlagConfig(base.BaseTestCase):
             self.drv.delete_router_from_eos(router_name, s)
             cmds = ['enable', 'configure', 'exit']
 
-            s.runCmds.assert_called_once_with(version=1, cmds=cmds)
+            s.execute.assert_called_once_with(cmds)
 
     def test_add_interface_to_router_on_eos(self):
         router_name = 'test-router-1'
@@ -233,7 +225,7 @@ class AristaL3DriverTestCasesMlagConfig(base.BaseTestCase):
                     'ip address %s' % router_ip,
                     'ip virtual-router address %s' % gw_ip, 'exit']
 
-            s.runCmds.assert_called_once_with(version=1, cmds=cmds)
+            s.execute.assert_called_once_with(cmds)
 
     def test_delete_interface_from_router_on_eos(self):
         router_name = 'test-router-1'
@@ -245,7 +237,7 @@ class AristaL3DriverTestCasesMlagConfig(base.BaseTestCase):
             cmds = ['enable', 'configure', 'no interface vlan %s' % segment_id,
                     'exit']
 
-            s.runCmds.assert_called_once_with(version=1, cmds=cmds)
+            s.execute.assert_called_once_with(cmds)
 
 
 class AristaL3DriverTestCases_v4(base.BaseTestCase):
@@ -416,7 +408,7 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
         tenant = '123'
 
         # Make one of the switches throw an exception - i.e. fail
-        self.drv._servers[0].runCmds = mock.Mock(side_effect=Exception)
+        self.drv._servers[0].execute = mock.Mock(side_effect=Exception)
         self.drv.create_router(None, tenant, router)
 
     def test_delete_router_when_one_switch_fails(self):
@@ -426,7 +418,7 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
         router_id = '345'
 
         # Make one of the switches throw an exception - i.e. fail
-        self.drv._servers[1].runCmds = mock.Mock(side_effect=Exception)
+        self.drv._servers[1].execute = mock.Mock(side_effect=Exception)
         self.drv.delete_router(None, tenant, router_id, router)
 
     def test_add_router_interface_when_one_switch_fails(self):
@@ -439,7 +431,7 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
         router['gip'] = '10.10.10.1'
 
         # Make one of the switches throw an exception - i.e. fail
-        self.drv._servers[1].runCmds = mock.Mock(side_effect=Exception)
+        self.drv._servers[1].execute = mock.Mock(side_effect=Exception)
         self.drv.add_router_interface(None, router)
 
     def test_remove_router_interface_when_one_switch_fails(self):
@@ -452,5 +444,5 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
         router['gip'] = '10.10.10.1'
 
         # Make one of the switches throw an exception - i.e. fail
-        self.drv._servers[0].runCmds = mock.Mock(side_effect=Exception)
+        self.drv._servers[0].execute = mock.Mock(side_effect=Exception)
         self.drv.remove_router_interface(None, router)
