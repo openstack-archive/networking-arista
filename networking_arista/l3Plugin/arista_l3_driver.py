@@ -382,18 +382,24 @@ class AristaL3Driver(object):
 
         LOG.info(_LI('Executing command on Arista EOS: %s'), full_command)
 
-        try:
-            # this returns array of return values for every command in
-            # full_command list
-            ret = server.runCmds(version=1, cmds=full_command)
-            LOG.info(_LI('Results of execution on Arista EOS: %s'), ret)
-
-        except Exception:
-            msg = (_('Error occurred while trying to execute '
-                     'commands %(cmd)s on EOS %(host)s') %
-                   {'cmd': full_command, 'host': server})
-            LOG.exception(msg)
-            raise arista_exc.AristaServicePluginRpcError(msg=msg)
+        for retry in xrange(10):
+            try:
+                # this returns array of return values for every command in
+                # full_command list
+                ret = server.runCmds(version=1, cmds=full_command)
+                LOG.info(_LI('Results of execution on Arista EOS: %s'), ret)
+                return
+            except jsonrpc_requests.jsonrpc.TransportError as exc:
+                LOG.info(_LI('Saw %(exc)s, retrying %(cmd)s - '
+                             'attempt %(cnt)s') % {'exc': exc,
+                                                   'cmd': full_command,
+                                                   'cnt': retry})
+            except Exception:
+                msg = (_('Error occurred while trying to execute '
+                         'commands %(cmd)s on EOS %(host)s') %
+                       {'cmd': full_command, 'host': server})
+                LOG.exception(msg)
+                raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
     def _arista_router_name(self, tenant_id, name):
         """Generate an arista specific name for this router.
