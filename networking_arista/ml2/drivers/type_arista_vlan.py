@@ -22,6 +22,7 @@ from neutron.i18n import _LI
 from neutron.plugins.ml2.drivers.type_vlan import VlanTypeDriver
 
 from networking_arista.common import config  # noqa
+from networking_arista.common import exceptions as exc
 from networking_arista.ml2.arista_ml2 import AristaRPCWrapper
 from networking_arista.ml2.drivers.driver_helpers import VlanSyncService
 
@@ -58,3 +59,11 @@ class AristaVlanTypeDriver(VlanTypeDriver):
         self.timer = threading.Timer(self.sync_timeout,
                                      self._synchronization_thread)
         self.timer.start()
+
+    def allocate_fully_specified_segment(self, session, **raw_segment):
+        alloc = session.query(self.model).filter_by(**raw_segment).first()
+        if not alloc:
+            raise exc.VlanUnavailable(**raw_segment)
+        return super(AristaVlanTypeDriver,
+                     self).allocate_fully_specified_segment(
+                         session, **raw_segment)
