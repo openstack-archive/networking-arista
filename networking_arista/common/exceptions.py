@@ -39,3 +39,17 @@ class AristaServicePluginConfigError(exceptions.NeutronException):
 
 class AristaSecurityGroupError(exceptions.NeutronException):
     message = _('%(msg)s')
+
+
+class VlanUnavailable(exceptions.NeutronException):
+    """An exception indicating VLAN creation failed because it's not available.
+
+    A specialization of the NeutronException indicating network creation failed
+    because a specified VLAN is unavailable on the physical network.
+
+    :param vlan_id: The VLAN ID.
+    :param physical_network: The physical network.
+    """
+    message = _("Unable to create the network. "
+                "The VLAN %(vlan_id)s on physical network "
+                "%(physical_network)s is not available.")
