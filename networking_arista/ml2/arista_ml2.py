@@ -283,10 +283,12 @@ class AristaRPCWrapper(object):
         cmd = ['show openstack resource-pools region %s' % self.region]
         command_output = self._run_eos_cmds(cmd)
         if command_output:
-            phys_nets = command_output[0]['physicalNetwork']
-            if self.region in phys_nets.keys():
-                return phys_nets[self.region]['vlanPool']['default']
-        return None
+            regions = command_output[0]['physicalNetwork']
+            if self.region in regions.keys():
+                return regions[self.region]['vlanPool']['default']
+        return {'assignedVlans': '',
+                'availableVlans': '',
+                'allocatedVlans': ''}
 
     def get_tenants(self):
         """Returns dict of all tenants known by EOS.
