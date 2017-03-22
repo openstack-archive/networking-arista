@@ -125,6 +125,9 @@ class VlanSyncService(object):
                     'update'))
 
             for alloc in allocs:
+                if alloc.allocated:
+                   continue
+
                 if alloc.physical_network != 'default':
                     session.delete(alloc)
 
