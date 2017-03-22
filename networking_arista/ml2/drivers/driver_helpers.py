@@ -125,13 +125,15 @@ class VlanSyncService(object):
                     'update'))
 
             for alloc in allocs:
+
                 if alloc.physical_network != 'default':
                     session.delete(alloc)
 
                 try:
                     assigned_vlans.remove(alloc.vlan_id)
                 except KeyError:
-                    session.delete(alloc)
+                    if not alloc.allocated:
+                       session.delete(alloc)
                     continue
 
                 if alloc.allocated and alloc.vlan_id in available_vlans:
