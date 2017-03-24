@@ -77,7 +77,7 @@ class AristaDriver(driver_api.MechanismDriver):
 
         self.eapi = None
 
-        if rpc:
+        if rpc is not None:
             LOG.info("Using passed in parameter for RPC")
             self.rpc = rpc
             self.eapi = rpc
