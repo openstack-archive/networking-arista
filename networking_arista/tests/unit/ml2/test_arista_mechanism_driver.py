@@ -2000,6 +2000,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.rpc.sync_start.return_value = True
         self.rpc.sync_end.return_value = True
         self.rpc.check_cvx_availability.return_value = True
+        self.rpc.get_region_updated_time.return_value = {'regionTimestamp': 1}
 
         self.rpc._baremetal_supported.return_value = False
         self.rpc.get_all_baremetal_hosts.return_value = {}
@@ -2010,7 +2011,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.perform_sync_of_sg(),
             mock.call.check_cvx_availability(),
             mock.call.get_region_updated_time(),
-            mock.call.get_region_updated_time().__nonzero__(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
             mock.call.check_supported_features(),
@@ -2064,6 +2064,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.rpc.sync_start.return_value = True
         self.rpc.sync_end.return_value = True
         self.rpc.check_cvx_availability.return_value = True
+        self.rpc.get_region_updated_time.return_value = {'regionTimestamp': 1}
 
         self.rpc._baremetal_supported.return_value = False
         self.rpc.get_all_baremetal_hosts.return_value = {}
@@ -2074,7 +2075,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.perform_sync_of_sg(),
             mock.call.check_cvx_availability(),
             mock.call.get_region_updated_time(),
-            mock.call.get_region_updated_time().__nonzero__(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
             mock.call.check_supported_features(),
