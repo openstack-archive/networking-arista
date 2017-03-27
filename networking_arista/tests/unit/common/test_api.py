@@ -126,7 +126,7 @@ class TestEAPIClientExecute(testtools.TestCase):
 
         self.assertRaises(
             expected_exception,
-            self.client.execute,
+            self.client._execute,
             commands
         )
 
