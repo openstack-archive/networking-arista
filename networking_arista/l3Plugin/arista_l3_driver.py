@@ -16,11 +16,11 @@ import hashlib
 import socket
 import struct
 
-import jsonrpc_requests
 from oslo_config import cfg
 from oslo_log import log as logging
 
 from networking_arista._i18n import _, _LI
+from networking_arista.common import api
 from networking_arista.common import exceptions as arista_exc
 
 LOG = logging.getLogger(__name__)
@@ -100,23 +100,13 @@ class AristaL3Driver(object):
         self._validate_config()
         host = cfg.CONF.l3_arista.primary_l3_host
         self._hosts.append(host)
-        self._servers.append(
-            jsonrpc_requests.Server(
-                self._eapi_host_url(host),
-                verify=False
-            )
-        )
+        self._servers.append(self._make_eapi_client(host))
         self._mlag_configured = cfg.CONF.l3_arista.mlag_config
         self._use_vrf = cfg.CONF.l3_arista.use_vrf
         if self._mlag_configured:
             host = cfg.CONF.l3_arista.secondary_l3_host
             self._hosts.append(host)
-            self._servers.append(
-                jsonrpc_requests.Server(
-                    self._eapi_host_url(host),
-                    verify=False
-                )
-            )
+            self._servers.append(self._make_eapi_client(host))
             self._additionalRouterCmdsDict = additional_cmds_for_mlag['router']
             self._additionalInterfaceCmdsDict = (
                 additional_cmds_for_mlag['interface'])
@@ -127,13 +117,15 @@ class AristaL3Driver(object):
             self.routerDict = router_in_default_vrf['router']
             self._interfaceDict = router_in_default_vrf['interface']
 
-    def _eapi_host_url(self, host):
-        user = cfg.CONF.l3_arista.primary_l3_host_username
-        pwd = cfg.CONF.l3_arista.primary_l3_host_password
-
-        eapi_server_url = ('https://%s:%s@%s/command-api' %
-                           (user, pwd, host))
-        return eapi_server_url
+    @staticmethod
+    def _make_eapi_client(host):
+        return api.EAPIClient(
+            host,
+            username=cfg.CONF.l3_arista.primary_l3_host_username,
+            password=cfg.CONF.l3_arista.primary_l3_host_password,
+            verify=False,
+            timeout=cfg.CONF.l3_arista.conn_timeout
+        )
 
     def _validate_config(self):
         if cfg.CONF.l3_arista.get('primary_l3_host') == '':
@@ -385,7 +377,7 @@ class AristaL3Driver(object):
         try:
             # this returns array of return values for every command in
             # full_command list
-            ret = server.runCmds(version=1, cmds=full_command)
+            ret = server.execute(full_command)
             LOG.info(_LI('Results of execution on Arista EOS: %s'), ret)
 
         except Exception:
