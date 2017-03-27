@@ -20,6 +20,7 @@ from oslo_utils import excutils
 import requests
 from requests import exceptions as requests_exc
 from six.moves.urllib import parse
+import tenacity
 
 from networking_arista._i18n import _LI, _LW
 from networking_arista.common import exceptions as arista_exc
@@ -49,6 +50,10 @@ class EAPIClient(object):
             (scheme, host, '/command-api', '', '')
         )
 
+    @tenacity.retry(
+        stop=tenacity.stop_after_attempt(10),
+        retry=tenacity.retry_if_exception_type(arista_exc.AristaRpcError)
+    )
     def execute(self, commands, commands_to_log=None):
         params = {
             'timestamps': False,
