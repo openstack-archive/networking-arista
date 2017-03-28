@@ -1558,9 +1558,12 @@ class NegativeRPCWrapperTestCase(base.BaseTestCase):
         ndb = db_lib.NeutronNets()
         drv = arista_ml2.AristaRPCWrapperEapi(ndb)
 
-        drv._server = mock.MagicMock()
-        drv._server.runCmds.side_effect = Exception('server error')
-        self.assertRaises(arista_exc.AristaRpcError, drv.get_tenants)
+        drv._send_api_request = mock.MagicMock(
+            side_effect=Exception('server error')
+        )
+        with mock.patch.object(arista_ml2.LOG, 'error') as log_err:
+            self.assertRaises(arista_exc.AristaRpcError, drv.get_tenants)
+            log_err.assert_called_once_with(mock.ANY)
 
 
 class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
