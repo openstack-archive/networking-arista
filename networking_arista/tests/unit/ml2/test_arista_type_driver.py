@@ -62,7 +62,7 @@ class VlanSyncServiceTest(testlib_api.SqlTestCase):
     """Test that VLANs are synchronized between EOS and Neutron."""
 
     def _ensure_in_db(self, assigned, allocated, available):
-        session = db_api.get_session()
+        session = db_api.get_reader_session()
         with session.begin():
             vlans = session.query(vlanallocation.VlanAllocation).all()
             for vlan in vlans:

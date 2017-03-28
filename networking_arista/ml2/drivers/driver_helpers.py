@@ -118,7 +118,7 @@ class VlanSyncService(object):
 
         self._force_sync = False
 
-        session = db_api.get_session()
+        session = db_api.get_writer_session()
         with session.begin(subtransactions=True):
             allocs = (
                 session.query(vlanallocation.VlanAllocation).with_lockmode(
