@@ -26,7 +26,6 @@ from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_api
 
 from networking_arista._i18n import _, _LI, _LE
-from networking_arista.common import config  # noqa
 from networking_arista.common import db
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
@@ -34,6 +33,11 @@ from networking_arista.ml2 import arista_ml2
 from networking_arista.ml2 import sec_group_callback
 
 LOG = logging.getLogger(__name__)
+cfg.CONF.import_opt(
+    'sync_interval',
+    'networking_arista.common.config',
+    'ml2_arista'
+)
 
 # Messages
 EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
