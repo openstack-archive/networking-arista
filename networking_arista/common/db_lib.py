@@ -33,7 +33,7 @@ def remember_tenant(tenant_id):
 
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_writer_session()
     with session.begin():
         tenant = (session.query(db_models.AristaProvisionedTenants).
                   filter_by(tenant_id=tenant_id).first())
@@ -47,7 +47,7 @@ def forget_tenant(tenant_id):
 
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_writer_session()
     with session.begin():
         (session.query(db_models.AristaProvisionedTenants).
          filter_by(tenant_id=tenant_id).
@@ -56,14 +56,14 @@ def forget_tenant(tenant_id):
 
 def get_all_tenants():
     """Returns a list of all tenants stored in repository."""
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         return session.query(db_models.AristaProvisionedTenants).all()
 
 
 def num_provisioned_tenants():
     """Returns number of tenants stored in repository."""
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         return session.query(db_models.AristaProvisionedTenants).count()
 
@@ -77,7 +77,7 @@ def remember_vm(vm_id, host_id, port_id, network_id, tenant_id):
     :param network_id: globally unique neutron network identifier
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_writer_session()
     with session.begin():
         vm = db_models.AristaProvisionedVms(
             vm_id=vm_id,
@@ -93,7 +93,7 @@ def forget_all_ports_for_network(net_id):
 
     :param net_id: globally unique network ID
     """
-    session = db.get_session()
+    session = db.get_writer_session()
     with session.begin():
         (session.query(db_models.AristaProvisionedVms).
          filter_by(network_id=net_id).delete())
@@ -108,7 +108,7 @@ def update_port(vm_id, host_id, port_id, network_id, tenant_id):
     :param network_id: globally unique neutron network identifier
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_writer_session()
     with session.begin():
         port = session.query(db_models.AristaProvisionedVms).filter_by(
             port_id=port_id).first()
@@ -126,7 +126,7 @@ def forget_port(port_id, host_id):
     :param port_id: globally unique port ID that connects VM to network
     :param host_id: host to which the port is bound to
     """
-    session = db.get_session()
+    session = db.get_writer_session()
     with session.begin():
         session.query(db_models.AristaProvisionedVms).filter_by(
             port_id=port_id,
@@ -142,7 +142,7 @@ def remember_network_segment(tenant_id,
     :param segmentation_id: segmentation id that is assigned to the network
     :param segment_id: globally unique neutron network segment identifier
     """
-    session = db.get_session()
+    session = db.get_writer_session()
     with session.begin():
         net = db_models.AristaProvisionedNets(
             tenant_id=tenant_id,
@@ -166,7 +166,7 @@ def forget_network_segment(tenant_id, network_id, segment_id=None):
     if segment_id:
         filters['id'] = segment_id
 
-    session = db.get_session()
+    session = db.get_writer_session()
     with session.begin():
         (session.query(db_models.AristaProvisionedNets).
          filter_by(**filters).delete())
@@ -178,7 +178,7 @@ def get_segmentation_id(tenant_id, network_id):
     :param tenant_id: globally unique neutron tenant identifier
     :param network_id: globally unique neutron network identifier
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         net = (session.query(db_models.AristaProvisionedNets).
                filter_by(tenant_id=tenant_id,
@@ -197,7 +197,7 @@ def is_vm_provisioned(vm_id, host_id, port_id,
     :param network_id: globally unique neutron network identifier
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         num_vm = (session.query(db_models.AristaProvisionedVms).
                   filter_by(tenant_id=tenant_id,
@@ -222,7 +222,7 @@ def is_port_provisioned(port_id, host_id=None):
     if host_id:
         filters['host_id'] = host_id
 
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         num_ports = (session.query(db_models.AristaProvisionedVms).
                      filter_by(**filters).count())
@@ -238,7 +238,7 @@ def is_network_provisioned(tenant_id, network_id, segmentation_id=None,
     :param network_id: globally unique neutron network identifier
     :param segment_id: globally unique neutron network segment identifier
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         filters = {'tenant_id': tenant_id,
                    'network_id': network_id}
@@ -259,7 +259,7 @@ def is_tenant_provisioned(tenant_id):
     :returns: True, if yes; False otherwise.
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         num_tenants = (session.query(db_models.AristaProvisionedTenants).
                        filter_by(tenant_id=tenant_id).count())
@@ -271,7 +271,7 @@ def num_nets_provisioned(tenant_id):
 
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         return (session.query(db_models.AristaProvisionedNets).
                 filter_by(tenant_id=tenant_id).count())
@@ -282,7 +282,7 @@ def num_vms_provisioned(tenant_id):
 
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         return (session.query(db_models.AristaProvisionedVms).
                 filter_by(tenant_id=tenant_id).count())
@@ -294,7 +294,7 @@ def get_networks(tenant_id):
     See AristaRPCWrapper.get_network_list() for return value format.
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         model = db_models.AristaProvisionedNets
         # hack for pep8 E711: comparison to None should be
@@ -322,7 +322,7 @@ def get_vms(tenant_id):
 
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         model = db_models.AristaProvisionedVms
         # hack for pep8 E711: comparison to None should be
@@ -362,7 +362,7 @@ def are_ports_attached_to_network(net_id):
 
     :param net_id: globally unique network ID
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         model = db_models.AristaProvisionedVms
         return session.query(model).filter_by(network_id=net_id).filter(
@@ -374,7 +374,7 @@ def get_ports(tenant_id=None):
 
     :param tenant_id: globally unique neutron tenant identifier
     """
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         model = db_models.AristaProvisionedVms
         # hack for pep8 E711: comparison to None should be
@@ -405,7 +405,7 @@ def get_ports(tenant_id=None):
 
 def get_tenants():
     """Returns list of all tenants in EOS-compatible format."""
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         model = db_models.AristaProvisionedTenants
         all_tenants = session.query(model)
@@ -426,7 +426,7 @@ def _make_bm_port_dict(record):
 
 def get_all_baremetal_ports():
     """Returns a list of all ports that belong to baremetal hosts."""
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         querry = session.query(ml2_models.PortBinding)
         bm_ports = querry.filter_by(vnic_type='baremetal').all()
@@ -437,7 +437,7 @@ def get_all_baremetal_ports():
 
 def get_port_binding_level(filters):
     """Returns entries from PortBindingLevel based on the specified filters."""
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         return (session.query(ml2_models.PortBindingLevel).
                 filter_by(**filters).all())

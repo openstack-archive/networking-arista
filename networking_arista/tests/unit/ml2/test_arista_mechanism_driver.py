@@ -1751,7 +1751,7 @@ class FakeNetworkContext(object):
         self._segments = segments
         self.is_admin = False
         self.tenant_id = network['tenant_id']
-        self.session = db.get_session()
+        self.session = db.get_reader_session()
 
     @property
     def current(self):
