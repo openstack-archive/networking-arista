@@ -409,7 +409,9 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
 
         # Make one of the switches throw an exception - i.e. fail
         self.drv._servers[0].execute = mock.Mock(side_effect=Exception)
-        self.drv.create_router(None, tenant, router)
+        with mock.patch.object(arista.LOG, 'exception') as log_exception:
+            self.drv.create_router(None, tenant, router)
+            log_exception.assert_called_once_with(mock.ANY)
 
     def test_delete_router_when_one_switch_fails(self):
         router = {}
@@ -419,7 +421,9 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
 
         # Make one of the switches throw an exception - i.e. fail
         self.drv._servers[1].execute = mock.Mock(side_effect=Exception)
-        self.drv.delete_router(None, tenant, router_id, router)
+        with mock.patch.object(arista.LOG, 'exception') as log_exception:
+            self.drv.delete_router(None, tenant, router_id, router)
+            log_exception.assert_called_once_with(mock.ANY)
 
     def test_add_router_interface_when_one_switch_fails(self):
         router = {}
@@ -432,7 +436,9 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
 
         # Make one of the switches throw an exception - i.e. fail
         self.drv._servers[1].execute = mock.Mock(side_effect=Exception)
-        self.drv.add_router_interface(None, router)
+        with mock.patch.object(arista.LOG, 'exception') as log_exception:
+            self.drv.add_router_interface(None, router)
+            log_exception.assert_called_once_with(mock.ANY)
 
     def test_remove_router_interface_when_one_switch_fails(self):
         router = {}
@@ -445,4 +451,6 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
 
         # Make one of the switches throw an exception - i.e. fail
         self.drv._servers[0].execute = mock.Mock(side_effect=Exception)
-        self.drv.remove_router_interface(None, router)
+        with mock.patch.object(arista.LOG, 'exception') as log_exception:
+            self.drv.remove_router_interface(None, router)
+            log_exception.assert_called_once_with(mock.ANY)
