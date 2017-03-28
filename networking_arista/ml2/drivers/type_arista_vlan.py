@@ -21,13 +21,13 @@ from oslo_log import log
 from neutron.plugins.ml2.drivers import type_vlan
 
 from networking_arista._i18n import _LI
-from networking_arista.common import config  # noqa
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as exc
 from networking_arista.ml2 import arista_ml2
 from networking_arista.ml2.drivers import driver_helpers
 
 LOG = log.getLogger(__name__)
+cfg.CONF.import_group('arista_type_driver', 'networking_arista.common.config')
 
 
 class AristaVlanTypeDriver(type_vlan.VlanTypeDriver):

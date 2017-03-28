@@ -24,6 +24,7 @@ from networking_arista._i18n import _, _LI
 from networking_arista.common import exceptions as arista_exc
 
 LOG = logging.getLogger(__name__)
+cfg.CONF.import_group('l3_arista', 'networking_arista.common.config')
 
 EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
 DEFAULT_VLAN = 1
