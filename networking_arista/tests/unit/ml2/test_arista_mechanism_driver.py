@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import itertools
+import operator
 import socket
 
 import mock
@@ -236,6 +238,23 @@ def port_dict_representation(port):
                              'network_id': port['network_id']}}
 
 
+class _UnorderedDictList(list):
+    def __init__(self, iterable='', sort_key=None):
+        super(_UnorderedDictList, self).__init__(iterable)
+        try:
+            (self[0] or {})[sort_key]
+            self.sort_key = sort_key
+        except (IndexError, KeyError):
+            self.sort_key = None
+
+    def __eq__(self, other):
+        if isinstance(other, list) and self.sort_key:
+            key = operator.itemgetter(self.sort_key)
+            return sorted(self, key=key) == sorted(other, key=key)
+        else:
+            return super(_UnorderedDictList, self).__eq__(other)
+
+
 class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
     def setUp(self):
         super(TestAristaJSONRPCWrapper, self).setUp()
@@ -245,36 +264,17 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         self.drv._server_ip = "10.11.12.13"
         self.region = 'RegionOne'
 
-    def _verify_send_api_request_call(self, mock_send_api_req, calls):
-        # Sort the data that we are using for verifying
-        expected_calls = []
-        for c in calls:
-            if len(c) == 2:
-                url, method = c
-                expected_calls.append(mock.call(url, method))
-            elif len(c) == 3:
-                url, method, data = c
-                if type(data) == list:
-                    data.sort()
-                expected_calls.append(mock.call(url, method, data))
-            elif len(c) == 4:
-                url, method, data, clean_data = c
-                if type(data) == list:
-                    data.sort()
-                if type(clean_data) == list:
-                    clean_data.sort()
-                expected_calls.append(mock.call(url, method, data, clean_data))
-            else:
-                assert False, "Unrecognized call length"
+    def _verify_send_api_request_call(self, mock_send_api_req, calls,
+                                      unordered_dict_list=False):
+        if unordered_dict_list:
+            wrapper = functools.partial(_UnorderedDictList, sort_key='id')
+        else:
+            wrapper = lambda x: x
 
-        # Sort the data sent in the mock API request
-        for call in mock_send_api_req.mock_calls:
-            if len(call.call_list()[0][1]) > 2:
-                if type(call.call_list()[0][1][2]) == list:
-                    call.call_list()[0][1][2].sort()
-            if len(call.call_list()[0][1]) > 3:
-                if type(call.call_list()[0][1][3]) == list:
-                    call.call_list()[0][1][3].sort()
+        expected_calls = [
+            mock.call(c[0], c[1], *(wrapper(d) for d in c[2:])) for c in calls
+        ]
+
         mock_send_api_req.assert_has_calls(expected_calls, any_order=True)
 
     @patch(JSON_SEND_FUNC)
@@ -381,7 +381,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                  {'id': 'segment_id_1', 'networkId': 'net2', 'type': 'vlan',
                   'segmentationId': 200, 'segmentType': 'static'}])
         ]
-        self._verify_send_api_request_call(mock_send_api_req, calls)
+        self._verify_send_api_request_call(mock_send_api_req, calls, True)
 
     @patch(JSON_SEND_FUNC)
     def test_delete_network_bulk(self, mock_send_api_req):
@@ -391,7 +391,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
              [{'id': 'net1', 'tenantId': 't1'},
               {'id': 'net2', 'tenantId': 't1'}])
         ]
-        self._verify_send_api_request_call(mock_send_api_req, calls)
+        self._verify_send_api_request_call(mock_send_api_req, calls, True)
 
     @patch(JSON_SEND_FUNC)
     def test_create_network_segments(self, mock_send_api_req):
@@ -413,7 +413,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                  {'id': 'segment_id_2', 'networkId': 'n1', 'type': 'vlan',
                   'segmentationId': 102, 'segmentType': 'dynamic'}])
         ]
-        self._verify_send_api_request_call(mock_send_api_req, calls)
+        self._verify_send_api_request_call(mock_send_api_req, calls, True)
 
     @patch(JSON_SEND_FUNC)
     def test_delete_network_segments(self, mock_send_api_req):
@@ -638,7 +638,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
              'POST', [{'portId': 'port-id-7-1', 'hostBinding': [
                       {'segment': [], 'host': 'host_7'}]}]),
         ]
-        self._verify_send_api_request_call(mock_send_api_req, calls)
+        self._verify_send_api_request_call(mock_send_api_req, calls, True)
 
     @patch(JSON_SEND_FUNC)
     def test_delete_vm_bulk(self, mock_send_api_req):
