@@ -1,0 +1,8 @@
+Code-Review+2: Nader Lahouti <nader.lahouti@gmail.com>
+Workflow+1: Nader Lahouti <nader.lahouti@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 29 Mar 2017 00:00:45 +0000
+Reviewed-on: https://review.openstack.org/451114
+Project: openstack/networking-arista
+Branch: refs/heads/stable/mitaka
