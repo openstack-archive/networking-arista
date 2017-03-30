@@ -109,7 +109,7 @@ class AristaRPCWrapperBase(object):
                 {'protocol': self.keystone_conf.auth_protocol,
                  'host': self.keystone_conf.auth_host,
                  'port': self.keystone_conf.auth_port})
-        return '%s/v2.0/' % auth_uri
+        return '%s/v3/' % auth_uri
 
     def _api_username(self):
         return cfg.CONF.ml2_arista.eapi_username

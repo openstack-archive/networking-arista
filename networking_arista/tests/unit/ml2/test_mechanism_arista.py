@@ -1417,7 +1417,7 @@ class fake_keystone_info_class(object):
     Arista Driver expects Keystone auth info. This fake information
     is for testing only
     """
-    auth_uri = 'abc://host:35357/v2.0/'
+    auth_uri = 'abc://host:35357/v3/'
     identity_uri = 'abc://host:5000'
     admin_user = 'neutron'
     admin_password = 'fun'
