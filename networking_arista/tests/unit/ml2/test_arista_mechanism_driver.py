@@ -282,7 +282,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         self.drv.register_with_eos()
         post_data = {'name': 'keystone', 'password': 'fun',
                      'tenant': 'tenant_name', 'user': 'neutron',
-                     'authUrl': 'abc://host:5000/v2.0/'}
+                     'authUrl': 'abc://host:5000/v3/'}
         clean_data = post_data.copy()
         clean_data['password'] = "*****"
         calls = [
@@ -1277,9 +1277,9 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
     def test_register_with_eos(self, mock_send_eapi_req):
         self.drv.register_with_eos()
         auth = utils.fake_keystone_info_class()
-        keystone_url = '%s://%s:%s/v2.0/' % (auth.auth_protocol,
-                                             auth.auth_host,
-                                             auth.auth_port)
+        keystone_url = '%s://%s:%s/v3/' % (auth.auth_protocol,
+                                           auth.auth_host,
+                                           auth.auth_port)
         auth_cmd = ('auth url %s user %s password %s tenant %s' % (
                     keystone_url,
                     auth.admin_user,
