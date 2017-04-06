@@ -1,0 +1,8 @@
+Code-Review+2: Mitchell Jameson <mitchell@arista.com>
+Workflow+1: Mitchell Jameson <mitchell@arista.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 06 Apr 2017 16:36:41 +0000
+Reviewed-on: https://review.openstack.org/452217
+Project: openstack/networking-arista
+Branch: refs/heads/stable/newton
