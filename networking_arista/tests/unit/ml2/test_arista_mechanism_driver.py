@@ -1689,13 +1689,20 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
         """Ensures that the driver cleans up the arista database on startup."""
         ndb = db_lib.NeutronNets()
 
+        # create a shared session
+        session = db.get_writer_session()
+
         # Create some networks in neutron db
-        n1_context = self._get_network_context('t1', 'n1', 10)
+        n1_context = self._get_network_context('t1', 'n1', 10, session)
         ndb.create_network(n1_context, {'network': n1_context.current})
-        n2_context = self._get_network_context('t2', 'n2', 20)
+        n2_context = self._get_network_context('t2', 'n2', 20, session)
         ndb.create_network(n2_context, {'network': n2_context.current})
-        n3_context = self._get_network_context('', 'ha-network', 100)
+        n3_context = self._get_network_context('', 'ha-network', 100, session)
         ndb.create_network(n3_context, {'network': n3_context.current})
+
+        # Objects were created in different sessions, but Neutron no longer
+        # implicitly flushes subtransactions.
+        session.flush()
 
         # Create some networks in Arista db
         db_lib.remember_network_segment('t1', 'n1', 10, 'segment_id_10')
@@ -1710,9 +1717,12 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
         adb_networks = db_lib.get_networks(tenant_id='any')
 
         # 'n3' should now be deleted from the Arista DB
-        assert(set(('n1', 'n2', 'ha-network')) == set(adb_networks.keys()))
+        self.assertEqual(
+            set(('n1', 'n2', 'ha-network')),
+            set(adb_networks.keys())
+        )
 
-    def _get_network_context(self, tenant_id, net_id, seg_id):
+    def _get_network_context(self, tenant_id, net_id, seg_id, session=None):
         network = {'id': net_id,
                    'tenant_id': tenant_id,
                    'name': net_id,
@@ -1722,7 +1732,7 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
         network_segments = [{'segmentation_id': seg_id,
                              'id': 'segment_%s' % net_id,
                              'network_type': 'vlan'}]
-        return FakeNetworkContext(network, network_segments, network)
+        return FakeNetworkContext(network, network_segments, network, session)
 
     def _get_port_context(self, port_id, tenant_id, net_id, vm_id, network):
         port = {'device_id': vm_id,
@@ -1748,13 +1758,14 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
 class FakeNetworkContext(object):
     """To generate network context for testing purposes only."""
 
-    def __init__(self, network, segments=None, original_network=None):
+    def __init__(self, network, segments=None, original_network=None,
+                 session=None):
         self._network = network
         self._original_network = original_network
         self._segments = segments
         self.is_admin = False
         self.tenant_id = network['tenant_id']
-        self.session = db.get_reader_session()
+        self.session = session or db.get_reader_session()
 
     @property
     def current(self):
