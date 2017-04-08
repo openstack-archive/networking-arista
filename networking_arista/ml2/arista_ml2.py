@@ -2003,16 +2003,23 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     physnet = hostname if fqdns_used else (
                         hostname.split('.')[0])
                     break
-            # Get response for 'show network physical-topology hosts' command
-            if hostname:
-                switch_id = response[1]['hosts'][hostname]['name']
+            # Use response from 'show network physical-topology hosts' command
+            # to find the entry which corresponds to the hostname.
+            # Since the keys in the response dictionary can be hostname or
+            # hostid, the following statements check for existence of one of
+            # them.
+            host_info = response[1]['hosts'].get(hostname, None)
+            if not host_info:
+                hostid = neighbors[neighbor]['toPort'][0]['hostid']
+                host_info = response[1]['hosts'].get(hostid, None)
+            switch_id = host_info and host_info['name']
 
             # Check if the switch is part of an MLAG pair, and lookup the
             # pair's physnet name if so
             physnet = self.mlag_pairs.get(physnet, physnet)
 
-            for k in response[1]['hosts']:
-                mac_to_hostname[response[1]['hosts'][k]['name']] = k
+            for host in response[1]['hosts'].values():
+                mac_to_hostname[host['name']] = host['hostname']
 
             res = {'physnet': physnet,
                    'switch_id': switch_id,
