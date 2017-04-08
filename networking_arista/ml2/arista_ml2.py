@@ -2010,7 +2010,6 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         for a given host_id
         """
         fqdns_used = cfg.CONF.ml2_arista['use_fqdn']
-        hostname = None
         physnet = None
         switch_id = None
         mac_to_hostname = {}
@@ -2023,20 +2022,20 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             neighbors = response[0]['neighbors']
             for neighbor in neighbors:
                 if host_id in neighbor:
-                    hostname = neighbors[neighbor]['toPort'][0]['hostname']
-                    physnet = hostname if fqdns_used else (
-                        hostname.split('.')[0])
+                    switchname = neighbors[neighbor]['toPort'][0]['hostname']
+                    physnet = switchname if fqdns_used else (
+                        switchname.split('.')[0])
+                    switch_id = neighbors[neighbor]['toPort'][0].get('hostid')
+                    if not switch_id:
+                        switch_id = response[1]['hosts'][switchname]['name']
                     break
-            # Get response for 'show network physical-topology hosts' command
-            if hostname:
-                switch_id = response[1]['hosts'][hostname]['name']
 
             # Check if the switch is part of an MLAG pair, and lookup the
             # pair's physnet name if so
             physnet = self.mlag_pairs.get(physnet, physnet)
 
-            for k in response[1]['hosts']:
-                mac_to_hostname[response[1]['hosts'][k]['name']] = k
+            for host in response[1]['hosts'].values():
+                mac_to_hostname[host['name']] = host['hostname']
 
             res = {'physnet': physnet,
                    'switch_id': switch_id,
