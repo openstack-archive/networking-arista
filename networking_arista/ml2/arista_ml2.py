@@ -2012,10 +2012,12 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     break
             # Get response for 'show network physical-topology hosts' command
             if hostname:
-                switch_id = response[1]['hosts'][hostname]['name']
+                host_info = [host for host in response[1]['hosts'].values()
+                             if hostname == host['hostname']]
+                switch_id = host_info and host_info[0]['name']
 
-            for k in response[1]['hosts']:
-                mac_to_hostname[response[1]['hosts'][k]['name']] = k
+            for host in response[1]['hosts'].values():
+                mac_to_hostname[host['name']] = host['hostname']
 
             res = {'physnet': physnet,
                    'switch_id': switch_id,
