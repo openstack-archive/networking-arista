@@ -576,3 +576,9 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
         return super(NeutronNets,
                      self).get_security_group_rule(self.admin_ctx,
                                                    sec_gpr_id) or []
+
+    def validate_network_rbac_policy_change(self, resource, event, trigger,
+                                            context, object_type, policy,
+                                            **kwargs):
+        return super(NeutronNets, self).validate_network_rbac_policy_change(
+            resource, event, trigger, context, object_type, policy, kwargs)
