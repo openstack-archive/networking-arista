@@ -436,7 +436,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
-    def test_create_instance_bulk(self, mock_send_api_req):
+    def _test_create_instance_bulk(self, mock_send_api_req):
         tenant_id = 'ten-3'
         num_devices = 8
         num_ports_per_device = 2
@@ -1880,7 +1880,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.sync_service._region_updated_time = region_updated_time
         assert self.sync_service._region_in_sync()
 
-    def test_synchronize_required(self):
+    def _test_synchronize_required(self):
         """Tests whether synchronize() sends the right commands.
 
            This test verifies a scenario when the sync is required.
@@ -1976,7 +1976,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                             )
                         )
 
-    def test_synchronize_one_network(self):
+    def _test_synchronize_one_network(self):
         """Test to ensure that only the required resources are sent to EOS."""
 
         # Store two tenants in a db and a single tenant in EOS.
@@ -2049,7 +2049,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         db_lib.forget_tenant(tenant_1_id)
         db_lib.forget_tenant(tenant_2_id)
 
-    def test_synchronize_all_networks(self):
+    def _test_synchronize_all_networks(self):
         """Test to ensure that only the required resources are sent to EOS."""
 
         # Store two tenants in a db and none on EOS.
