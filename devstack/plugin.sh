@@ -66,6 +66,7 @@ function configure_arista() {
     if [ -n "${ARISTA_TYPE_DRIVER_SYNC_INTERVAL+x}" ]; then
         iniset $ARISTA_ML2_CONF_FILE arista_type_driver sync_interval $ARISTA_TYPE_DRIVER_SYNC_INTERVAL
     fi
+    neutron_server_config_add $ARISTA_ML2_CONF_FILE
 }
 
 if [[ "$1" == "stack" && "$2" == "pre-install" ]]; then
