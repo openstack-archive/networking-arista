@@ -39,10 +39,10 @@ function configure_arista() {
         iniset $ARISTA_ML2_CONF_FILE l3_arista primary_l3_host $ARISTA_PRIMARY_L3_HOST
     fi
     if [ -n "${ARISTA_PRIMARY_L3_HOST_USERNAME+x}" ]; then
-        iniset $ARISTA_ML2_CONF_FILE l3_arista primary_l3_host_username $ARISTA_PRIMARY_L3_HOST_USERNAME
+        iniset $ARISTA_ML2_CONF_FILE l3_arista l3_host_username $ARISTA_L3_HOST_USERNAME
     fi
     if [ -n "${ARISTA_PRIMARY_L3_HOST_PASSWORD+x}" ]; then
-        iniset $ARISTA_ML2_CONF_FILE l3_arista primary_l3_host_password $ARISTA_PRIMARY_L3_HOST_PASSWORD
+        iniset $ARISTA_ML2_CONF_FILE l3_arista l3_host_password $ARISTA_L3_HOST_PASSWORD
     fi
     if [ -n "${ARISTA_SECONDARY_L3_HOST+x}" ]; then
         iniset $ARISTA_ML2_CONF_FILE l3_arista secondary_l3_host $ARISTA_SECONDARY_L3_HOST
@@ -61,6 +61,12 @@ function configure_arista() {
     fi
     if [ -n "${ARISTA_L3_SYNC_INTERVAL+x}" ]; then
         iniset $ARISTA_ML2_CONF_FILE l3_arista l3_sync_interval $ARISTA_L3_SYNC_INTERVAL
+    fi
+    if [ -n "${ARISTA_L3_SWITCHES+x}" ]; then
+        iniset $ARISTA_ML2_CONF_FILE l3_arista l3_switches_uri $ARISTA_L3_SWITCHES_URI
+    fi
+    if [ -n "${ARISTA_VIRTUAL_MAC_ADDRESS+x}" ]; then
+        iniset $ARISTA_ML2_CONF_FILE l3_arista virtual_mac_address $ARISTA_VIRTUAL_MAC_ADDRESS
     fi
 
     if [ -n "${ARISTA_TYPE_DRIVER_SYNC_INTERVAL+x}" ]; then

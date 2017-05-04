@@ -15,6 +15,7 @@
 
 
 from oslo_config import cfg
+from oslo_config import types
 
 from networking_arista._i18n import _
 
@@ -123,12 +124,27 @@ required options.
 """
 
 ARISTA_L3_PLUGIN = [
-    cfg.StrOpt('primary_l3_host_username',
+    cfg.ListOpt('l3_switches_uri',
+                default=[],
+                item_type=types.URI(schemes=['https', 'http']),
+                help=_('Defines list of URI for Arista switches in an L3 '
+                       'topology with the following format: '
+                       '<scheme>://[username:password@]<switch IP address> '
+                       'If credentials for a switch is not provided, the '
+                       'default value from l3_host_username and '
+                       'l3_host_password will be used. '
+                       'For example: '
+                       'http://1.1.1.1, https://usr:pass@2.2.2.2')),
+    cfg.StrOpt('virtual_mac_address',
+               default='',
+               help=_('Global unique virtual MAC address used by '
+                      'anycast IP addresses.')),
+    cfg.StrOpt('l3_host_username',
                default='',
                help=_('Username for Arista EOS. This is required field. '
                       'If not set, all communications to Arista EOS '
                       'will fail')),
-    cfg.StrOpt('primary_l3_host_password',
+    cfg.StrOpt('l3_host_password',
                default='',
                secret=True,  # do not expose value in the logs
                help=_('Password for Arista EOS. This is required field. '

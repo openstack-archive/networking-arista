@@ -31,17 +31,15 @@ ERR_CVX_NOT_LEADER = 'only available on cluster leader'
 
 
 class EAPIClient(object):
-    def __init__(self, host, username=None, password=None, verify=False,
-                 timeout=None):
+    def __init__(self, host, username=None, password=None, scheme=None,
+                 verify=False, timeout=None):
         self.host = host
         self.timeout = timeout
-        self.url = self._make_url(host)
-        self.session = requests.Session()
-        self.session.headers['Content-Type'] = 'application/json'
-        self.session.headers['Accept'] = 'application/json'
-        self.session.verify = verify
-        if username and password:
-            self.session.auth = (username, password)
+        self.verify = verify
+        self.username = username
+        self.password = '' if password is None else password
+        self.scheme = 'https' if scheme is None else scheme
+        self.url = self._make_url(host, scheme=self.scheme)
 
     @staticmethod
     def _make_url(host, scheme='https'):
@@ -77,9 +75,14 @@ class EAPIClient(object):
         )
 
         # request handling
+        session = requests.Session()
+        session.headers['Content-Type'] = 'application/json'
+        session.headers['Accept'] = 'application/json'
+        session.verify = self.verify
+        session.auth = (self.username, self.password)
         try:
             error = None
-            response = self.session.post(
+            response = session.post(
                 self.url,
                 data=json.dumps(data),
                 timeout=self.timeout
