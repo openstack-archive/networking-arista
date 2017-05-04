@@ -27,18 +27,14 @@ class TestEAPIClientInit(testtools.TestCase):
         client = api.EAPIClient(host_ip)
         self.assertEqual(client.host, host_ip)
         self.assertEqual(client.url, 'https://10.20.30.40/command-api')
-        self.assertDictContainsSubset(
-            {'Content-Type': 'application/json', 'Accept': 'application/json'},
-            client.session.headers
-        )
 
     def test_init_enable_verify(self):
         client = api.EAPIClient('10.0.0.1', verify=True)
-        self.assertTrue(client.session.verify)
+        self.assertTrue(client.verify)
 
     def test_init_auth(self):
         client = api.EAPIClient('10.0.0.1', username='user', password='pass')
-        self.assertEqual(client.session.auth, ('user', 'pass'))
+        self.assertEqual((client.username, client.password), ('user', 'pass'))
 
     def test_init_timeout(self):
         client = api.EAPIClient('10.0.0.1', timeout=99)
@@ -78,7 +74,7 @@ class TestEAPIClientExecute(testtools.TestCase):
             }
         }
 
-        self.client.session.post.assert_called_once_with(
+        requests.Session.post.assert_called_once_with(
             'https://10.0.0.1/command-api',
             data=self.mock_json_dumps.return_value,
             timeout=99
@@ -122,7 +118,7 @@ class TestEAPIClientExecute(testtools.TestCase):
                                    warning_has_params=False):
         commands = ['config']
 
-        self.client.session.post.side_effect = raise_exception
+        requests.Session.post.side_effect = raise_exception
 
         self.assertRaises(
             expected_exception,
@@ -175,12 +171,12 @@ class TestEAPIClientExecute(testtools.TestCase):
     def _test_response_helper(self, response_data):
         mock_response = mock.MagicMock(requests.Response)
         mock_response.json.return_value = response_data
-        self.client.session.post.return_value = mock_response
+        requests.Session.post.return_value = mock_response
 
     def test_response_success(self):
         mock_response = mock.MagicMock(requests.Response)
         mock_response.json.return_value = {'result': mock.sentinel}
-        self.client.session.post.return_value = mock_response
+        requests.Session.post.return_value = mock_response
 
         retval = self.client.execute(['enable'])
         self.assertEqual(retval, mock.sentinel)
@@ -188,7 +184,7 @@ class TestEAPIClientExecute(testtools.TestCase):
     def test_response_json_error(self):
         mock_response = mock.MagicMock(requests.Response)
         mock_response.json.side_effect = ValueError
-        self.client.session.post.return_value = mock_response
+        requests.Session.post.return_value = mock_response
 
         retval = self.client.execute(['enable'])
         self.assertIsNone(retval)
@@ -197,7 +193,7 @@ class TestEAPIClientExecute(testtools.TestCase):
     def _test_response_format_error_helper(self, bad_response):
         mock_response = mock.MagicMock(requests.Response)
         mock_response.json.return_value = bad_response
-        self.client.session.post.return_value = mock_response
+        requests.Session.post.return_value = mock_response
 
         self.assertRaises(
             api.arista_exc.AristaRpcError,
@@ -232,7 +228,7 @@ class TestEAPIClientExecute(testtools.TestCase):
                 'data': [{'errors': [api.ERR_CVX_NOT_LEADER]}]
             }
         }
-        self.client.session.post.return_value = mock_response
+        requests.Session.post.return_value = mock_response
 
         retval = self.client.execute(['enable'])
         self.assertIsNone(retval)
@@ -243,7 +239,7 @@ class TestEAPIClientExecute(testtools.TestCase):
 
         mock_response = mock.MagicMock(requests.Response)
         mock_response.json.return_value = 'text'
-        self.client.session.post.return_value = mock_response
+        requests.Session.post.return_value = mock_response
 
         self.assertRaises(
             TypeError,
