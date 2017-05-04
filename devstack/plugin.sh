@@ -62,6 +62,12 @@ function configure_arista() {
     if [ -n "${ARISTA_L3_SYNC_INTERVAL+x}" ]; then
         iniset $ARISTA_ML2_CONF_FILE l3_arista l3_sync_interval $ARISTA_L3_SYNC_INTERVAL
     fi
+    if [ -n "${ARISTA_L3_SWITCHES+x}" ]; then
+        iniset $ARISTA_ML2_CONF_FILE l3_arista l3_switches $ARISTA_L3_SWITCHES
+    fi
+    if [ -n "${ARISTA_VIRTUAL_MAC_ADDRESS+x}" ]; then
+        iniset $ARISTA_ML2_CONF_FILE l3_arista virtual_mac_address $ARISTA_VIRTUAL_MAC_ADDRESS
+    fi
 
     if [ -n "${ARISTA_TYPE_DRIVER_SYNC_INTERVAL+x}" ]; then
         iniset $ARISTA_ML2_CONF_FILE arista_type_driver sync_interval $ARISTA_TYPE_DRIVER_SYNC_INTERVAL

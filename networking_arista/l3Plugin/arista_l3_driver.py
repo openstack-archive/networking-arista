@@ -29,9 +29,9 @@ cfg.CONF.import_group('l3_arista', 'networking_arista.common.config')
 EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
 DEFAULT_VLAN = 1
 MLAG_SWITCHES = 2
-VIRTUAL_ROUTER_MAC = '00:11:22:33:44:55'
 IPV4_BITS = 32
 IPV6_BITS = 128
+VIRTUAL_MAC_ADDR_CMD = 'ip virtual-router mac-address'
 
 # This string-format-at-a-distance confuses pylint :(
 # pylint: disable=too-many-format-args
@@ -45,8 +45,7 @@ router_in_vrf = {
                           'vlan {0}',
                           'exit',
                           'interface vlan {0}',
-                          'vrf forwarding {1}',
-                          'ip address {2}'],
+                          'vrf forwarding {1}'],
                   'remove': ['no interface vlan {0}']}}
 
 router_in_default_vrf = {
@@ -56,8 +55,7 @@ router_in_default_vrf = {
     'interface': {'add': ['ip routing',
                           'vlan {0}',
                           'exit',
-                          'interface vlan {0}',
-                          'ip address {2}'],
+                          'interface vlan {0}'],
                   'remove': ['no interface vlan {0}']}}
 
 router_in_default_vrf_v6 = {
@@ -72,14 +70,14 @@ router_in_default_vrf_v6 = {
                           'ipv6 address {2}'],
                   'remove': ['no interface vlan {0}']}}
 
-additional_cmds_for_mlag = {
+additional_cmds = {
     'router': {'create': ['ip virtual-router mac-address {0}'],
                'delete': []},
 
-    'interface': {'add': ['ip virtual-router address {0}'],
+    'interface': {'add': ['ip address virtual {0}/{1}'],
                   'remove': []}}
 
-additional_cmds_for_mlag_v6 = {
+additional_cmds_v6 = {
     'router': {'create': [],
                'delete': []},
 
@@ -97,20 +95,19 @@ class AristaL3Driver(object):
     def __init__(self):
         self._servers = []
         self._hosts = []
-        self._interfaceDict = None
-        self._validate_config()
-        host = cfg.CONF.l3_arista.primary_l3_host
-        self._hosts.append(host)
-        self._servers.append(self._make_eapi_client(host))
         self._mlag_configured = cfg.CONF.l3_arista.mlag_config
         self._use_vrf = cfg.CONF.l3_arista.use_vrf
-        if self._mlag_configured:
-            host = cfg.CONF.l3_arista.secondary_l3_host
-            self._hosts.append(host)
-            self._servers.append(self._make_eapi_client(host))
-            self._additionalRouterCmdsDict = additional_cmds_for_mlag['router']
-            self._additionalInterfaceCmdsDict = (
-                additional_cmds_for_mlag['interface'])
+        self._virtual_mac_addr = cfg.CONF.l3_arista.virtual_mac_address
+        self._username = cfg.CONF.l3_arista.primary_l3_host_username
+        self._password = cfg.CONF.l3_arista.primary_l3_host_password
+        self._pri_l3_host = cfg.CONF.l3_arista.primary_l3_host
+        self._sec_l3_host = cfg.CONF.l3_arista.secondary_l3_host
+        self._l3_switches = cfg.CONF.l3_arista.l3_switches
+        self._validate_config()
+        self._hosts = self._get_l3_switches_and_credentials()
+
+        self._additionalRouterCmdsDict = additional_cmds['router']
+        self._additionalInterfaceCmdsDict = additional_cmds['interface']
         if self._use_vrf:
             self.routerDict = router_in_vrf['router']
             self._interfaceDict = router_in_vrf['interface']
@@ -118,33 +115,69 @@ class AristaL3Driver(object):
             self.routerDict = router_in_default_vrf['router']
             self._interfaceDict = router_in_default_vrf['interface']
 
+        self._set_eapi_client_for_switches()
+
+    def _set_eapi_client_for_switches(self):
+        for swi in self._hosts:
+            self._servers.append(self._make_eapi_client(swi.get('switch'),
+                                                        swi.get('user'),
+                                                        swi.get('password')))
+
+    def _get_l3_switches_and_credentials(self):
+        l3_switches_info = []
+        for switch in self._l3_switches:
+            part1, sep, part2 = switch.partition(':')
+            if sep:
+                # Get the switch's credentials and IP address or name.
+                part3, sep, part4 = part2.partition('@')
+                if sep:
+                    l3_switches_info.append(
+                        {'switch': part4, 'user': part1 if part1
+                         else self._username,
+                         'password': part3 if part3 else self._password})
+            else:
+                # Only switch's IP address or name is provided.
+                # For credentials, use the default values.
+                l3_switches_info.append(
+                    {'switch': part1, 'user': self._username,
+                     'password': self._password})
+
+        return l3_switches_info
+
     @staticmethod
-    def _make_eapi_client(host):
+    def _make_eapi_client(host, username, password):
         return api.EAPIClient(
             host,
-            username=cfg.CONF.l3_arista.primary_l3_host_username,
-            password=cfg.CONF.l3_arista.primary_l3_host_password,
+            username=username,
+            password=password,
             verify=False,
             timeout=cfg.CONF.l3_arista.conn_timeout
         )
 
     def _validate_config(self):
-        if cfg.CONF.l3_arista.get('primary_l3_host') == '':
-            msg = _('Required option primary_l3_host is not set')
+        # Check if deprecated parameters, primary_l3_host or secondary_l3 is
+        # defined.
+        if self._pri_l3_host or self._sec_l3_host:
+            msg = _("The primary_l3_host and secondary_l3_host parameters are "
+                    "no longer supported. The new 'l3_switches' parameter "
+                    "should be used instead.")
             LOG.error(msg)
             raise arista_exc.AristaServicePluginConfigError(msg=msg)
-        if cfg.CONF.l3_arista.get('mlag_config'):
-            if cfg.CONF.l3_arista.get('use_vrf'):
-                # This is invalid/unsupported configuration
-                msg = _('VRFs are not supported MLAG config mode')
-                LOG.error(msg)
-                raise arista_exc.AristaServicePluginConfigError(msg=msg)
-            if cfg.CONF.l3_arista.get('secondary_l3_host') == '':
-                msg = _('Required option secondary_l3_host is not set')
-                LOG.error(msg)
-                raise arista_exc.AristaServicePluginConfigError(msg=msg)
-        if cfg.CONF.l3_arista.get('primary_l3_host_username') == '':
-            msg = _('Required option primary_l3_host_username is not set')
+
+        if not self._username:
+            msg = _('Required option primary_l3_host_username is not set.')
+            LOG.error(msg)
+            raise arista_exc.AristaServicePluginConfigError(msg=msg)
+
+        # Check if L3 switches is defined.
+        if not self._l3_switches:
+            msg = _('No L3 switches is defined.')
+            LOG.error(msg)
+            raise arista_exc.AristaServicePluginConfigError(msg=msg)
+
+        # Check if enough switches are defined when If MLAG is set.
+        if self._mlag_configured and len(self._l3_switches) < 2:
+            msg = _('MLAG is set and not enough L3 switches is defined.')
             LOG.error(msg)
             raise arista_exc.AristaServicePluginConfigError(msg=msg)
 
@@ -161,10 +194,9 @@ class AristaL3Driver(object):
         for c in self.routerDict['create']:
             cmds.append(c.format(router_name, rd))
 
-        if self._mlag_configured:
-            mac = VIRTUAL_ROUTER_MAC
-            for c in self._additionalRouterCmdsDict['create']:
-                cmds.append(c.format(mac))
+        for c in self._additionalRouterCmdsDict['create']:
+            if VIRTUAL_MAC_ADDR_CMD in c and self._virtual_mac_addr:
+                cmds.append(c.format(self._virtual_mac_addr))
 
         self._run_openstack_l3_cmds(cmds, server)
 
@@ -177,9 +209,9 @@ class AristaL3Driver(object):
         cmds = []
         for c in self.routerDict['delete']:
             cmds.append(c.format(router_name))
-        if self._mlag_configured:
-            for c in self._additionalRouterCmdsDict['delete']:
-                cmds.append(c)
+        for c in self._additionalRouterCmdsDict['delete']:
+            if VIRTUAL_MAC_ADDR_CMD in c and self._virtual_mac_addr:
+                cmds.append(c.format(self._virtual_mac_addr))
 
         self._run_openstack_l3_cmds(cmds, server)
 
@@ -191,11 +223,11 @@ class AristaL3Driver(object):
                 # for IPv6 use IPv6 commmands
                 self._interfaceDict = router_in_default_vrf_v6['interface']
                 self._additionalInterfaceCmdsDict = (
-                    additional_cmds_for_mlag_v6['interface'])
+                    additional_cmds_v6['interface'])
             else:
                 self._interfaceDict = router_in_default_vrf['interface']
                 self._additionalInterfaceCmdsDict = (
-                    additional_cmds_for_mlag['interface'])
+                    additional_cmds['interface'])
 
     def add_interface_to_router(self, segment_id,
                                 router_name, gip, router_ip, mask, server):
@@ -212,16 +244,15 @@ class AristaL3Driver(object):
         if not segment_id:
             segment_id = DEFAULT_VLAN
         cmds = []
+        if router_ip:
+            ip = router_ip
+        else:
+            ip = gip + '/' + mask
+
         for c in self._interfaceDict['add']:
-            if self._mlag_configured:
-                # In VARP config, use router ID else, use gateway IP address.
-                ip = router_ip
-            else:
-                ip = gip + '/' + mask
             cmds.append(c.format(segment_id, router_name, ip))
-        if self._mlag_configured:
-            for c in self._additionalInterfaceCmdsDict['add']:
-                cmds.append(c.format(gip))
+        for c in self._additionalInterfaceCmdsDict['add']:
+            cmds.append(c.format(gip, mask))
 
         self._run_openstack_l3_cmds(cmds, server)
 

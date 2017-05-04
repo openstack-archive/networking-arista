@@ -123,6 +123,17 @@ required options.
 """
 
 ARISTA_L3_PLUGIN = [
+    cfg.ListOpt('l3_switches',
+                default=[],
+                help=_('List of IP addresses with credentials for Arista '
+                       'switches in L3 topology. If credentials for a switch '
+                       'is not provided, the default value from '
+                       'primary_l3_host_username and primary_l3_host_password '
+                       'will be used.')),
+    cfg.StrOpt('virtual_mac_address',
+               default='',
+               help=_('Global unique virtual MAC address used by '
+                      'anycast IP addresses.')),
     cfg.StrOpt('primary_l3_host_username',
                default='',
                help=_('Username for Arista EOS. This is required field. '

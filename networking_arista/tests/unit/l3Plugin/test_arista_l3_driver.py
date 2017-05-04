@@ -23,12 +23,12 @@ from networking_arista.l3Plugin import arista_l3_driver as arista
 
 
 def setup_arista_config(value='', vrf=False, mlag=False):
-    cfg.CONF.set_override('primary_l3_host', value, "l3_arista")
-    cfg.CONF.set_override('primary_l3_host_username', value, "l3_arista")
+    cfg.CONF.set_override('l3_switches', value, "l3_arista")
+    cfg.CONF.set_override('primary_l3_host_username', 'admin', "l3_arista")
     if vrf:
         cfg.CONF.set_override('use_vrf', vrf, "l3_arista")
     if mlag:
-        cfg.CONF.set_override('secondary_l3_host', value, "l3_arista")
+        cfg.CONF.set_override('l3_switches', value, "l3_arista")
         cfg.CONF.set_override('mlag_config', mlag, "l3_arista")
 
 
@@ -41,7 +41,7 @@ class AristaL3DriverTestCasesDefaultVrf(base.BaseTestCase):
 
     def setUp(self):
         super(AristaL3DriverTestCasesDefaultVrf, self).setUp()
-        setup_arista_config('value')
+        setup_arista_config(['value'])
         self.drv = arista.AristaL3Driver()
         self.drv._servers = []
         self.drv._servers.append(mock.MagicMock())
@@ -79,7 +79,7 @@ class AristaL3DriverTestCasesDefaultVrf(base.BaseTestCase):
         cmds = ['enable', 'configure', 'ip routing',
                 'vlan %s' % segment_id, 'exit',
                 'interface vlan %s' % segment_id,
-                'ip address %s/%s' % (gw_ip, mask), 'exit']
+                'ip address virtual %s/%s' % (gw_ip, mask), 'exit']
 
         self.drv._servers[0].execute.assert_called_once_with(cmds)
 
@@ -105,7 +105,7 @@ class AristaL3DriverTestCasesUsingVRFs(base.BaseTestCase):
 
     def setUp(self):
         super(AristaL3DriverTestCasesUsingVRFs, self).setUp()
-        setup_arista_config('value', vrf=True)
+        setup_arista_config(['value'], vrf=True)
         self.drv = arista.AristaL3Driver()
         self.drv._servers = []
         self.drv._servers.append(mock.MagicMock())
@@ -152,7 +152,7 @@ class AristaL3DriverTestCasesUsingVRFs(base.BaseTestCase):
                 'vlan %s' % segment_id, 'exit',
                 'interface vlan %s' % segment_id,
                 'vrf forwarding %s' % router_name,
-                'ip address %s/%s' % (gw_ip, mask), 'exit']
+                'ip address virtual %s/%s' % (gw_ip, mask), 'exit']
 
         self.drv._servers[0].execute.assert_called_once_with(cmds)
 
@@ -179,7 +179,7 @@ class AristaL3DriverTestCasesMlagConfig(base.BaseTestCase):
 
     def setUp(self):
         super(AristaL3DriverTestCasesMlagConfig, self).setUp()
-        setup_arista_config('value', mlag=True)
+        setup_arista_config(['value1', 'value2'], mlag=True)
         self.drv = arista.AristaL3Driver()
         self.drv._servers = []
         self.drv._servers.append(mock.MagicMock())
@@ -192,6 +192,7 @@ class AristaL3DriverTestCasesMlagConfig(base.BaseTestCase):
         router_name = 'test-router-1'
         route_domain = '123:123'
         router_mac = '00:11:22:33:44:55'
+        self.drv._virtual_mac_addr = router_mac
 
         for s in self.drv._servers:
             self.drv.create_router_on_eos(router_name, route_domain, s)
@@ -222,8 +223,7 @@ class AristaL3DriverTestCasesMlagConfig(base.BaseTestCase):
             cmds = ['enable', 'configure', 'ip routing',
                     'vlan %s' % segment_id, 'exit',
                     'interface vlan %s' % segment_id,
-                    'ip address %s' % router_ip,
-                    'ip virtual-router address %s' % gw_ip, 'exit']
+                    'ip address virtual %s/%s' % (gw_ip, mask), 'exit']
 
             s.execute.assert_called_once_with(cmds)
 
@@ -249,7 +249,7 @@ class AristaL3DriverTestCases_v4(base.BaseTestCase):
 
     def setUp(self):
         super(AristaL3DriverTestCases_v4, self).setUp()
-        setup_arista_config('value')
+        setup_arista_config(['value'])
         self.drv = arista.AristaL3Driver()
         self.drv._servers = []
         self.drv._servers.append(mock.MagicMock())
@@ -345,7 +345,7 @@ class AristaL3DriverTestCases_MLAG_v6(base.BaseTestCase):
 
     def setUp(self):
         super(AristaL3DriverTestCases_MLAG_v6, self).setUp()
-        setup_arista_config('value', mlag=True)
+        setup_arista_config(['value1', 'value2'], mlag=True)
         self.drv = arista.AristaL3Driver()
         self.drv._servers = []
         self.drv._servers.append(mock.MagicMock())
@@ -396,7 +396,7 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
 
     def setUp(self):
         super(AristaL3DriverTestCasesMlag_one_switch_failed, self).setUp()
-        setup_arista_config('value', mlag=True)
+        setup_arista_config(['value1', 'value2'], mlag=True)
         self.drv = arista.AristaL3Driver()
         self.drv._servers = []
         self.drv._servers.append(mock.MagicMock())
