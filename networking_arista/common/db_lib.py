@@ -416,7 +416,7 @@ def get_tenants():
         return res
 
 
-def _make_bm_port_dict(record):
+def _make_port_dict(record):
     """Make a dict from the BM profile DB record."""
     return {'port_id': record.port_id,
             'host_id': record.host,
@@ -431,8 +431,19 @@ def get_all_baremetal_ports():
         querry = session.query(ml2_models.PortBinding)
         bm_ports = querry.filter_by(vnic_type='baremetal').all()
 
-        return {bm_port.port_id: _make_bm_port_dict(bm_port)
+        return {bm_port.port_id: _make_port_dict(bm_port)
                 for bm_port in bm_ports}
+
+
+def get_all_portbindings():
+    """Returns a list of all ports bindings."""
+    session = db.get_session()
+    with session.begin():
+        query = session.query(ml2_models.PortBinding)
+        ports = query.all()
+
+        return {port.port_id: _make_port_dict(port)
+                for port in ports}
 
 
 def get_port_binding_level(filters):
