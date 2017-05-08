@@ -490,8 +490,10 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
 
         profiles = {}
         for port in port_list:
+            profiles[port['portId']] = {'vnic_type': 'normal'}
             if port['device_owner'] == 'baremetal':
                 profiles[port['portId']] = {
+                    'vnic_type': 'baremetal',
                     'profile': '{"local_link_information":'
                     '[{"switch_id": "switch01", "port_id": "Ethernet1"}]}'}
         self.drv.create_instance_bulk(tenant_id, create_ports, devices,
@@ -741,7 +743,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         switch_bindings = [{'switch_id': 'switch01', 'port_id': 'Ethernet1',
                             'switch_info': 'switch01'}]
         self.drv.plug_port_into_network('bm1', 'h1', 'p1', 'n1', 't1', 'port1',
-                                        'baremetal', sg, None, None,
+                                        'baremetal', sg, None, 'baremetal',
                                         segments,
                                         switch_bindings=switch_bindings)
         calls = [
@@ -767,7 +769,8 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         mock_get_instance_ports.return_value = []
         switch_bindings = [{'switch_id': 'switch01', 'port_id': 'Ethernet1'}]
         self.drv.unplug_port_from_network('bm1', 'baremetal', 'h1', 'p1', 'n1',
-                                          't1', None, None, switch_bindings)
+                                          't1', None, 'baremetal',
+                                          switch_bindings)
         port = self.drv._create_port_data('p1', None, None, 'bm1', None,
                                           'baremetal', None)
         calls = [
@@ -1174,12 +1177,14 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
                 net_count += 1
 
         create_ports = {}
+        port_profiles = {}
         for port in port_list:
             create_ports.update(port_dict_representation(port))
+            port_profiles[port['portId']] = {'vnic_type': 'normal'}
 
         self.drv.cli_commands[arista_ml2.CMD_INSTANCE] = 'instance'
         self.drv.create_instance_bulk(tenant_id, create_ports, devices,
-                                      bm_port_profiles=None)
+                                      port_profiles=port_profiles)
         cmd1 = ['show openstack agent uuid']
         cmd2 = ['enable',
                 'configure',
@@ -1470,12 +1475,14 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
                 net_count += 1
 
         create_ports = {}
+        port_profiles = {}
         for port in port_list:
             create_ports.update(port_dict_representation(port))
+            port_profiles[port['portId']] = {'vnic_type': 'normal'}
 
         self.drv.cli_commands[arista_ml2.CMD_INSTANCE] = 'instance'
         self.drv.create_instance_bulk(tenant_id, create_ports, devices,
-                                      bm_port_profiles=None, sync=True)
+                                      port_profiles=port_profiles, sync=True)
         cmd1 = ['show openstack agent uuid']
         cmd2 = ['enable',
                 'configure',
