@@ -26,10 +26,10 @@ def setup_arista_config(value='', vrf=False, mlag=False):
     cfg.CONF.set_override('primary_l3_host', value, "l3_arista")
     cfg.CONF.set_override('primary_l3_host_username', value, "l3_arista")
     if vrf:
-        cfg.CONF.set_override('use_vrf', value, "l3_arista")
+        cfg.CONF.set_override('use_vrf', vrf, "l3_arista")
     if mlag:
         cfg.CONF.set_override('secondary_l3_host', value, "l3_arista")
-        cfg.CONF.set_override('mlag_config', value, "l3_arista")
+        cfg.CONF.set_override('mlag_config', mlag, "l3_arista")
 
 
 class AristaL3DriverTestCasesDefaultVrf(base.BaseTestCase):
