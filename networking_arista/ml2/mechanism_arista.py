@@ -644,7 +644,7 @@ class AristaDriver(driver_api.MechanismDriver):
         binding_profile = port['binding:profile']
         bindings = []
         if binding_profile:
-            bindings = binding_profile['local_link_information']
+            bindings = binding_profile.get('local_link_information', [])
 
         port_id = port['id']
         port_name = port['name']
@@ -807,7 +807,7 @@ class AristaDriver(driver_api.MechanismDriver):
         binding_profile = port['binding:profile']
         switch_bindings = []
         if binding_profile:
-            switch_bindings = binding_profile['local_link_information']
+            switch_bindings = binding_profile.get('local_link_information', [])
         sg = port['security_groups']
 
         if not device_id or not host:
