@@ -456,7 +456,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         port_id = port_context.current['id']
         expected_calls = [
             mock.call.is_port_provisioned(port_id),
-            mock.call.forget_port(port_id, port_context.host),
+            mock.call.forget_port(port_id),
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
@@ -485,7 +485,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         port_id = port_context.current['id']
         expected_calls += [
             mock.call.is_port_provisioned(port_id),
-            mock.call.forget_port(port_id, port_context.host),
+            mock.call.forget_port(port_id),
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
@@ -616,7 +616,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                               vm_id,
                                               network_context)
         host_id = port_context.current['binding:host_id']
-        port_context.original['binding:host_id'] = 'ubuntu0'
         port_id = port_context.current['id']
 
         network = {'tenant_id': tenant_id}
@@ -657,7 +656,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                               vm_id,
                                               network_context)
         host_id = port_context.current['binding:host_id']
-        port_context.original['binding:host_id'] = 'ubuntu0'
         port_id = port_context.current['id']
 
         # Force the check to return port found, but, network was not found
@@ -678,8 +676,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id, segment_id),
             mock.call.is_port_provisioned(port_id, None),
-            mock.call.update_port(vm_id, host_id, port_id,
-                                  network_id, tenant_id)
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
@@ -702,7 +698,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         # Port does not contain a tenant
         port_context.current['tenant_id'] = None
         host_id = port_context.current['binding:host_id']
-        port_context.original['binding:host_id'] = 'ubuntu0'
         port_id = port_context.current['id']
 
         # Force the check to return port and network were found
@@ -784,8 +779,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         device_id = port['device_id']
         device_owner = port['device_owner']
         host_id = port['binding:host_id']
-        orig_host_id = 'ubuntu0'
-        port_context.original['binding:host_id'] = orig_host_id
+        orig_host_id = port_context.original_host
         port_id = port['id']
         port_name = port['name']
         vnic_type = port['binding:vnic_type']
@@ -806,16 +800,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.create_network_segments(tenant_id, network_id,
                                               network_name,
                                               segments),
-            mock.call.is_network_provisioned(tenant_id, network_id, None,
-                                             None),
-            mock.call.unplug_port_from_network(device_id, 'compute',
-                                               orig_host_id, port_id,
-                                               network_id, tenant_id,
-                                               None, vnic_type,
-                                               switch_bindings=profile),
-            mock.call.remove_security_group(None, profile),
-            mock.call.num_nets_provisioned(tenant_id),
-            mock.call.num_vms_provisioned(tenant_id),
             mock.call.plug_port_into_network(device_id, host_id, port_id,
                                              network_id, tenant_id,
                                              port_name, device_owner, None,
@@ -858,8 +842,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         device_id = port['device_id']
         device_owner = port['device_owner']
         host_id = port['binding:host_id']
-        orig_host_id = 'ubuntu0'
-        port_context.original['binding:host_id'] = orig_host_id
+        orig_host_id = port_context.original_host
         port_id = port['id']
         port_name = port['name']
         network_name = network_context.current['name']
@@ -876,17 +859,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.create_network_segments(INTERNAL_TENANT_ID, network_id,
                                               network_name,
                                               segments),
-            mock.call.is_network_provisioned(INTERNAL_TENANT_ID, network_id,
-                                             None, None),
-            mock.call.unplug_port_from_network(device_id, 'compute',
-                                               orig_host_id,
-                                               port_id, network_id,
-                                               INTERNAL_TENANT_ID,
-                                               None, vnic_type,
-                                               switch_bindings=profile),
-            mock.call.remove_security_group(None, profile),
-            mock.call.num_nets_provisioned(INTERNAL_TENANT_ID),
-            mock.call.num_vms_provisioned(INTERNAL_TENANT_ID),
             mock.call.plug_port_into_network(device_id, host_id, port_id,
                                              network_id, INTERNAL_TENANT_ID,
                                              port_name, device_owner, None,
@@ -1070,10 +1042,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.update_port_precommit(context)
 
         expected_calls = [
-            mock.call.is_network_provisioned(tenant_id, network_id,
-                                             segmentation_id,
-                                             segment_id),
-            mock.call.is_port_provisioned(port_id, None),
+            mock.call.is_port_provisioned(port_id, old_host),
             mock.call.update_port(new_device_id,
                                   new_host, port_id,
                                   network_id, tenant_id)
@@ -1239,17 +1208,19 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         context.current['binding:host_id'] = new_host
         context.current['status'] = 'DOWN'
 
+        physnet = dict(physnet='default')
+        self.fake_rpc.get_physical_network.return_value = physnet
+        context._original_binding_levels = context._binding_levels
+
         mechanism_arista.db_lib.reset_mock()
         self.drv.update_port_postcommit(context)
 
-        expected_calls = [
-            mock.call.is_port_provisioned(port_id, None),
-            mock.call.is_network_provisioned(tenant_id, network_id,
-                                             None, None),
-            mock.call.is_network_provisioned(tenant_id, network_id,
-                                             segmentation_id,
-                                             None),
-            mock.call.hpb_supported(),
+        expected_calls = []
+        expected_calls.extend(
+            mock.call.is_network_provisioned(tenant_id, network_id, None,
+                                             binding_level.segment_id)
+            for binding_level in context._original_binding_levels)
+        expected_calls += [
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              None, None),
             mock.call.unplug_port_from_network(reserved_device,
@@ -1262,14 +1233,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.remove_security_group(None, profile),
             mock.call.num_nets_provisioned(tenant_id),
             mock.call.num_vms_provisioned(tenant_id),
-            mock.call.plug_port_into_network(new_device_id,
-                                             new_host,
-                                             port_id, network_id,
-                                             tenant_id, port_name,
-                                             n_const.DEVICE_OWNER_DHCP,
-                                             None, None, vnic_type,
-                                             segments=[],
-                                             switch_bindings=profile),
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
