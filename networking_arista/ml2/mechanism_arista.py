@@ -209,12 +209,10 @@ class AristaDriver(driver_api.MechanismDriver):
         with self.eos_sync_lock:
             if db_lib.is_network_provisioned(tenant_id, network_id):
                 if db_lib.are_ports_attached_to_network(network_id):
-                    LOG.info(_LI('Network %s can not be deleted as it '
-                                 'has ports attached to it'), network_id)
-                    raise ml2_exc.MechanismDriverError(
-                        method='delete_network_precommit')
-                else:
-                    db_lib.forget_network_segment(tenant_id, network_id)
+                    db_lib.forget_all_ports_for_network(network_id)
+                    LOG.info(_LI('Deleting all ports on network %s'),
+                             network_id)
+                db_lib.forget_network_segment(tenant_id, network_id)
 
     def delete_network_postcommit(self, context):
         """Send network delete request to Arista HW."""
@@ -223,9 +221,9 @@ class AristaDriver(driver_api.MechanismDriver):
         if not self.rpc.hpb_supported():
             # Hierarchical port binding is not supported by CVX, only
             # send the request if network type is VLAN.
-            if(segments and
+            if (segments and
                     segments[0][driver_api.NETWORK_TYPE] != p_const.TYPE_VLAN):
-                # If networtk type is not VLAN, do nothing
+                # If network type is not VLAN, do nothing
                 return
             # No need to pass segments info when calling delete_network as
             # HPB is not supported.
@@ -450,15 +448,11 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         orig_port = context.original
         orig_host = context.original_host
-        orig_status = context.original_status
-        new_status = context.status
         new_host = context.host
         new_port = context.current
         port_id = orig_port['id']
 
-        if (new_host != orig_host and
-            orig_status == n_const.PORT_STATUS_ACTIVE and
-                new_status == n_const.PORT_STATUS_DOWN):
+        if new_host and orig_host and new_host != orig_host:
             LOG.debug("Handling port migration for: %s " % orig_port)
             network_id = orig_port['network_id']
             tenant_id = orig_port['tenant_id'] or INTERNAL_TENANT_ID
@@ -484,14 +478,9 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         orig_port = context.original
         orig_host = context.original_host
-        orig_status = context.original_status
-        new_status = context.status
         new_host = context.host
 
-        if (new_host != orig_host and
-            orig_status == n_const.PORT_STATUS_ACTIVE and
-                new_status == n_const.PORT_STATUS_DOWN):
-
+        if new_host and orig_host and new_host != orig_host:
             self._try_to_release_dynamic_segment(context, migration=True)
 
             # Handling migration case.
@@ -503,7 +492,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # Ensure that we use tenant Id for the network owner
             tenant_id = self._network_owner_tenant(context, network_id,
                                                    tenant_id)
-            for binding_level in context._original_binding_levels:
+            for binding_level in context._original_binding_levels or []:
                 if self._network_provisioned(
                     tenant_id, network_id,
                         segment_id=binding_level.segment_id):
@@ -768,7 +757,7 @@ class AristaDriver(driver_api.MechanismDriver):
         port_id = port['id']
         host_id = context.host
         with self.eos_sync_lock:
-            if db_lib.is_port_provisioned(port_id):
+            if db_lib.is_port_provisioned(port_id, host_id):
                 db_lib.forget_port(port_id, host_id)
 
     def delete_port_postcommit(self, context):
@@ -788,8 +777,8 @@ class AristaDriver(driver_api.MechanismDriver):
         pretty_log("delete_port_postcommit:", port)
 
         # If this port is the last one using dynamic segmentation id,
-        # and the segmentaion id was alloated by this driver, it needs
-        # to be releaed.
+        # and the segmentation id was allocated by this driver, it needs
+        # to be released.
         self._try_to_release_dynamic_segment(context)
 
         with self.eos_sync_lock:
