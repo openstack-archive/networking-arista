@@ -26,7 +26,9 @@ import requests
 from six import add_metaclass
 
 from neutron.common import constants as n_const
+from neutron.db import api as db_api
 from neutron.extensions import portbindings
+from neutron.plugins.ml2.drivers import type_vlan
 
 from networking_arista._i18n import _, _LI, _LW, _LE
 from networking_arista.common import db_lib
@@ -84,6 +86,20 @@ class AristaRPCWrapperBase(object):
         self.eapi_hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
         self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
             self._ndb)
+
+        # We denote mlag_pair physnets as peer1_peer2 in the physnet name, the
+        # following builds a mapping of peer name to physnet name for use
+        # during port binding
+        self.mlag_pairs = {}
+        session = db_api.get_session()
+        with session.begin():
+            physnets = session.query(
+                type_vlan.VlanAllocation.physical_network).distinct().all()
+        for (physnet,) in physnets:
+            if '_' in physnet:
+                peers = physnet.split('_')
+                self.mlag_pairs[peers[0]] = physnet
+                self.mlag_pairs[peers[1]] = physnet
 
         # Indication of CVX availabililty in the driver.
         self._cvx_available = True
@@ -2007,6 +2023,10 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             # Get response for 'show network physical-topology hosts' command
             if hostname:
                 switch_id = response[1]['hosts'][hostname]['name']
+
+            # Check if the switch is part of an MLAG pair, and lookup the
+            # pair's physnet name if so
+            physnet = self.mlag_pairs.get(physnet, physnet)
 
             for k in response[1]['hosts']:
                 mac_to_hostname[response[1]['hosts'][k]['name']] = k

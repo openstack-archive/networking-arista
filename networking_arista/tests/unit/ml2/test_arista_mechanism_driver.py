@@ -1558,7 +1558,7 @@ class AristaRPCWrapperInvalidConfigTestCase(base.BaseTestCase):
                           arista_ml2.AristaRPCWrapperEapi, ndb)
 
 
-class NegativeRPCWrapperTestCase(base.BaseTestCase):
+class NegativeRPCWrapperTestCase(testlib_api.SqlTestCase):
     """Negative test cases to test the RPC between Arista Driver and EOS."""
 
     def setUp(self):
