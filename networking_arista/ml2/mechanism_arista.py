@@ -402,6 +402,18 @@ class AristaDriver(driver_api.MechanismDriver):
 
         return
 
+    def _supported_device_owner(self, device_owner):
+        supported_device_owner = [n_const.DEVICE_OWNER_DHCP,
+                                  n_const.DEVICE_OWNER_DVR_INTERFACE]
+
+        if any([device_owner in supported_device_owner,
+                device_owner.startswith('compute') and
+                device_owner != 'compute:probe',
+                device_owner.startswith('baremetal')]):
+            return True
+
+        LOG.info(_LI('Unsupported device owner: %s'), device_owner)
+
     def _network_owner_tenant(self, context, network_id, tenant_id):
         tid = tenant_id
         if network_id and tenant_id:
@@ -554,7 +566,7 @@ class AristaDriver(driver_api.MechanismDriver):
         pretty_log("update_port_precommit: new", new_port)
         pretty_log("update_port_precommit: orig", orig_port)
 
-        if new_port['device_owner'] == 'compute:probe':
+        if not self._supported_device_owner(new_port['device_owner']):
             return
 
         # Check if it is port migration case
