@@ -273,7 +273,8 @@ class AristaDriver(driver_api.MechanismDriver):
         mac_to_hostname = physnet_info.get('mac_to_hostname', {})
         for link in link_info:
             if link.get('switch_id') in mac_to_hostname:
-                return mac_to_hostname.get(link.get('switch_id'))
+                physnet = mac_to_hostname.get(link.get('switch_id'))
+                return self.rpc.mlag_pairs.get(physnet, physnet)
 
     def _bind_port_to_baremetal(self, context, segment, physnet_info):
 
