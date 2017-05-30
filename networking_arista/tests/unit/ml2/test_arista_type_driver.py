@@ -21,7 +21,6 @@ from oslo_config import cfg
 
 from neutron.db import api as db_api
 from neutron.db.models.plugins.ml2 import vlanallocation
-from neutron.tests import base
 from neutron.tests.unit import testlib_api
 
 from networking_arista.ml2.drivers.driver_helpers import VlanSyncService
@@ -33,7 +32,7 @@ EAPI_SEND_FUNC = ('networking_arista.ml2.arista_ml2.AristaRPCWrapperEapi'
                   '._send_eapi_req')
 
 
-class AristaTypeDriverTest(base.BaseTestCase):
+class AristaTypeDriverTest(testlib_api.SqlTestCase):
 
     def setUp(self):
         super(AristaTypeDriverTest, self).setUp()
