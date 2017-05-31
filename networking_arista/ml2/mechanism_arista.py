@@ -326,7 +326,7 @@ class AristaDriver(driver_api.MechanismDriver):
                 physnet = mac_to_hostname.get(link.get('switch_id'))
                 return self.rpc.mlag_pairs.get(physnet, physnet)
 
-    def _bind_port_to_baremetal(self, context, segment, physnet_info):
+    def _bind_port_to_baremetal(self, context, segment):
 
         port = context.current
         vnic_type = port.get('binding:vnic_type')
@@ -342,19 +342,7 @@ class AristaDriver(driver_api.MechanismDriver):
         if not link_info:
             return
 
-        switch_id = physnet_info.get('switch_id')
-        mac_to_hostname = physnet_info.get('mac_to_hostname', {})
-        switch_list = []
-        for link in link_info:
-            if ((switch_id and switch_id != link.get('switch_id')) or
-                    (link.get('switch_id') not in mac_to_hostname)):
-                LOG.debug("Port %(port)s with %(link)s is not managed"
-                          " by Arista mechanism driver ", {'port': port,
-                                                           'link': link_info})
-            else:
-                switch_list.append(link.get('switch_id'))
-
-        if not switch_list:
+        if not len(link_info):
             return
 
         vif_details = {
@@ -379,33 +367,32 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         host_id = context.host
         port = context.current
-        physnet_info = self.eapi.get_physical_network(host_id)
-        physnet = physnet_info.get('physnet')
-        switch_id = physnet_info.get('switch_id')
-        if not physnet or not switch_id:
-            if port.get('binding:vnic_type') == portbindings.VNIC_BAREMETAL:
-                # Find physnet using link_local_information in baremetal case
-                physnet = self._get_physnet_from_link_info(port, physnet_info)
-            else:
-                LOG.debug("The host %(host)s not connected to arista "
-                          "switches. Physical Network info = %(pi)s",
-                          {'host': host_id, 'pi': physnet_info})
-                return
-
-        if not physnet or not self._is_in_managed_physnets(physnet):
-            LOG.debug("bind_port for port %(port)s: physical_network "
-                      "%(physnet)s is not managed by Arista "
-                      "mechanism driver", {'port': port.get('id'),
-                                           'physnet': physnet})
-            return
-
-        LOG.debug("bind_port for port %(port)s: physical_network=%(physnet)s,"
-                  "switch_id=%(swid)s", {'port': port.get('id'),
-                                         'physnet': physnet,
-                                         'swid': switch_id})
+        physnet_info = {}
         for segment in context.segments_to_bind:
-            if not self._is_in_managed_physnets(
-                segment.get(driver_api.PHYSICAL_NETWORK)):
+            physnet = segment.get(driver_api.PHYSICAL_NETWORK)
+            if not self._is_in_managed_physnets(physnet):
+                LOG.debug("bind_port for port %(port)s: physical_network "
+                          "%(physnet)s is not managed by Arista "
+                          "mechanism driver", {'port': port.get('id'),
+                                               'physnet': physnet})
+                continue
+            # If physnet is not set, we need to look it up using hostname
+            # and topology info
+            if not physnet:
+                if not physnet_info:
+                    # We only need to get physnet_info once
+                    physnet_info = self.eapi.get_physical_network(host_id)
+                if (port.get('binding:vnic_type') ==
+                        portbindings.VNIC_BAREMETAL):
+                    # Find physnet using link_information in baremetal case
+                    physnet = self._get_physnet_from_link_info(port,
+                                                               physnet_info)
+                else:
+                    physnet = physnet_info.get('physnet')
+            # If physnet was not found, we cannot bind this port
+            if not physnet:
+                LOG.debug("bind_port for port %(port)s: no physical_network "
+                          "found", {'port': port.get('id')})
                 continue
             if segment[driver_api.NETWORK_TYPE] == n_const.TYPE_VXLAN:
                 # Check if CVX supports HPB
@@ -435,9 +422,9 @@ class AristaDriver(driver_api.MechanismDriver):
                           {'port': port.get('id'), 'current_seg': segment,
                            'next_seg': next_segment})
                 context.continue_binding(segment['id'], [next_segment])
-            else:
+            elif port.get('binding:vnic_type') == portbindings.VNIC_BAREMETAL:
                 # The network_type is vlan, try binding process for baremetal.
-                self._bind_port_to_baremetal(context, segment, physnet_info)
+                self._bind_port_to_baremetal(context, segment)
 
     def create_port_postcommit(self, context):
         """Plug a physical host into a network.
