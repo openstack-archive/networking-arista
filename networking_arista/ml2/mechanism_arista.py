@@ -411,7 +411,7 @@ class AristaDriver(driver_api.MechanismDriver):
                 device_owner.startswith('baremetal')]):
             return True
 
-        LOG.info(_LI('Unsupported device owner: %s'), device_owner)
+        LOG.debug('Unsupported device owner: %s', device_owner)
 
     def _network_owner_tenant(self, context, network_id, tenant_id):
         tid = tenant_id
