@@ -19,9 +19,9 @@ from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_utils import excutils
 
 from neutron.common import constants as neutron_const
-from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_api
 
 from networking_arista._i18n import _, _LI, _LE
@@ -716,9 +716,8 @@ class AristaDriver(driver_api.MechanismDriver):
                         tenant_id, network_id,
                         context.network.current['name'], all_segments)
                 except arista_exc.AristaRpcError:
-                    LOG.error(_LE("Failed to create network segments"))
-                    raise ml2_exc.MechanismDriverError(
-                        method='update_port_postcommit')
+                    with excutils.save_and_reraise_exception():
+                        LOG.error(_LE("Failed to create network segments"))
 
             try:
                 orig_host = context.original_host
@@ -729,16 +728,11 @@ class AristaDriver(driver_api.MechanismDriver):
 
                 if orig_host and (port_down or host != orig_host or
                    device_id == neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
-                    try:
-                        LOG.info("Deleting the port %s" % str(orig_port))
-                        # The port moved to a different host or the VM
-                        # connected to the port was deleted or its in DOWN
-                        # state. So delete the old port on the old host.
-                        self._delete_port(orig_port, orig_host, tenant_id)
-                    except ml2_exc.MechanismDriverError:
-                        # If deleting a port fails, then not much can be done
-                        # about it. Log a warning and move on.
-                        LOG.warning(UNABLE_TO_DELETE_PORT_MSG)
+                    LOG.info("Deleting the port %s" % str(orig_port))
+                    # The port moved to a different host or the VM
+                    # connected to the port was deleted or its in DOWN
+                    # state. So delete the old port on the old host.
+                    self._delete_port(orig_port, orig_host, tenant_id)
                 if(port_provisioned and net_provisioned and hostname and
                    is_vm_boot and not port_down and
                    device_id != neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
@@ -800,7 +794,7 @@ class AristaDriver(driver_api.MechanismDriver):
             try:
                 self._delete_port(port, host, tenant_id)
                 self._delete_segment(context, tenant_id)
-            except ml2_exc.MechanismDriverError:
+            except arista_exc.AristaRpcError:
                 # Can't do much if deleting a port failed.
                 # Log a warning and continue.
                 LOG.warning(UNABLE_TO_DELETE_PORT_MSG)
@@ -955,8 +949,8 @@ class AristaDriver(driver_api.MechanismDriver):
             try:
                 self.rpc.delete_tenant(tenant_id)
             except arista_exc.AristaRpcError:
-                LOG.info(EOS_UNREACHABLE_MSG)
-                raise ml2_exc.MechanismDriverError(method='delete_tenant')
+                with excutils.save_and_reraise_exception():
+                    LOG.info(EOS_UNREACHABLE_MSG)
 
     def _host_name(self, hostname):
         fqdns_used = cfg.CONF.ml2_arista['use_fqdn']
