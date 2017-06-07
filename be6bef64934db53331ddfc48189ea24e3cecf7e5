@@ -1,0 +1,8 @@
+Code-Review+2: Nader Lahouti <nader.lahouti@gmail.com>
+Workflow+1: Nader Lahouti <nader.lahouti@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 07 Jun 2017 22:58:43 +0000
+Reviewed-on: https://review.openstack.org/471905
+Project: openstack/networking-arista
+Branch: refs/heads/master
