@@ -21,7 +21,6 @@ from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron.common import constants as neutron_const
-from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_api
 
@@ -119,7 +118,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # Hierarchical port binding is not supported by CVX, only
             # allow VLAN network type.
             if(segments and
-                    segments[0][driver_api.NETWORK_TYPE] != p_const.TYPE_VLAN):
+                    segments[0][driver_api.NETWORK_TYPE] != n_const.TYPE_VLAN):
                 return
         network_id = network['id']
         tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
@@ -222,7 +221,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # Hierarchical port binding is not supported by CVX, only
             # send the request if network type is VLAN.
             if (segments and
-                    segments[0][driver_api.NETWORK_TYPE] != p_const.TYPE_VLAN):
+                    segments[0][driver_api.NETWORK_TYPE] != n_const.TYPE_VLAN):
                 # If network type is not VLAN, do nothing
                 return
             # No need to pass segments info when calling delete_network as
@@ -312,7 +311,7 @@ class AristaDriver(driver_api.MechanismDriver):
         context.set_binding(segment[driver_api.ID],
                             portbindings.VIF_TYPE_OTHER,
                             vif_details,
-                            p_const.ACTIVE)
+                            n_const.ACTIVE)
         LOG.debug("AristaDriver: bound port info- port ID %(id)s "
                   "on network %(network)s",
                   {'id': port['id'],
@@ -355,7 +354,7 @@ class AristaDriver(driver_api.MechanismDriver):
             if not self._is_in_managed_physnets(
                 segment.get(driver_api.PHYSICAL_NETWORK)):
                 continue
-            if segment[driver_api.NETWORK_TYPE] == p_const.TYPE_VXLAN:
+            if segment[driver_api.NETWORK_TYPE] == n_const.TYPE_VXLAN:
                 # Check if CVX supports HPB
                 if not self.rpc.hpb_supported():
                     LOG.debug("bind_port: HPB is not supported")
@@ -367,7 +366,7 @@ class AristaDriver(driver_api.MechanismDriver):
                 try:
                     next_segment = context.allocate_dynamic_segment(
                         {'id': context.network.current['id'],
-                         'network_type': p_const.TYPE_VLAN,
+                         'network_type': n_const.TYPE_VLAN,
                          'physical_network': physnet})
                 except Exception as exc:
                     LOG.error(_LE("bind_port for port %(port)s: Failed to "
@@ -920,7 +919,7 @@ class AristaDriver(driver_api.MechanismDriver):
             bound_drivers.append(driver)
             if (bound_segment and
                 bound_segment.get('physical_network') == physnet and
-                    bound_segment.get('network_type') == p_const.TYPE_VLAN):
+                    bound_segment.get('network_type') == n_const.TYPE_VLAN):
                 segment_id = bound_segment.get('id')
                 break
 

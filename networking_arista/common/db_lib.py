@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from neutron_lib import constants as n_const
 from neutron_lib import context as nctx
 
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import securitygroups_db as sec_db
 from neutron.db import segments_db
-from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import driver_api
 from neutron.plugins.ml2 import models as ml2_models
 
@@ -496,7 +496,7 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
         if not nets or not segments:
             return
         if (nets[0]['shared'] and
-           segments[0][driver_api.NETWORK_TYPE] == p_const.TYPE_VLAN):
+           segments[0][driver_api.NETWORK_TYPE] == n_const.TYPE_VLAN):
             return nets[0]['tenant_id']
 
     def get_network_segments(self, network_id, dynamic=False, context=None):
