@@ -13,10 +13,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.db import api as db_api
 from oslo_log import log
 from six import moves
 
-from neutron.db import api as db_api
 from neutron.db.models.plugins.ml2 import vlanallocation
 
 from networking_arista._i18n import _LI
