@@ -17,12 +17,12 @@ import threading
 
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
+from neutron_lib.plugins.ml2 import api as driver_api
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 
 from neutron.common import constants as neutron_const
-from neutron.plugins.ml2 import driver_api
 
 from networking_arista._i18n import _, _LI, _LE
 from networking_arista.common import db

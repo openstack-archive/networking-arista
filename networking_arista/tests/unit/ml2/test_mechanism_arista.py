@@ -16,9 +16,9 @@
 import mock
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
+from neutron_lib.plugins.ml2 import api as driver_api
 
 from neutron.common import constants as neutron_const
-from neutron.plugins.ml2 import driver_api as api
 from neutron.tests.unit import testlib_api
 
 from networking_arista.ml2 import mechanism_arista
@@ -1455,8 +1455,9 @@ class FakePortContext(object):
     def binding_levels(self):
         if self._binding_levels:
             return [{
-                api.BOUND_DRIVER: level.driver,
-                api.BOUND_SEGMENT: self._expand_segment(level.segment_id)
+                driver_api.BOUND_DRIVER: level.driver,
+                driver_api.BOUND_SEGMENT:
+                    self._expand_segment(level.segment_id)
             } for level in self._binding_levels]
 
     @property
@@ -1466,7 +1467,7 @@ class FakePortContext(object):
 
     def _expand_segment(self, segment_id):
         for segment in self._network_context.network_segments:
-            if segment[api.ID] == segment_id:
+            if segment[driver_api.ID] == segment_id:
                 return segment
 
 
