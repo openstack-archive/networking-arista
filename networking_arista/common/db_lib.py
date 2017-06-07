@@ -15,12 +15,12 @@
 
 from neutron_lib import constants as n_const
 from neutron_lib import context as nctx
+from neutron_lib.plugins.ml2 import api as driver_api
 
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import securitygroups_db as sec_db
 from neutron.db import segments_db
-from neutron.plugins.ml2 import driver_api
 from neutron.plugins.ml2 import models as ml2_models
 
 from networking_arista.common import db as db_models
