@@ -17,9 +17,9 @@ import itertools
 
 import mock
 from mock import patch
+from neutron_lib.db import api as db_api
 from oslo_config import cfg
 
-from neutron.db import api as db_api
 from neutron.db.models.plugins.ml2 import vlanallocation
 from neutron.tests.unit import testlib_api
 

@@ -21,13 +21,13 @@ import socket
 
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
+from neutron_lib.db import api as db_api
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 import requests
 from six import add_metaclass
 
-from neutron.db import api as db_api
 from neutron.db.models.plugins.ml2 import vlanallocation
 
 from networking_arista._i18n import _, _LI, _LW, _LE

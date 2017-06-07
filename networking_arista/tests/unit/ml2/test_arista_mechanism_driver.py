@@ -21,12 +21,12 @@ import mock
 from mock import patch
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
+from neutron_lib.db import api as db_api
 from neutron_lib.plugins import directory
 from oslo_config import cfg
 from oslo_utils import importutils
 import six
 
-import neutron.db.api as db
 from neutron.plugins.ml2 import driver_api as api
 from neutron.tests import base
 from neutron.tests.unit import testlib_api
@@ -1702,7 +1702,7 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
         ndb = db_lib.NeutronNets()
 
         # create a shared session
-        session = db.get_writer_session()
+        session = db_api.get_writer_session()
 
         # Create some networks in neutron db
         n1_context = self._get_network_context('t1', 'n1', 10, session)
@@ -1777,7 +1777,7 @@ class FakeNetworkContext(object):
         self._segments = segments
         self.is_admin = False
         self.tenant_id = network['tenant_id']
-        self.session = session or db.get_reader_session()
+        self.session = session or db_api.get_reader_session()
 
     @property
     def current(self):
