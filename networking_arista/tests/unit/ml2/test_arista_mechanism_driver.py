@@ -1594,7 +1594,6 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
 
     def tearDown(self):
         super(RealNetStorageAristaDriverTestCase, self).tearDown()
-        self.drv.stop_synchronization_thread()
 
     def test_create_and_delete_network(self):
         tenant_id = 'ten-1'
@@ -1727,13 +1726,19 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
         # Initialize the driver which should clean up the extra networks
         self.drv.initialize()
 
-        adb_networks = db_lib.get_networks(tenant_id='any')
+        worker = self.drv.get_workers()[0]
 
-        # 'n3' should now be deleted from the Arista DB
-        self.assertEqual(
-            set(('n1', 'n2', 'ha-network')),
-            set(adb_networks.keys())
-        )
+        with mock.patch.object(worker.sync_service, 'do_synchronize') as ds:
+            worker.start()
+            adb_networks = db_lib.get_networks(tenant_id='any')
+
+            # 'n3' should now be deleted from the Arista DB
+            self.assertEqual(
+                set(('n1', 'n2', 'ha-network')),
+                set(adb_networks.keys())
+            )
+
+            ds.assert_called_once_with()
 
     def _get_network_context(self, tenant_id, net_id, seg_id, session=None):
         network = {'id': net_id,

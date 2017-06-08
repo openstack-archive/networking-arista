@@ -42,7 +42,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
     def tearDown(self):
         super(AristaDriverTestCase, self).tearDown()
-        self.drv.stop_synchronization_thread()
 
     def test_create_network_precommit(self):
         tenant_id = 'ten-1'
