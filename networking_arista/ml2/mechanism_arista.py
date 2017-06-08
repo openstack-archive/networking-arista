@@ -103,6 +103,13 @@ class AristaDriver(driver_api.MechanismDriver):
             self.rpc.register_with_eos()
             self.rpc.check_supported_features()
 
+        # TODO(markmcclain): This is hack to work around changes to plugin
+        # loading.  We delay to ensure that plugin is loaded. Future changes
+        # will migrate the sync thread to an ML2 worker.
+        self.delay_sync = threading.Timer(1, self._begin_sync)
+        self.delay_sync.start()
+
+    def _begin_sync(self):
         self._cleanup_db()
         # Registering with EOS updates self.rpc.region_updated_time. Clear it
         # to force an initial sync

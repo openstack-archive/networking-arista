@@ -16,6 +16,7 @@
 import functools
 import operator
 import socket
+import time
 
 import mock
 from mock import patch
@@ -1725,6 +1726,10 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
 
         # Initialize the driver which should clean up the extra networks
         self.drv.initialize()
+
+        # TODO(markmcclain): This accounts for hack to ensure sync thread
+        # runs after delay
+        time.sleep(2)
 
         adb_networks = db_lib.get_networks(tenant_id='any')
 
