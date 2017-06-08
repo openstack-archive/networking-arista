@@ -18,6 +18,7 @@ import threading
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from neutron_lib.plugins.ml2 import api as driver_api
+from neutron_lib import worker
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
@@ -52,6 +53,72 @@ def pretty_log(tag, obj):
     LOG.debug(log_data)
 
 
+class AristaSyncWorker(worker.BaseWorker):
+    def __init__(self, rpc, ndb):
+        super(AristaSyncWorker, self).__init__()
+        self.ndb = ndb
+        self.rpc = rpc
+        self.sync_service = arista_ml2.SyncService(rpc, ndb)
+        rpc.sync_service = self.sync_service
+        self._sync_thread = None
+
+    def start(self):
+        super(AristaSyncWorker, self).start()
+
+        self._sync_running = True
+        self._sync_event = threading.Event()
+
+        self._cleanup_db()
+        # Registering with EOS updates self.rpc.region_updated_time. Clear it
+        # to force an initial sync
+        self.rpc.clear_region_updated_time()
+
+        self._sync_thread = threading.Thread(target=self._sync_loop, args=())
+        self._sync_thread.start()
+
+    def stop(self, graceful=False):
+        if graceful:
+            self._sync_running = False
+            self._sync_event.set()
+
+    def wait(self):
+        if self._sync_thread:
+            self._sync_thread.join()
+
+    def reset(self):
+        LOG.error(
+            'Arista sync service does not support config reload. Pleae stop '
+            'and restart Neutron workers to reload the configuration'
+        )
+
+    def _cleanup_db(self):
+        """Clean up any unnecessary entries in our DB."""
+
+        LOG.info('Arista Sync: DB Cleanup')
+        neutron_nets = self.ndb.get_all_networks()
+        arista_db_nets = db_lib.get_networks(tenant_id='any')
+        neutron_net_ids = set()
+        for net in neutron_nets:
+            neutron_net_ids.add(net['id'])
+
+        # Remove networks from the Arista DB if the network does not exist in
+        # Neutron DB
+        for net_id in set(arista_db_nets.keys()).difference(neutron_net_ids):
+            tenant_network = arista_db_nets[net_id]
+            db_lib.forget_network_segment(tenant_network['tenantId'], net_id)
+            db_lib.forget_all_ports_for_network(net_id)
+
+    def _sync_loop(self):
+        interval = cfg.CONF.ml2_arista.sync_interval
+        while self._sync_running:
+            if self._sync_event.wait(interval):
+                # only true when event is set by external call to stop thread
+                continue
+            LOG.info('Arista Sync: Start Sync')
+            self.sync_service.do_synchronize()
+            LOG.info('Arista Sync: End Sync')
+
+
 class AristaDriver(driver_api.MechanismDriver):
     """Ml2 Mechanism driver for Arista networking hardware.
 
@@ -69,7 +136,6 @@ class AristaDriver(driver_api.MechanismDriver):
         confg = cfg.CONF.ml2_arista
         self.segmentation_type = db_lib.VLAN_SEGMENTATION
         self.timer = None
-        self.sync_timeout = confg['sync_interval']
         self.managed_physnets = confg['managed_physnets']
         self.manage_fabric = confg['manage_fabric']
         self.eos_sync_lock = threading.Lock()
@@ -102,12 +168,10 @@ class AristaDriver(driver_api.MechanismDriver):
             self.rpc.register_with_eos()
             self.rpc.check_supported_features()
 
-        self._cleanup_db()
-        # Registering with EOS updates self.rpc.region_updated_time. Clear it
-        # to force an initial sync
-        self.rpc.clear_region_updated_time()
-        self._synchronization_thread()
         self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
+
+    def get_workers(self):
+        return [AristaSyncWorker(self.rpc, self.ndb)]
 
     def create_network_precommit(self, context):
         """Remember the tenant, and network information."""
@@ -955,34 +1019,6 @@ class AristaDriver(driver_api.MechanismDriver):
     def _host_name(self, hostname):
         fqdns_used = cfg.CONF.ml2_arista['use_fqdn']
         return hostname if fqdns_used else hostname.split('.')[0]
-
-    def _synchronization_thread(self):
-        with self.eos_sync_lock:
-            self.sync_service.do_synchronize()
-
-        self.timer = threading.Timer(self.sync_timeout,
-                                     self._synchronization_thread)
-        self.timer.start()
-
-    def stop_synchronization_thread(self):
-        if self.timer:
-            self.timer.cancel()
-            self.timer = None
-
-    def _cleanup_db(self):
-        """Clean up any unnecessary entries in our DB."""
-        neutron_nets = self.ndb.get_all_networks()
-        arista_db_nets = db_lib.get_networks(tenant_id='any')
-        neutron_net_ids = set()
-        for net in neutron_nets:
-            neutron_net_ids.add(net['id'])
-
-        # Remove networks from the Arista DB if the network does not exist in
-        # Neutron DB
-        for net_id in set(arista_db_nets.keys()).difference(neutron_net_ids):
-            tenant_network = arista_db_nets[net_id]
-            db_lib.forget_network_segment(tenant_network['tenantId'], net_id)
-            db_lib.forget_all_ports_for_network(net_id)
 
     def _network_provisioned(self, tenant_id, network_id,
                              segmentation_id=None, segment_id=None):
