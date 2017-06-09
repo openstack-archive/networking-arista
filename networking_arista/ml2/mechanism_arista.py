@@ -174,11 +174,10 @@ class AristaDriver(driver_api.MechanismDriver):
         with self.eos_sync_lock:
             if db_lib.is_network_provisioned(tenant_id, network_id):
                 if db_lib.are_ports_attached_to_network(network_id):
-                    LOG.info(_LI('Network %s can not be deleted as it '
-                                 'has ports attached to it'), network_id)
-                    raise ml2_exc.MechanismDriverError()
-                else:
-                    db_lib.forget_network(tenant_id, network_id)
+                    db_lib.forget_all_ports_for_network(network_id)
+                    LOG.info(_LI('Deleting all ports on network %s'),
+                             network_id)
+                db_lib.forget_network(tenant_id, network_id)
 
     def delete_network_postcommit(self, context):
         """Send network delete request to Arista HW."""
@@ -202,6 +201,17 @@ class AristaDriver(driver_api.MechanismDriver):
                 LOG.info(EOS_UNREACHABLE_MSG)
                 raise ml2_exc.MechanismDriverError()
 
+    def _supported_device_owner(self, device_owner):
+        supported_device_owner = [n_const.DEVICE_OWNER_DHCP,
+                                  n_const.DEVICE_OWNER_DVR_INTERFACE]
+
+        if any([device_owner in supported_device_owner,
+                device_owner.startswith('compute') and
+                device_owner != 'compute:probe']):
+            return True
+
+        LOG.debug('Unsupported device owner: %s', device_owner)
+
     def create_port_precommit(self, context):
         """Remember the information about a VM and its ports
 
@@ -214,6 +224,9 @@ class AristaDriver(driver_api.MechanismDriver):
         host = context.host
 
         pretty_log("create_port_precommit:", port)
+
+        if not self._supported_device_owner(device_owner):
+            return
 
         # device_id and device_owner are set on VM boot
         is_vm_boot = device_id and device_owner
@@ -243,6 +256,9 @@ class AristaDriver(driver_api.MechanismDriver):
         host = context.host
 
         pretty_log("create_port_postcommit:", port)
+
+        if not self._supported_device_owner(device_owner):
+            return
 
         # device_id and device_owner are set on VM boot
         is_vm_boot = device_id and device_owner
@@ -291,6 +307,9 @@ class AristaDriver(driver_api.MechanismDriver):
 
         pretty_log("update_port_precommit: new", new_port)
         pretty_log("update_port_precommit: orig", orig_port)
+
+        if not self._supported_device_owner(new_port['device_owner']):
+            return
 
         # device_id and device_owner are set on VM boot
         port_id = new_port['id']
@@ -375,6 +394,9 @@ class AristaDriver(driver_api.MechanismDriver):
 
         pretty_log("update_port_postcommit: new", port)
         pretty_log("update_port_postcommit: orig", orig_port)
+
+        if not self._supported_device_owner(device_owner):
+            return
 
         with self.eos_sync_lock:
             hostname = self._host_name(host)
@@ -476,6 +498,9 @@ class AristaDriver(driver_api.MechanismDriver):
         port_id = port['id']
         network_id = port['network_id']
         device_owner = port['device_owner']
+
+        if not self._supported_device_owner(device_owner):
+            return
 
         if not device_id or not host:
             LOG.warn(UNABLE_TO_DELETE_DEVICE_MSG)
