@@ -26,7 +26,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 import requests
-from six import add_metaclass
+import six
 
 from neutron.db.models.plugins.ml2 import vlanallocation
 
@@ -67,7 +67,7 @@ class InstanceType(object):
     BAREMETAL_INSTANCE_TYPES = [BAREMETAL]
 
 
-@add_metaclass(abc.ABCMeta)
+@six.add_metaclass(abc.ABCMeta)
 class AristaRPCWrapperBase(object):
     """Wraps Arista JSON RPC.
 
@@ -137,7 +137,9 @@ class AristaRPCWrapperBase(object):
 
     def _get_random_name(self, length=10):
         """Returns a base64 encoded name."""
-        return base64.b64encode(os.urandom(10)).translate(None, '=+/')
+        result = base64.b64encode(os.urandom(10)).translate(None, b'=+/')
+
+        return result if six.PY2 else result.decode('utf-8')
 
     def _get_cvx_hosts(self):
         cvx = []
@@ -579,7 +581,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         except ValueError:
             LOG.warning(_LW("Ignoring invalid JSON response: %s"), resp.text)
         except Exception as error:
-            msg = unicode(error)
+            msg = six.text_type(error)
             LOG.warning(msg)
             # reraise the exception
             with excutils.save_and_reraise_exception() as ctxt:
@@ -600,7 +602,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def _send_api_request(self, path, method, data=None, sanitized_data=None):
         host = self._get_eos_master()
         if not host:
-            msg = unicode("Could not find CVX leader")
+            msg = "Could not find CVX leader"
             LOG.info(msg)
             self.set_cvx_unavailable()
             raise arista_exc.AristaRpcError(msg=msg)
@@ -1231,8 +1233,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     for data in response.json()['error']['data']:
                         if type(data) == dict and 'errors' in data:
                             if ERR_CVX_NOT_LEADER in data['errors'][0]:
-                                msg = unicode("%s is not the master" % (
-                                              self._server_ip))
+                                msg = six.text_type("%s is not the master" % (
+                                                    self._server_ip))
                                 LOG.info(msg)
                                 return None
 
@@ -1263,7 +1265,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             LOG.info("Ignoring invalid JSON response")
             return None
         except Exception as error:
-            msg = unicode(error)
+            msg = six.text_type(error)
             LOG.warning(msg)
             raise
 
