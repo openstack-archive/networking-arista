@@ -17,6 +17,7 @@ import threading
 
 from neutron_lib import constants as n_const
 from neutron_lib import context as nctx
+from neutron_lib.plugins import constants as plugin_constants
 from oslo_config import cfg
 from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
@@ -74,7 +75,7 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         self.conn.consume_in_threads()
 
     def get_plugin_type(self):
-        return n_const.L3
+        return plugin_constants.L3
 
     def get_plugin_description(self):
         """Returns string description of the plugin."""

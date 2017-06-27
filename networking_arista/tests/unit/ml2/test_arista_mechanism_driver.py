@@ -22,6 +22,7 @@ from mock import patch
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from neutron_lib.db import api as db_api
+from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as driver_api
 from oslo_config import cfg
@@ -262,7 +263,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         super(TestAristaJSONRPCWrapper, self).setUp()
         plugin_klass = importutils.import_class(
             "neutron.db.db_base_plugin_v2.NeutronDbPluginV2")
-        directory.add_plugin(n_const.CORE, plugin_klass())
+        directory.add_plugin(plugin_constants.CORE, plugin_klass())
         setup_valid_config()
         ndb = db_lib.NeutronNets()
         self.drv = arista_ml2.AristaRPCWrapperJSON(ndb)
@@ -1878,7 +1879,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         super(SyncServiceTest, self).setUp()
         plugin_klass = importutils.import_class(
             "neutron.db.db_base_plugin_v2.NeutronDbPluginV2")
-        directory.add_plugin(n_const.CORE, plugin_klass())
+        directory.add_plugin(plugin_constants.CORE, plugin_klass())
         self.rpc = mock.MagicMock()
         ndb = db_lib.NeutronNets()
         self.sync_service = arista_ml2.SyncService(self.rpc, ndb)
