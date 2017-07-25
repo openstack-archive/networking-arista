@@ -15,25 +15,9 @@
 
 
 def setup_arista_wrapper_config(cfg, host='host', user='user'):
-    cfg.CONF.keystone_authtoken = fake_keystone_info_class()
     cfg.CONF.set_override('eapi_host', host, "ml2_arista")
     cfg.CONF.set_override('eapi_username', user, "ml2_arista")
     cfg.CONF.set_override('sync_interval', 10, "ml2_arista")
     cfg.CONF.set_override('conn_timeout', 20, "ml2_arista")
     cfg.CONF.set_override('switch_info', ['switch1:user:pass'], "ml2_arista")
     cfg.CONF.set_override('sec_group_support', False, "ml2_arista")
-
-
-class fake_keystone_info_class(object):
-    """To generate fake Keystone Authentication token information
-
-    Arista Driver expects Keystone auth info. This fake information
-    is for testing only
-    """
-    auth_uri = False
-    auth_protocol = 'abc'
-    auth_host = 'host'
-    auth_port = 5000
-    admin_user = 'neutron'
-    admin_password = 'fun'
-    admin_tenant_name = 'tenant_name'

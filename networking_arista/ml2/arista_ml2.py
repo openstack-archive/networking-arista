@@ -79,7 +79,6 @@ class AristaRPCWrapperBase(object):
         self._ndb = neutron_db
         self._validate_config()
         self._server_ip = None
-        self.keystone_conf = cfg.CONF.keystone_authtoken
         self.region = cfg.CONF.ml2_arista.region_name
         self.sync_interval = cfg.CONF.ml2_arista.sync_interval
         self.conn_timeout = cfg.CONF.ml2_arista.conn_timeout
@@ -117,17 +116,6 @@ class AristaRPCWrapperBase(object):
             msg = _('Required option eapi_username is not set')
             LOG.error(msg)
             raise arista_exc.AristaConfigError(msg=msg)
-
-    def _keystone_url(self):
-        if self.keystone_conf.auth_uri:
-            auth_uri = self.keystone_conf.auth_uri.rstrip('/')
-        else:
-            auth_uri = (
-                '%(protocol)s://%(host)s:%(port)s' %
-                {'protocol': self.keystone_conf.auth_protocol,
-                 'host': self.keystone_conf.auth_host,
-                 'port': self.keystone_conf.auth_port})
-        return '%s/v3/' % auth_uri
 
     def _api_username(self):
         return cfg.CONF.ml2_arista.eapi_username
@@ -607,20 +595,6 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         self.set_cvx_available()
         return self._send_request(host, path, method, data, sanitized_data)
 
-    def _create_keystone_endpoint(self):
-        path = 'region/%s/service-end-point' % self.region
-        data = {
-            'name': 'keystone',
-            'authUrl': self._keystone_url(),
-            'user': self.keystone_conf.admin_user or "",
-            'password': self.keystone_conf.admin_password or "",
-            'tenant': self.keystone_conf.admin_tenant_name or ""
-        }
-        # Hide the password
-        sanitized_data = data.copy()
-        sanitized_data['password'] = "*****"
-        self._send_api_request(path, 'POST', [data], [sanitized_data])
-
     def _set_region_update_interval(self):
         path = 'region/%s' % self.region
         data = {
@@ -631,7 +605,6 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def register_with_eos(self, sync=False):
         self.create_region(self.region)
-        self._create_keystone_endpoint()
         self._set_region_update_interval()
 
     def check_supported_features(self):
@@ -1786,18 +1759,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         self._run_eos_cmds(cmds)
 
     def register_with_eos(self, sync=False):
-        cmds = ['auth url %s user %s password %s tenant %s' % (
-                self._keystone_url(),
-                self.keystone_conf.admin_user,
-                self.keystone_conf.admin_password,
-                self.keystone_conf.admin_tenant_name)]
-
-        log_cmds = ['auth url %s user %s password %s tenant %s' % (
-                    self._keystone_url(),
-                    self.keystone_conf.admin_user,
-                    '******',
-                    self.keystone_conf.admin_tenant_name)]
-
+        cmds = []
+        log_cmds = []
         sync_interval_cmd = 'sync interval %d' % self.sync_interval
         cmds.append(sync_interval_cmd)
         log_cmds.append(sync_interval_cmd)
