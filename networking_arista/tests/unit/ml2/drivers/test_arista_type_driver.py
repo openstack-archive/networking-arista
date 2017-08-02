@@ -28,7 +28,7 @@ from networking_arista.ml2.drivers.type_arista_vlan import AristaVlanTypeDriver
 import networking_arista.tests.unit.ml2.utils as utils
 
 
-EAPI_SEND_FUNC = ('networking_arista.ml2.arista_ml2.AristaRPCWrapperEapi'
+EAPI_SEND_FUNC = ('networking_arista.ml2.rpc.arista_eapi.AristaRPCWrapperEapi'
                   '._send_eapi_req')
 
 

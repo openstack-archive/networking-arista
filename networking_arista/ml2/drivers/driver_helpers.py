@@ -20,8 +20,8 @@ from six import moves
 from neutron.db.models.plugins.ml2 import vlanallocation
 
 from networking_arista._i18n import _LI
+from networking_arista.common.constants import EOS_UNREACHABLE_MSG
 from networking_arista.common import exceptions as arista_exc
-from networking_arista.ml2.arista_ml2 import EOS_UNREACHABLE_MSG
 
 LOG = log.getLogger(__name__)
 
