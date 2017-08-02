@@ -18,33 +18,25 @@ import threading
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from neutron_lib.plugins.ml2 import api as driver_api
-from neutron_lib import worker
 from oslo_config import cfg
 from oslo_log import log as logging
-from oslo_service import loopingcall
 from oslo_utils import excutils
 
 from neutron.common import constants as neutron_const
 
 from networking_arista._i18n import _, _LI, _LE
+from networking_arista.common import constants
 from networking_arista.common import db
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
-from networking_arista.ml2 import arista_ml2
+from networking_arista.ml2 import arista_sync
+from networking_arista.ml2.rpc.arista_eapi import AristaRPCWrapperEapi
+from networking_arista.ml2.rpc.arista_json import AristaRPCWrapperJSON
 from networking_arista.ml2 import sec_group_callback
+
 
 LOG = logging.getLogger(__name__)
 cfg.CONF.import_group('ml2_arista', 'networking_arista.common.config')
-
-# Messages
-EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
-UNABLE_TO_DELETE_PORT_MSG = _('Unable to delete port from EOS')
-UNABLE_TO_DELETE_DEVICE_MSG = _('Unable to delete device')
-
-# Constants
-INTERNAL_TENANT_ID = 'INTERNAL-TENANT-ID'
-PORT_BINDING_HOST = 'binding:host_id'
-MECHANISM_DRV_NAME = 'arista'
 
 
 def pretty_log(tag, obj):
@@ -52,63 +44,6 @@ def pretty_log(tag, obj):
     log_data = json.dumps(obj, sort_keys=True, indent=4)
     LOG.debug(tag)
     LOG.debug(log_data)
-
-
-class AristaSyncWorker(worker.BaseWorker):
-    def __init__(self, rpc, ndb):
-        super(AristaSyncWorker, self).__init__(worker_process_count=0)
-        self.ndb = ndb
-        self.rpc = rpc
-        self.sync_service = arista_ml2.SyncService(rpc, ndb)
-        rpc.sync_service = self.sync_service
-        self._loop = None
-
-    def start(self):
-        super(AristaSyncWorker, self).start()
-
-        self._sync_running = True
-        self._sync_event = threading.Event()
-
-        self._cleanup_db()
-        # Registering with EOS updates self.rpc.region_updated_time. Clear it
-        # to force an initial sync
-        self.rpc.clear_region_updated_time()
-
-        if self._loop is None:
-            self._loop = loopingcall.FixedIntervalLoopingCall(
-                self.sync_service.do_synchronize
-            )
-        self._loop.start(interval=cfg.CONF.ml2_arista.sync_interval)
-
-    def stop(self, graceful=False):
-        if self._loop is not None:
-            self._loop.stop()
-
-    def wait(self):
-        if self._loop is not None:
-            self._loop.wait()
-
-    def reset(self):
-        self.stop()
-        self.wait()
-        self.start()
-
-    def _cleanup_db(self):
-        """Clean up any unnecessary entries in our DB."""
-
-        LOG.info('Arista Sync: DB Cleanup')
-        neutron_nets = self.ndb.get_all_networks()
-        arista_db_nets = db_lib.get_networks(tenant_id='any')
-        neutron_net_ids = set()
-        for net in neutron_nets:
-            neutron_net_ids.add(net['id'])
-
-        # Remove networks from the Arista DB if the network does not exist in
-        # Neutron DB
-        for net_id in set(arista_db_nets.keys()).difference(neutron_net_ids):
-            tenant_network = arista_db_nets[net_id]
-            db_lib.forget_network_segment(tenant_network['tenantId'], net_id)
-            db_lib.forget_all_ports_for_network(net_id)
 
 
 class AristaDriver(driver_api.MechanismDriver):
@@ -139,14 +74,14 @@ class AristaDriver(driver_api.MechanismDriver):
             self.rpc = rpc
             self.eapi = rpc
         else:
-            self.eapi = arista_ml2.AristaRPCWrapperEapi(self.ndb)
+            self.eapi = AristaRPCWrapperEapi(self.ndb)
             api_type = confg['api_type'].upper()
             if api_type == 'EAPI':
                 LOG.info("Using EAPI for RPC")
-                self.rpc = arista_ml2.AristaRPCWrapperEapi(self.ndb)
+                self.rpc = AristaRPCWrapperEapi(self.ndb)
             elif api_type == 'JSON':
                 LOG.info("Using JSON for RPC")
-                self.rpc = arista_ml2.AristaRPCWrapperJSON(self.ndb)
+                self.rpc = AristaRPCWrapperJSON(self.ndb)
             else:
                 msg = "RPC mechanism %s not recognized" % api_type
                 LOG.error(msg)
@@ -160,7 +95,7 @@ class AristaDriver(driver_api.MechanismDriver):
         self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
 
     def get_workers(self):
-        return [AristaSyncWorker(self.rpc, self.ndb)]
+        return [arista_sync.AristaSyncWorker(self.rpc, self.ndb)]
 
     def create_network_precommit(self, context):
         """Remember the tenant, and network information."""
@@ -174,7 +109,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     segments[0][driver_api.NETWORK_TYPE] != n_const.TYPE_VLAN):
                 return
         network_id = network['id']
-        tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
+        tenant_id = network['tenant_id'] or constants.INTERNAL_TENANT_ID
         with self.eos_sync_lock:
             db_lib.remember_tenant(tenant_id)
             for segment in segments:
@@ -189,7 +124,7 @@ class AristaDriver(driver_api.MechanismDriver):
         network = context.current
         network_id = network['id']
         network_name = network['name']
-        tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
+        tenant_id = network['tenant_id'] or constants.INTERNAL_TENANT_ID
         segments = context.network_segments
         shared_net = network['shared']
         with self.eos_sync_lock:
@@ -233,7 +168,8 @@ class AristaDriver(driver_api.MechanismDriver):
            (new_network['shared'] != orig_network['shared'])):
             network_id = new_network['id']
             network_name = new_network['name']
-            tenant_id = new_network['tenant_id'] or INTERNAL_TENANT_ID
+            tenant_id = (new_network['tenant_id'] or
+                         constants.INTERNAL_TENANT_ID)
             shared_net = new_network['shared']
             with self.eos_sync_lock:
                 if db_lib.is_network_provisioned(tenant_id, network_id):
@@ -257,7 +193,7 @@ class AristaDriver(driver_api.MechanismDriver):
         """Delete the network information from the DB."""
         network = context.current
         network_id = network['id']
-        tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
+        tenant_id = network['tenant_id'] or constants.INTERNAL_TENANT_ID
         with self.eos_sync_lock:
             if db_lib.is_network_provisioned(tenant_id, network_id):
                 if db_lib.are_ports_attached_to_network(network_id):
@@ -281,7 +217,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # HPB is not supported.
             segments = []
         network_id = network['id']
-        tenant_id = network['tenant_id'] or INTERNAL_TENANT_ID
+        tenant_id = network['tenant_id'] or constants.INTERNAL_TENANT_ID
         with self.eos_sync_lock:
 
             # Succeed deleting network in case EOS is not accessible.
@@ -504,7 +440,7 @@ class AristaDriver(driver_api.MechanismDriver):
         if new_host and orig_host and new_host != orig_host:
             LOG.debug("Handling port migration for: %s " % orig_port)
             network_id = orig_port['network_id']
-            tenant_id = orig_port['tenant_id'] or INTERNAL_TENANT_ID
+            tenant_id = orig_port['tenant_id'] or constants.INTERNAL_TENANT_ID
             # Ensure that we use tenant Id for the network owner
             tenant_id = self._network_owner_tenant(context, network_id,
                                                    tenant_id)
@@ -537,7 +473,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # 2. If segment_id is provisioned and it not bound to any port it
             # should be removed from EOS.
             network_id = orig_port['network_id']
-            tenant_id = orig_port['tenant_id'] or INTERNAL_TENANT_ID
+            tenant_id = orig_port['tenant_id'] or constants.INTERNAL_TENANT_ID
             # Ensure that we use tenant Id for the network owner
             tenant_id = self._network_owner_tenant(context, network_id,
                                                    tenant_id)
@@ -570,7 +506,7 @@ class AristaDriver(driver_api.MechanismDriver):
                                     tenant_id, network_id,
                                     binding_level.segment_id)
                             except arista_exc.AristaRpcError:
-                                LOG.info(EOS_UNREACHABLE_MSG)
+                                LOG.info(constants.EOS_UNREACHABLE_MSG)
 
             return True
 
@@ -609,7 +545,7 @@ class AristaDriver(driver_api.MechanismDriver):
         # device_id and device_owner are set on VM boot
         port_id = new_port['id']
         network_id = new_port['network_id']
-        tenant_id = new_port['tenant_id'] or INTERNAL_TENANT_ID
+        tenant_id = new_port['tenant_id'] or constants.INTERNAL_TENANT_ID
         # Ensure that we use tenant Id for the network owner
         tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
 
@@ -703,7 +639,7 @@ class AristaDriver(driver_api.MechanismDriver):
         port_id = port['id']
         port_name = port['name']
         network_id = port['network_id']
-        tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+        tenant_id = port['tenant_id'] or constants.INTERNAL_TENANT_ID
         # Ensure that we use tenant Id for the network owner
         tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
         sg = port['security_groups']
@@ -816,7 +752,7 @@ class AristaDriver(driver_api.MechanismDriver):
         host = context.host
         network_id = port['network_id']
 
-        tenant_id = port['tenant_id'] or INTERNAL_TENANT_ID
+        tenant_id = port['tenant_id'] or constants.INTERNAL_TENANT_ID
         # Ensure that we use tenant Id for the network owner
         tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
 
@@ -834,7 +770,7 @@ class AristaDriver(driver_api.MechanismDriver):
             except arista_exc.AristaRpcError:
                 # Can't do much if deleting a port failed.
                 # Log a warning and continue.
-                LOG.warning(UNABLE_TO_DELETE_PORT_MSG)
+                LOG.warning(constants.UNABLE_TO_DELETE_PORT_MSG)
 
     def _delete_port(self, port, host, tenant_id):
         """Deletes the port from EOS.
@@ -861,7 +797,7 @@ class AristaDriver(driver_api.MechanismDriver):
         sg = port['security_groups']
 
         if not device_id or not host:
-            LOG.warning(UNABLE_TO_DELETE_DEVICE_MSG)
+            LOG.warning(constants.UNABLE_TO_DELETE_DEVICE_MSG)
             return
 
         try:
@@ -878,7 +814,7 @@ class AristaDriver(driver_api.MechanismDriver):
             # if necessary, delete tenant as well.
             self.delete_tenant(tenant_id)
         except arista_exc.AristaRpcError:
-            LOG.info(EOS_UNREACHABLE_MSG)
+            LOG.info(constants.EOS_UNREACHABLE_MSG)
 
     def _delete_segment(self, context, tenant_id):
         """Deletes a dynamic network segment from EOS.
@@ -916,7 +852,7 @@ class AristaDriver(driver_api.MechanismDriver):
                         db_lib.forget_network_segment(
                             tenant_id, network_id, binding_level.segment_id)
                     except arista_exc.AristaRpcError:
-                        LOG.info(EOS_UNREACHABLE_MSG)
+                        LOG.info(constants.EOS_UNREACHABLE_MSG)
                 else:
                     LOG.debug("Cannot delete segment_id %(segid)s "
                               "segment is %(seg)s",
@@ -959,7 +895,8 @@ class AristaDriver(driver_api.MechanismDriver):
         # When Arista driver participate in port binding by allocating dynamic
         # segment and then calling continue_binding, the driver should the
         # second last driver in the bound drivers list.
-        if (segment_id and bound_drivers[-2:-1] == [MECHANISM_DRV_NAME]):
+        if (segment_id and bound_drivers[-2:-1] ==
+                [constants.MECHANISM_DRV_NAME]):
             filters = {'segment_id': segment_id}
             result = db_lib.get_port_binding_level(filters)
             LOG.debug("Looking for entry with filters=%(filters)s "
@@ -987,7 +924,7 @@ class AristaDriver(driver_api.MechanismDriver):
                 self.rpc.delete_tenant(tenant_id)
             except arista_exc.AristaRpcError:
                 with excutils.save_and_reraise_exception():
-                    LOG.info(EOS_UNREACHABLE_MSG)
+                    LOG.info(constants.EOS_UNREACHABLE_MSG)
 
     def _host_name(self, hostname):
         fqdns_used = cfg.CONF.ml2_arista['use_fqdn']
