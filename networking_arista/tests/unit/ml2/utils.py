@@ -21,3 +21,12 @@ def setup_arista_wrapper_config(cfg, host='host', user='user'):
     cfg.CONF.set_override('conn_timeout', 20, "ml2_arista")
     cfg.CONF.set_override('switch_info', ['switch1:user:pass'], "ml2_arista")
     cfg.CONF.set_override('sec_group_support', False, "ml2_arista")
+
+
+def port_dict_representation(port):
+    return {port['portId']: {'device_owner': port['device_owner'],
+                             'device_id': port['device_id'],
+                             'name': port['name'],
+                             'id': port['portId'],
+                             'tenant_id': port['tenant_id'],
+                             'network_id': port['network_id']}}
