@@ -20,6 +20,7 @@ from neutron_lib import constants as n_const
 from oslo_log import log as logging
 from oslo_utils import excutils
 import requests
+import six
 
 from networking_arista._i18n import _, _LI, _LW, _LE
 from networking_arista.common import constants as const
@@ -96,7 +97,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         except ValueError:
             LOG.warning(_LW("Ignoring invalid JSON response: %s"), resp.text)
         except Exception as error:
-            msg = unicode(error)
+            msg = six.text_type(error)
             LOG.warning(msg)
             # reraise the exception
             with excutils.save_and_reraise_exception() as ctxt:
@@ -117,7 +118,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def _send_api_request(self, path, method, data=None, sanitized_data=None):
         host = self._get_eos_master()
         if not host:
-            msg = unicode("Could not find CVX leader")
+            msg = six.text_type("Could not find CVX leader")
             LOG.info(msg)
             self.set_cvx_unavailable()
             raise arista_exc.AristaRpcError(msg=msg)

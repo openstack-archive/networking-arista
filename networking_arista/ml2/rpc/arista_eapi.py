@@ -21,6 +21,7 @@ from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
 import requests
+import six
 
 from networking_arista._i18n import _, _LI, _LW, _LE
 from networking_arista.common import constants as const
@@ -91,8 +92,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     for data in response.json()['error']['data']:
                         if type(data) == dict and 'errors' in data:
                             if const.ERR_CVX_NOT_LEADER in data['errors'][0]:
-                                msg = unicode("%s is not the master" % (
-                                              self._server_ip))
+                                msg = six.text_type("%s is not the master" % (
+                                                    self._server_ip))
                                 LOG.info(msg)
                                 return None
 
@@ -123,7 +124,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             LOG.info("Ignoring invalid JSON response")
             return None
         except Exception as error:
-            msg = unicode(error)
+            msg = six.text_type(error)
             LOG.warning(msg)
             raise
 
