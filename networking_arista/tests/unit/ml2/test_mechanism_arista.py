@@ -18,7 +18,6 @@ from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from neutron_lib.plugins.ml2 import api as driver_api
 
-from neutron.common import constants as neutron_const
 from neutron.tests.unit import testlib_api
 
 from networking_arista.ml2 import mechanism_arista
@@ -989,7 +988,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'n1'
         old_device_id = 'old_device_id'
         new_device_id = 'new_device_id'
-        reserved_device = neutron_const.DEVICE_ID_RESERVED_DHCP_PORT
+        reserved_device = n_const.DEVICE_ID_RESERVED_DHCP_PORT
         old_host = 'ubuntu1'
         new_host = 'ubuntu2'
         port_id = 101
@@ -1138,7 +1137,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'n1'
         old_device_id = 'old_device_id'
         new_device_id = 'new_device_id'
-        reserved_device = neutron_const.DEVICE_ID_RESERVED_DHCP_PORT
+        reserved_device = n_const.DEVICE_ID_RESERVED_DHCP_PORT
         old_host = 'ubuntu1'
         new_host = 'ubuntu2'
         port_id = 101

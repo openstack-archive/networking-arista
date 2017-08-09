@@ -22,8 +22,6 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 
-from neutron.common import constants as neutron_const
-
 from networking_arista._i18n import _, _LI, _LE
 from networking_arista.common import constants
 from networking_arista.common import db
@@ -700,7 +698,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     port_down = context.status == n_const.PORT_STATUS_DOWN
 
                 if orig_host and (port_down or host != orig_host or
-                   device_id == neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
+                   device_id == n_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     LOG.info("Deleting the port %s" % str(orig_port))
                     # The port moved to a different host or the VM
                     # connected to the port was deleted or its in DOWN
@@ -708,7 +706,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     self._delete_port(orig_port, orig_host, tenant_id)
                 if(port_provisioned and net_provisioned and hostname and
                    is_vm_boot and not port_down and
-                   device_id != neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
+                   device_id != n_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     LOG.info(_LI("Port plugged into network"))
                     # Plug port into the network only if it exists in the db
                     # and is bound to a host and the port is up.
