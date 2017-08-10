@@ -1,0 +1,9 @@
+Code-Review+2: Nader Lahouti <nader.lahouti@gmail.com>
+Code-Review+2: Shashank Hegde <shashank@aristanetworks.com>
+Workflow+1: Shashank Hegde <shashank@aristanetworks.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 10 Aug 2017 21:19:35 +0000
+Reviewed-on: https://review.openstack.org/492222
+Project: openstack/networking-arista
+Branch: refs/heads/master
