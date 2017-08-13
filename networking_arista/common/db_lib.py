@@ -22,6 +22,7 @@ from neutron.db import db_base_plugin_v2
 from neutron.db import securitygroups_db as sec_db
 from neutron.db import segments_db
 from neutron.plugins.ml2 import models as ml2_models
+from neutron.services.trunk import models as trunk_models
 
 from networking_arista.common import db as db_models
 
@@ -452,6 +453,30 @@ def get_port_binding_level(filters):
     with session.begin():
         return (session.query(ml2_models.PortBindingLevel).
                 filter_by(**filters).all())
+
+
+def get_trunk_port_by_subport_id(subport_id):
+    """Returns trunk port based on sub port id."""
+    session = db.get_reader_session()
+    with session.begin():
+        trunk_port = session.query(trunk_models.SubPort).\
+            filter_by(port_id=subport_id).first()
+        if not trunk_port:
+            return
+        else:
+            trunk_id = trunk_port.trunk_id
+            return get_trunk_port_by_trunk_id(trunk_id)
+
+
+def get_trunk_port_by_trunk_id(trunk_id):
+    session = db.get_reader_session()
+    with session.begin():
+        trunk_port = session.query(trunk_models.Trunk).\
+            filter_by(id=trunk_id).first()
+        if not trunk_port:
+            return
+        else:
+            return trunk_port.port
 
 
 class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
