@@ -356,11 +356,13 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         }
 
     def _create_port_data(self, port_id, tenant_id, network_id, instance_id,
-                          name, instance_type, hosts):
+                          name, instance_type, hosts, device_owner=None):
 
         vlan_type = 'allowed'
         if instance_type in const.InstanceType.BAREMETAL_INSTANCE_TYPES:
             vlan_type = 'native'
+            if device_owner and device_owner.startswith('trunk'):
+                vlan_type = 'allowed'
 
         return {
             'id': port_id,
@@ -427,7 +429,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                     if inst_id not in dhcpInst:
                         dhcpInst[inst_id] = instance
                 elif (device_owner.startswith('compute') or
-                      device_owner.startswith('baremetal')):
+                      device_owner.startswith('baremetal') or
+                      device_owner.startswith('trunk')):
                     if vnic_type == 'baremetal':
                         instance_type = const.InstanceType.BAREMETAL
                         if inst_id not in baremetalInst:
@@ -454,7 +457,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 port = self._create_port_data(port_id, tenant_id,
                                               network_id, inst_id,
                                               neutron_port.get('name'),
-                                              instance_type, v_port['hosts'])
+                                              instance_type, v_port['hosts'],
+                                              device_owner)
                 portInst.append(port)
 
                 if instance_type in const.InstanceType.VIRTUAL_INSTANCE_TYPES:
@@ -513,11 +517,13 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         self.delete_instance_bulk(tenant_id, dhcp_id_list,
                                   const.InstanceType.DHCP)
 
-    def delete_port(self, port_id, instance_id, instance_type):
+    def delete_port(self, port_id, instance_id, instance_type,
+                    device_owner=None):
         path = ('region/%s/port?portId=%s&id=%s&type=%s' %
                 (self.region, port_id, instance_id, instance_type))
         port = self._create_port_data(port_id, None, None, instance_id,
-                                      None, instance_type, None)
+                                      None, instance_type, None,
+                                      device_owner)
         return self._send_api_request(path, 'DELETE', [port])
 
     def get_instance_ports(self, instance_id, instance_type):
@@ -528,12 +534,13 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
                                sg, orig_sg, vnic_type, segments,
-                               switch_bindings=None):
+                               switch_bindings=None, trunk_details=None):
         device_type = ''
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             device_type = const.InstanceType.DHCP
         elif (device_owner.startswith('compute')
-              or device_owner.startswith('baremetal')):
+              or device_owner.startswith('baremetal')
+              or device_owner.startswith('trunk')):
             if vnic_type == 'baremetal':
                 device_type = const.InstanceType.BAREMETAL
             else:
@@ -547,7 +554,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         self._create_tenant_if_needed(tenant_id)
         instance = self._create_instance_data(device_id, host_id)
         port = self._create_port_data(port_id, tenant_id, net_id, device_id,
-                                      port_name, device_type, [host_id])
+                                      port_name, device_type, [host_id],
+                                      device_owner)
         url = 'region/%(region)s/%(device_type)s?tenantId=%(tenant_id)s' % {
               'region': self.region,
               'device_type': device_type,
@@ -556,11 +564,45 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         self._send_api_request(url, 'POST', [instance])
         self._send_api_request('region/' + self.region + '/port', 'POST',
                                [port])
+        if trunk_details and trunk_details.get('sub_ports'):
+            for subport in trunk_details['sub_ports']:
+                subport_id = subport['port_id']
+                subport_net_id = self._ndb.get_network_id_from_port_id(
+                    subport_id)
+                subport_name = 'name_%s' % subport_id
+                sub_device_owner = 'trunk:subport'
+                port = self._create_port_data(subport_id, tenant_id,
+                                              subport_net_id, device_id,
+                                              subport_name, device_type,
+                                              [host_id], sub_device_owner)
+
+                self._send_api_request('region/' + self.region + '/port',
+                                       'POST', [port])
         if device_type in const.InstanceType.VIRTUAL_INSTANCE_TYPES:
             self.bind_port_to_host(port_id, host_id, net_id, segments)
+            if trunk_details and trunk_details.get('sub_ports'):
+                for subport in trunk_details['sub_ports']:
+                    subport_id = subport['port_id']
+                    subport_net_id = self._ndb.get_network_id_from_port_id(
+                        subport_id)
+                    sub_segments = self._ndb.get_network_segments(
+                        subport_net_id, dynamic=False, context=None)
+                    self.bind_port_to_host(subport_id, host_id,
+                                           subport_net_id, sub_segments)
         elif device_type in const.InstanceType.BAREMETAL_INSTANCE_TYPES:
             self.bind_port_to_switch_interface(port_id, host_id, net_id,
                                                switch_bindings, segments)
+            if trunk_details and trunk_details.get('sub_ports'):
+                for subport in trunk_details['sub_ports']:
+                    subport_id = subport['port_id']
+                    subport_net_id = self._ndb.get_network_id_from_port_id(
+                        subport_id)
+                    sub_segments = self._ndb.get_network_segments(
+                        subport_net_id, dynamic=False, context=None)
+                    self.bind_port_to_switch_interface(subport_id, host_id,
+                                                       subport_net_id,
+                                                       switch_bindings,
+                                                       sub_segments)
             if sg:
                 self.apply_security_group(sg, switch_bindings)
             else:
@@ -571,12 +613,13 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def unplug_port_from_network(self, device_id, device_owner, hostname,
                                  port_id, network_id, tenant_id, sg, vnic_type,
-                                 switch_bindings=None):
+                                 switch_bindings=None, trunk_details=None):
         device_type = ''
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             device_type = const.InstanceType.DHCP
         elif (device_owner.startswith('compute') or
-              device_owner.startswith('baremetal')):
+              device_owner.startswith('baremetal') or
+              device_owner.startswith('trunk')):
             if vnic_type == 'baremetal':
                 device_type = const.InstanceType.BAREMETAL
             else:
@@ -588,11 +631,27 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             return
 
         if device_type in const.InstanceType.VIRTUAL_INSTANCE_TYPES:
+            if trunk_details and trunk_details.get('sub_ports'):
+                for subport in trunk_details['sub_ports']:
+                    subport_id = subport['port_id']
+                    subport_device_owner = 'trunk:subport'
+                    self.unbind_port_from_host(subport_id, hostname)
+                    self.delete_port(subport_id, device_id, device_type,
+                                     subport_device_owner)
             self.unbind_port_from_host(port_id, hostname)
         elif device_type in const.InstanceType.BAREMETAL_INSTANCE_TYPES:
+            if trunk_details and trunk_details.get('sub_ports'):
+                for subport in trunk_details['sub_ports']:
+                    subport_id = subport['port_id']
+                    subport_device_owner = 'trunk:subport'
+                    self.unbind_port_from_switch_interface(subport_id,
+                                                           hostname,
+                                                           switch_bindings)
+                    self.delete_port(subport_id, device_id, device_type,
+                                     subport_device_owner)
             self.unbind_port_from_switch_interface(port_id, hostname,
                                                    switch_bindings)
-        self.delete_port(port_id, device_id, device_type)
+        self.delete_port(port_id, device_id, device_type, device_owner)
         port = self.get_instance_ports(device_id, device_type)
         if not port:
             # If the last port attached to an instance is deleted, cleanup the
