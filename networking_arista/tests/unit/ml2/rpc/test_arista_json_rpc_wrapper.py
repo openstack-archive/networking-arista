@@ -655,3 +655,231 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
              [{'id': 'router1'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
+
+
+class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
+    """Test cases to test plug trunk port into network. """
+
+    def setUp(self):
+        super(RPCWrapperJSONValidConfigTrunkTestCase, self).setUp()
+        setup_valid_config()
+        ndb = mock.MagicMock()
+        self.drv = arista_json.AristaRPCWrapperJSON(ndb)
+        self.drv._server_ip = "10.11.12.13"
+        self.region = 'RegionOne'
+        arista_json.db_lib = mock.MagicMock()
+
+    @patch(JSON_SEND_FUNC)
+    def test_plug_virtual_trunk_port_into_network(self, mock_send_api_req):
+        # vm
+        tenant_id = 'ten-1'
+        network_id = 'net-id-1'
+        vm_id = 'vm-1'
+        port_id = 'p1'
+        host = 'host'
+        port_name = 'name_p1'
+
+        subport_net_id = 'net-id-2'
+
+        segments = [{'segmentation_id': 1001,
+                     'id': 'segment_id_1',
+                     'network_type': 'vlan',
+                     'is_dynamic': False}]
+
+        subport_segments = [{'id': 'sub_segment_id_1',
+                             'segmentation_id': 1002,
+                             'network_type': 'vlan',
+                             'is_dynamic': False}]
+
+        trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
+                                        'port_id': 'p2',
+                                        'segmentation_id': 1002,
+                                        'segmentation_type': 'vlan'}],
+                         'trunk_id': 'trunk_id'}
+        self.drv._ndb.get_network_id_from_port_id.return_value = subport_net_id
+        arista_json.db_lib.get_network_segments_by_port_id.return_value = \
+            subport_segments
+
+        self.drv.plug_port_into_network(vm_id, host, port_id, network_id,
+                                        tenant_id, port_name,
+                                        'compute', None, None, None, segments,
+                                        trunk_details=trunk_details)
+        calls = [
+            ('region/RegionOne/vm?tenantId=ten-1', 'POST',
+             [{'id': 'vm-1', 'hostId': 'host'}]),
+            ('region/RegionOne/port', 'POST',
+             [{'id': 'p1', 'hosts': ['host'], 'tenantId': 'ten-1',
+               'networkId': 'net-id-1', 'instanceId': 'vm-1',
+               'name': 'name_p1',
+               'instanceType': 'vm', 'vlanType': 'allowed'}]),
+            ('region/RegionOne/port', 'POST',
+             [{'id': 'p2', 'hosts': ['host'], 'tenantId': 'ten-1',
+               'networkId': 'net-id-2', 'instanceId': 'vm-1',
+               'name': 'name_p2',
+               'instanceType': 'vm', 'vlanType': 'allowed'}]),
+            ('region/RegionOne/port/p1/binding', 'POST',
+             [{'portId': 'p1', 'hostBinding': [{'host': 'host', 'segment': [{
+                 'id': 'segment_id_1', 'type': 'vlan', 'segmentationId': 1001,
+                 'networkId': 'net-id-1', 'segment_type': 'static'}]}]}]),
+            ('region/RegionOne/port/p2/binding', 'POST',
+             [{'portId': 'p2', 'hostBinding': [{'host': 'host', 'segment': [{
+                 'id': 'sub_segment_id_1', 'type': 'vlan',
+                 'segmentationId': 1002,
+                 'networkId': 'net-id-2', 'segment_type': 'static'}]}]}]),
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_plug_baremetal_trunk_port_into_network(self, mock_send_api_req):
+        # baremetal
+        tenant_id = 'ten-2'
+        network_id = 'net-id-1'
+        bm_id = 'bm-1'
+        port_id = 'p1'
+        host = 'host'
+        port_name = 'name_p1'
+        sg = {'id': 'security-group-1'}
+        segments = [{'segmentation_id': 1111,
+                     'id': 'segment_id_1',
+                     'network_type': 'vlan',
+                     'is_dynamic': False}]
+
+        subport_net_id = 'net-id-2'
+        subport_segments = [{'id': 'sub_segment_id_1',
+                             'segmentation_id': 1112,
+                             'network_type': 'vlan',
+                             'is_dynamic': False}]
+
+        trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
+                                        'port_id': 'p2',
+                                        'segmentation_id': 1112,
+                                        'segmentation_type': 'vlan'}],
+                         'trunk_id': 'trunk_id'}
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
+        bindings = switch_bindings['local_link_information']
+        self.drv._ndb.get_network_id_from_port_id.return_value = subport_net_id
+        arista_json.db_lib.get_network_segments_by_port_id.return_value = \
+            subport_segments
+
+        self.drv.plug_port_into_network(bm_id, host, port_id, network_id,
+                                        tenant_id, port_name,
+                                        'baremetal', sg, None, 'baremetal',
+                                        segments, bindings,
+                                        trunk_details=trunk_details)
+
+        calls = [
+            ('region/RegionOne/baremetal?tenantId=ten-2', 'POST',
+             [{'id': 'bm-1', 'hostId': 'host'}]),
+            ('region/RegionOne/port', 'POST',
+             [{'id': 'p1', 'hosts': ['host'], 'tenantId': 'ten-2',
+               'networkId': 'net-id-1', 'instanceId': 'bm-1',
+               'name': 'name_p1',
+               'instanceType': 'baremetal', 'vlanType': 'native'}]),
+            ('region/RegionOne/port', 'POST',
+             [{'id': 'p2', 'hosts': ['host'], 'tenantId': 'ten-2',
+               'networkId': 'net-id-2', 'instanceId': 'bm-1',
+               'name': 'name_p2',
+               'instanceType': 'baremetal', 'vlanType': 'allowed'}]),
+            ('region/RegionOne/port/p1/binding', 'POST',
+             [{'portId': 'p1', 'switchBinding': [
+                 {'host': 'host', 'switch': 'switch-id-1',
+                  'interface': 'Eth1', 'segment':
+                      [{'id': 'segment_id_1', 'type': 'vlan',
+                        'segmentationId': 1111, 'networkId': 'net-id-1',
+                        'segment_type': 'static'}]}]}]),
+            ('region/RegionOne/port/p2/binding', 'POST',
+             [{'portId': 'p2', 'switchBinding':
+                 [{'host': 'host', 'switch': 'switch-id-1',
+                   'interface': 'Eth1', 'segment':
+                       [{'id': 'sub_segment_id_1', 'type': 'vlan',
+                         'segmentationId': 1112, 'networkId': 'net-id-2',
+                         'segment_type': 'static'}]}]}]),
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    @patch('networking_arista.ml2.rpc.arista_json.AristaRPCWrapperJSON.'
+           'get_instance_ports')
+    def test_unplug_virtual_trunk_port_from_network(self,
+                                                    mock_get_instance_ports,
+                                                    mock_send_api_req):
+        # trunk port
+        trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
+                                        'port_id': 'subport',
+                                        'segmentation_id': 1001,
+                                        'segmentation_type': 'vlan'}],
+                         'trunk_id': 'trunk_id'}
+        mock_get_instance_ports.return_value = []
+        self.drv.unplug_port_from_network('vm1', 'compute', 'h1', 'trunk_port',
+                                          'n1', 't1', None, None,
+                                          trunk_details=trunk_details)
+        subport = self.drv._create_port_data('subport', None, None, 'vm1',
+                                             None, 'vm', None)
+        trunk_port = self.drv._create_port_data('trunk_port', None, None,
+                                                'vm1', None, 'vm', None)
+        calls = [
+            ('region/RegionOne/port/subport/binding', 'DELETE',
+             [{'portId': 'subport', 'hostBinding': [{'host': 'h1'}]}]),
+            ('region/RegionOne/port?portId=subport&id=vm1&type=vm',
+             'DELETE', [subport]),
+            ('region/RegionOne/port/trunk_port/binding', 'DELETE',
+             [{'portId': 'trunk_port', 'hostBinding': [{'host': 'h1'}]}]),
+            ('region/RegionOne/port?portId=trunk_port&id=vm1&type=vm',
+             'DELETE', [trunk_port]),
+            ('region/RegionOne/vm', 'DELETE', [{'id': 'vm1'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    @patch('networking_arista.ml2.rpc.arista_json.AristaRPCWrapperJSON.'
+           'get_instance_ports')
+    def test_unplug_baremetal_trunk_port_from_network(self,
+                                                      mock_get_instance_ports,
+                                                      mock_send_api_req):
+        # trunk port
+        trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
+                                        'port_id': 'subport',
+                                        'segmentation_id': 1001,
+                                        'segmentation_type': 'vlan'}],
+                         'trunk_id': 'trunk_id'}
+        mock_get_instance_ports.return_value = []
+        switch_bindings = [{'switch_id': 'switch01', 'port_id': 'Ethernet1'}]
+        self.drv.unplug_port_from_network('bm1', 'baremetal', 'h1', 'p1', 'n1',
+                                          't1', None, 'baremetal',
+                                          switch_bindings, trunk_details)
+        subport = self.drv._create_port_data('subport', None, None, 'bm1',
+                                             None, 'baremetal', None,
+                                             'trunk:subport')
+        trunk_port = self.drv._create_port_data('p1', None, None, 'bm1',
+                                                None, 'baremetal', None)
+        calls = [
+            ('region/RegionOne/port/subport/binding', 'DELETE',
+             [{'portId': 'subport', 'switchBinding':
+                 [{'host': 'h1', 'switch': 'switch01', 'segment': [],
+                   'interface': 'Ethernet1'}]}]),
+            ('region/RegionOne/port?portId=subport&id=bm1&type=baremetal',
+             'DELETE', [subport]),
+            ('region/RegionOne/port/p1/binding', 'DELETE',
+             [{'portId': 'p1', 'switchBinding':
+                 [{'host': 'h1', 'switch': 'switch01', 'segment': [],
+                   'interface': 'Ethernet1'}]}]),
+            ('region/RegionOne/port?portId=p1&id=bm1&type=baremetal',
+             'DELETE', [trunk_port]),
+            ('region/RegionOne/baremetal', 'DELETE', [{'id': 'bm1'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    def _verify_send_api_request_call(self, mock_send_api_req, calls,
+                                      unordered_dict_list=False):
+        if unordered_dict_list:
+            wrapper = functools.partial(_UnorderedDictList, sort_key='id')
+        else:
+            wrapper = lambda x: x
+
+        expected_calls = [
+            mock.call(c[0], c[1], *(wrapper(d) for d in c[2:])) for c in calls
+        ]
+
+        mock_send_api_req.assert_has_calls(expected_calls, any_order=True)
