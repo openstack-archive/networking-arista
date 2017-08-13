@@ -16,11 +16,15 @@
 import threading
 
 from neutron_lib.api.definitions import portbindings
+from neutron_lib.callbacks import events
+from neutron_lib.callbacks import registry
 from neutron_lib import constants as n_const
 from neutron_lib.plugins.ml2 import api as driver_api
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
+
+from neutron.services.trunk import constants as trunk_consts
 
 from networking_arista._i18n import _, _LI, _LE
 from networking_arista.common import constants
@@ -91,6 +95,10 @@ class AristaDriver(driver_api.MechanismDriver):
             self.rpc.check_supported_features()
 
         self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
+        registry.subscribe(self.set_subport,
+                           trunk_consts.SUBPORTS, events.AFTER_CREATE)
+        registry.subscribe(self.unset_subport,
+                           trunk_consts.SUBPORTS, events.AFTER_DELETE)
 
     def get_workers(self):
         return [arista_sync.AristaSyncWorker(self.rpc, self.ndb)]
@@ -378,7 +386,8 @@ class AristaDriver(driver_api.MechanismDriver):
         if any([device_owner in supported_device_owner,
                 device_owner.startswith('compute') and
                 device_owner != 'compute:probe',
-                device_owner.startswith('baremetal')]):
+                device_owner.startswith('baremetal'),
+                device_owner.startswith('trunk')]):
             return True
 
         LOG.debug('Unsupported device owner: %s', device_owner)
@@ -625,6 +634,11 @@ class AristaDriver(driver_api.MechanismDriver):
         host = context.host
         is_vm_boot = device_id and device_owner
 
+        # When delete a vm, the trunk port context has no device_owner
+        # Keep device_owner as in original port
+        if not device_owner and orig_port.get('trunk_details'):
+            device_owner = orig_port['device_owner']
+
         if not self._supported_device_owner(device_owner):
             return
 
@@ -651,11 +665,14 @@ class AristaDriver(driver_api.MechanismDriver):
             # Return from here as port migration is already handled.
             return
 
-        seg_info = self._bound_segments(context)
-        if not seg_info:
-            LOG.debug("Ignoring the update as the port is not managed by "
-                      "Arista switches.")
-            return
+        # Check if it is trunk_port deletion case
+        seg_info = []
+        if not port.get('trunk_details') or host:
+            seg_info = self._bound_segments(context)
+            if not seg_info:
+                LOG.debug("Ignoring the update as the port is not managed by "
+                          "Arista switches.")
+                return
 
         with self.eos_sync_lock:
             hostname = self._host_name(host)
@@ -693,8 +710,10 @@ class AristaDriver(driver_api.MechanismDriver):
             try:
                 orig_host = context.original_host
                 port_down = False
-                if(port['device_owner'] == n_const.DEVICE_OWNER_DVR_INTERFACE):
-                    # We care about port status only for DVR ports
+                if(port['device_owner'] == n_const.DEVICE_OWNER_DVR_INTERFACE
+                   or port.get('trunk_details')):
+                    # We care about port status only for DVR ports and
+                    # trunk ports
                     port_down = context.status == n_const.PORT_STATUS_DOWN
 
                 if orig_host and (port_down or host != orig_host or
@@ -704,12 +723,14 @@ class AristaDriver(driver_api.MechanismDriver):
                     # connected to the port was deleted or its in DOWN
                     # state. So delete the old port on the old host.
                     self._delete_port(orig_port, orig_host, tenant_id)
+
                 if(port_provisioned and net_provisioned and hostname and
                    is_vm_boot and not port_down and
                    device_id != n_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     LOG.info(_LI("Port plugged into network"))
                     # Plug port into the network only if it exists in the db
                     # and is bound to a host and the port is up.
+                    trunk_details = port.get('trunk_details')
                     self.rpc.plug_port_into_network(device_id,
                                                     hostname,
                                                     port_id,
@@ -720,7 +741,9 @@ class AristaDriver(driver_api.MechanismDriver):
                                                     sg, orig_sg,
                                                     vnic_type,
                                                     segments=segments,
-                                                    switch_bindings=bindings)
+                                                    switch_bindings=bindings,
+                                                    trunk_details=trunk_details
+                                                    )
                 else:
                     LOG.info(_LI("Port not plugged into network"))
             except arista_exc.AristaRpcError as err:
@@ -803,10 +826,12 @@ class AristaDriver(driver_api.MechanismDriver):
                 # If we do not have network associated with this, ignore it
                 return
             hostname = self._host_name(host)
+            trunk_details = port.get('trunk_details')
             self.rpc.unplug_port_from_network(device_id, device_owner,
                                               hostname, port_id, network_id,
                                               tenant_id, sg, vnic_type,
-                                              switch_bindings=switch_bindings)
+                                              switch_bindings=switch_bindings,
+                                              trunk_details=trunk_details)
             self.rpc.remove_security_group(sg, switch_bindings)
 
             # if necessary, delete tenant as well.
@@ -981,3 +1006,73 @@ class AristaDriver(driver_api.MechanismDriver):
                     msg = (_('Failed to delete ACL rule on EOS %s') % sgr)
                     LOG.exception(msg)
                     raise arista_exc.AristaSecurityGroupError(msg=msg)
+
+    def unset_subport(self, resource, event, trigger, **kwargs):
+        payload = kwargs['payload']
+        trunk_id = payload.trunk_id
+        subports = payload.subports
+
+        trunk_port = db_lib.get_trunk_port_by_trunk_id(trunk_id)
+        if trunk_port:
+            device_id = trunk_port.device_id
+            tenant_id = trunk_port.tenant_id
+            host = trunk_port.port_binding.host
+            vnic_type = trunk_port.port_binding.vnic_type
+            profile = trunk_port.port_binding.profile
+            if profile:
+                profile = eval(profile)
+
+            for subport in subports:
+                subport_id = subport.port_id
+                subport_current = self.ndb.get_port(subport_id)
+                subport_current['device_id'] = device_id
+                subport_current['binding:vnic_type'] = vnic_type
+                subport_current['binding:profile'] = profile
+                subport_current['device_owner'] = 'trunk:subport'
+
+                self._delete_port(subport_current, host, tenant_id)
+        else:
+            LOG.warning('Unable to unset the subport, no trunk port found')
+
+    def set_subport(self, resource, event, trigger, **kwargs):
+        payload = kwargs['payload']
+        trunk_id = payload.trunk_id
+        subports = payload.subports
+
+        device_owner = 'trunk:subport'
+        trunk_port = db_lib.get_trunk_port_by_trunk_id(trunk_id)
+        if trunk_port:
+            device_id = trunk_port.device_id
+            tenant_id = trunk_port.tenant_id
+            host = trunk_port.port_binding.host
+            if not host:
+                return
+            hostname = self._host_name(host)
+            vnic_type = trunk_port.port_binding.vnic_type
+
+            profile = trunk_port.port_binding.profile
+            bindings = []
+            if profile:
+                profile = eval(profile)
+                bindings = profile.get('local_link_information', [])
+
+        for subport in subports:
+            subport_id = subport.port_id
+            subport_current = self.ndb.get_port(subport_id)
+            network_id = self.ndb.get_network_id_from_port_id(subport_id)
+            port_name = subport_current.get('name')
+            sg = subport_current.get('security_groups')
+            orig_sg = None
+            segments = db_lib.get_network_segments_by_port_id(subport_id)
+
+            self.rpc.plug_port_into_network(device_id,
+                                            hostname,
+                                            subport_id,
+                                            network_id,
+                                            tenant_id,
+                                            port_name,
+                                            device_owner,
+                                            sg, orig_sg,
+                                            vnic_type,
+                                            segments=segments,
+                                            switch_bindings=bindings)
