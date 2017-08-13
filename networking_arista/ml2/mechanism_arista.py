@@ -378,7 +378,8 @@ class AristaDriver(driver_api.MechanismDriver):
         if any([device_owner in supported_device_owner,
                 device_owner.startswith('compute') and
                 device_owner != 'compute:probe',
-                device_owner.startswith('baremetal')]):
+                device_owner.startswith('baremetal'),
+                device_owner.startswith('trunk')]):
             return True
 
         LOG.debug('Unsupported device owner: %s', device_owner)
@@ -704,6 +705,13 @@ class AristaDriver(driver_api.MechanismDriver):
                     # connected to the port was deleted or its in DOWN
                     # state. So delete the old port on the old host.
                     self._delete_port(orig_port, orig_host, tenant_id)
+
+                if device_owner.startswith('trunk'):
+                    trunk_port = db_lib.get_trunk_port(port_id)
+                    device_id = trunk_port.get('device_id')
+
+                    is_vm_boot = device_owner and device_id
+
                 if(port_provisioned and net_provisioned and hostname and
                    is_vm_boot and not port_down and
                    device_id != n_const.DEVICE_ID_RESERVED_DHCP_PORT):
@@ -720,7 +728,8 @@ class AristaDriver(driver_api.MechanismDriver):
                                                     sg, orig_sg,
                                                     vnic_type,
                                                     segments=segments,
-                                                    switch_bindings=bindings)
+                                                    switch_bindings=bindings,
+                                                    trunk_details=port.get('trunk_details'))
                 else:
                     LOG.info(_LI("Port not plugged into network"))
             except arista_exc.AristaRpcError as err:
@@ -787,6 +796,10 @@ class AristaDriver(driver_api.MechanismDriver):
         if not self._supported_device_owner(device_owner):
             return
 
+        if device_owner.startswith('trunk'):
+            trunk_port = db_lib.get_trunk_port(port_id)
+            device_id = trunk_port.get('device_id')
+
         vnic_type = port['binding:vnic_type']
         binding_profile = port['binding:profile']
         switch_bindings = []
@@ -806,7 +819,8 @@ class AristaDriver(driver_api.MechanismDriver):
             self.rpc.unplug_port_from_network(device_id, device_owner,
                                               hostname, port_id, network_id,
                                               tenant_id, sg, vnic_type,
-                                              switch_bindings=switch_bindings)
+                                              switch_bindings=switch_bindings,
+                                              trunk_details=port.get('trunk_details'))
             self.rpc.remove_security_group(sg, switch_bindings)
 
             # if necessary, delete tenant as well.

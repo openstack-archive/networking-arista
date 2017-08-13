@@ -173,7 +173,7 @@ class AristaRPCWrapperBase(object):
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
                                sg, orig_sg, vnic_type, segments=None,
-                               switch_bindings=None):
+                               switch_bindings=None, trunk_details=None):
         """Generic routine plug a port of a VM instace into network.
 
         :param device_id: globally unique identifier for the device
@@ -188,12 +188,13 @@ class AristaRPCWrapperBase(object):
         :param vnic_type: VNIC type for the port
         :param segments: list of network segments the port is bound to
         :param switch_bindings: List of switch_bindings
+        :param trunk_details: List of subports of a trunk port
         """
 
     @abc.abstractmethod
     def unplug_port_from_network(self, device_id, device_owner, hostname,
                                  port_id, network_id, tenant_id, sg, vnic_type,
-                                 switch_bindings=None):
+                                 switch_bindings=None, trunk_details=None):
         """Removes a port from the device
 
         :param device_id: globally unique identifier for the device

@@ -219,7 +219,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
                                sg, orig_sg, vnic_type, segments,
-                               switch_bindings=None):
+                               switch_bindings=None, trunk_details=None):
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             self.plug_dhcp_port_into_network(device_id,
                                              host_id,
@@ -229,7 +229,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                              segments,
                                              port_name)
         elif (device_owner.startswith('compute') or
-              device_owner.startswith('baremetal')):
+              device_owner.startswith('baremetal') or
+              device_owner.startswith('trunk')):
             if vnic_type == 'baremetal':
                 self.plug_baremetal_into_network(device_id,
                                                  host_id,
@@ -240,7 +241,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                                  port_name,
                                                  sg, orig_sg,
                                                  vnic_type,
-                                                 switch_bindings)
+                                                 switch_bindings,
+                                                 trunk_details)
             else:
                 self.plug_host_into_network(device_id,
                                             host_id,
@@ -248,7 +250,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                             net_id,
                                             tenant_id,
                                             segments,
-                                            port_name)
+                                            port_name,
+                                            trunk_details)
         elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
             self.plug_distributed_router_port_into_network(device_id,
                                                            host_id,
@@ -259,7 +262,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
     def unplug_port_from_network(self, device_id, device_owner, hostname,
                                  port_id, network_id, tenant_id, sg, vnic_type,
-                                 switch_bindings=None):
+                                 switch_bindings=None, trunk_details=None):
         if device_owner == n_const.DEVICE_OWNER_DHCP:
             self.unplug_dhcp_port_from_network(device_id,
                                                hostname,
@@ -267,7 +270,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                                network_id,
                                                tenant_id)
         elif (device_owner.startswith('compute') or
-              device_owner.startswith('baremetal')):
+              device_owner.startswith('baremetal') or
+              device_owner.startswith('trunk')):
             if vnic_type == 'baremetal':
                 self.unplug_baremetal_from_network(device_id,
                                                    hostname,
@@ -276,13 +280,15 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                                    tenant_id,
                                                    sg,
                                                    vnic_type,
-                                                   switch_bindings)
+                                                   switch_bindings,
+                                                   trunk_details)
             else:
                 self.unplug_host_from_network(device_id,
                                               hostname,
                                               port_id,
                                               network_id,
-                                              tenant_id)
+                                              tenant_id,
+                                              trunk_details)
         elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
             self.unplug_distributed_router_port_from_network(device_id,
                                                              port_id,
@@ -290,7 +296,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                                                              tenant_id)
 
     def plug_host_into_network(self, vm_id, host, port_id,
-                               network_id, tenant_id, segments, port_name):
+                               network_id, tenant_id, segments, port_name,
+                               trunk_details=None):
         cmds = ['tenant %s' % tenant_id,
                 'vm id %s hostid %s' % (vm_id, host)]
         if port_name:
@@ -302,12 +309,27 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         cmds.extend(
             'segment level %d id %s' % (level, segment['id'])
             for level, segment in enumerate(segments))
+
+        if trunk_details and trunk_details.get('sub_ports'):
+            for subport in trunk_details['sub_ports']:
+                port_id = subport['port_id']
+                net_id = self._ndb.get_network_id_from_port_id(port_id)
+                segments = self._ndb.get_network_segments(
+                               net_id, dynamic=False, context=None)
+
+                cmds.append('port id %s network-id %s' %
+                        (port_id, net_id))
+                cmds.extend(
+                    'segment level %d id %s' % (level, segment['id'])
+                    for level, segment in enumerate(segments))
+
         self._run_openstack_cmds(cmds)
 
     def plug_baremetal_into_network(self, vm_id, host, port_id,
                                     network_id, tenant_id, segments, port_name,
                                     sg=None, orig_sg=None,
-                                    vnic_type=None, switch_bindings=None):
+                                    vnic_type=None, switch_bindings=None,
+                                    trunk_details=None):
         # Basic error checking for baremental deployments
         # notice that the following method throws and exception
         # if an error condition exists
@@ -340,6 +362,22 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     cmds.extend('segment level %d id %s' % (level,
                                 segment['id'])
                                 for level, segment in enumerate(segments))
+
+                    if trunk_details and trunk_details.get('sub_ports'):
+                        for subport in trunk_details['sub_ports']:
+                            port_id = subport['port_id']
+                            net_id = self._ndb.get_network_id_from_port_id(port_id)
+                            segments = self._ndb.get_network_segments(
+                                               net_id, dynamic=False, context=None)
+
+                            cmds.append('port id %s network-id %s type allowed '
+                                        'switch-id %s switchport %s' %
+                                        (port_id, net_id, binding['switch_id'],
+                                            binding['port_id']))
+                            cmds.extend('segment level %d id %s' % (level,
+                                        segment['id'])
+                                        for level, segment in enumerate(segments))
+
                 else:
                     msg = _('switch and port ID not specified for baremetal')
                     LOG.error(msg)
@@ -385,16 +423,19 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         self._run_openstack_cmds(cmds)
 
     def unplug_host_from_network(self, vm_id, host, port_id,
-                                 network_id, tenant_id):
+                                 network_id, tenant_id, trunk_details=None):
         cmds = ['tenant %s' % tenant_id,
                 'vm id %s hostid %s' % (vm_id, host),
-                'no port id %s' % port_id,
                 ]
+        if trunk_details and trunk_details.get('sub_ports'):
+            for subport in trunk_details['sub_ports']:
+                cmds.append('no port id %s' % subport['port_id'])
+        cmds.append('no port id %s' % port_id)
         self._run_openstack_cmds(cmds)
 
     def unplug_baremetal_from_network(self, vm_id, host, port_id,
                                       network_id, tenant_id, sg, vnic_type,
-                                      switch_bindings=None):
+                                      switch_bindings=None, trunk_details=None):
         # Basic error checking for baremental deployments
         # notice that the following method throws and exception
         # if an error condition exists
@@ -403,6 +444,9 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         # Following is a temporary code for native VLANs - should be removed
         cmds = ['tenant %s' % tenant_id]
         cmds.append('instance id %s hostid %s type baremetal' % (vm_id, host))
+        if trunk_details and trunk_details.get('sub_ports'):
+            for subport in trunk_details['sub_ports']:
+                cmds.append('no port id %s' % subport['port_id'])
         cmds.append('no port id %s' % port_id)
         self._run_openstack_cmds(cmds)
 
