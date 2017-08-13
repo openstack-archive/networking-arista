@@ -19,9 +19,11 @@ from neutron_lib.plugins.ml2 import api as driver_api
 
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
+from neutron.db.models import segment as segment_models
 from neutron.db import securitygroups_db as sec_db
 from neutron.db import segments_db
 from neutron.plugins.ml2 import models as ml2_models
+from neutron.services.trunk import models as trunk_models
 
 from networking_arista.common import db as db_models
 
@@ -452,6 +454,41 @@ def get_port_binding_level(filters):
     with session.begin():
         return (session.query(ml2_models.PortBindingLevel).
                 filter_by(**filters).all())
+
+
+def get_network_segments_by_port_id(port_id):
+    session = db.get_reader_session()
+    with session.begin():
+        segments = (session.query(segment_models.NetworkSegment,
+                                  ml2_models.PortBindingLevel).
+                    join(ml2_models.PortBindingLevel).
+                    filter(segment_models.NetworkSegment.id ==
+                           ml2_models.PortBindingLevel.segment_id).
+                    filter_by(port_id=port_id).all())
+        segment_list = []
+        for segment in segments:
+            segment_list.append(segment[0])
+        return segment_list
+
+
+def get_trunk_port_by_subport_id(subport_id):
+    """Returns trunk parent port based on sub port id."""
+    session = db.get_reader_session()
+    with session.begin():
+        subport = (session.query(trunk_models.SubPort).
+                   filter_by(port_id=subport_id).first())
+        if subport:
+            trunk_id = subport.trunk_id
+            return get_trunk_port_by_trunk_id(trunk_id)
+
+
+def get_trunk_port_by_trunk_id(trunk_id):
+    session = db.get_reader_session()
+    with session.begin():
+        trunk_port = (session.query(trunk_models.Trunk).
+                      filter_by(id=trunk_id).first())
+        if trunk_port:
+            return trunk_port.port
 
 
 class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
