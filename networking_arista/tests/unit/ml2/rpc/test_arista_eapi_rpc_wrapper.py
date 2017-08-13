@@ -114,6 +114,74 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
     @patch(EAPI_SEND_FUNC)
+    def test_plug_baremetal_into_network(self, mock_send_eapi_req):
+        tenant_id = 'ten-1'
+        network_id = 'net-id-1'
+        bm_id = 'bm-1'
+        port_id = 'p1'
+        host = 'host'
+        port_name = 'name_p1'
+        device_owner = 'compute:None'
+
+        segments = [{'segmentation_id': 1001,
+                     'id': 'segment_id_1',
+                     'network_type': 'vlan',
+                     'is_dynamic': False}]
+
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
+        bindings = switch_bindings['local_link_information']
+
+        self.drv.bm_and_dvr_supported = mock.MagicMock(return_value=True)
+
+        self.drv.plug_baremetal_into_network(bm_id, host, port_id,
+                                             network_id, tenant_id,
+                                             segments, port_name,
+                                             device_owner,
+                                             None, None, 'baremetal',
+                                             bindings)
+
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
+                'region RegionOne',
+                'tenant ten-1',
+                'instance id bm-1 hostid host type baremetal',
+                'port id p1 name "name_p1" network-id net-id-1 '
+                'type native switch-id switch-id-1 switchport Eth1',
+                ]
+        for level, segment in enumerate(segments):
+            cmd2.append('segment level %s id %s' % (level, segment['id']))
+        cmd2.append('exit')
+
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
+
+    @patch(EAPI_SEND_FUNC)
+    def test_unplug_baremetal_from_network(self, mock_send_eapi_req):
+        tenant_id = 'ten-1'
+        network_id = 'net-id-1'
+        bm_id = 'bm-1'
+        port_id = 111
+        host = 'host'
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
+        bindings = switch_bindings['local_link_information']
+        self.drv.bm_and_dvr_supported = mock.MagicMock(return_value=True)
+        self.drv.unplug_baremetal_from_network(bm_id, host, port_id,
+                                               network_id, tenant_id,
+                                               None, 'baremetal',
+                                               bindings)
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
+                'region RegionOne',
+                'tenant ten-1',
+                'instance id bm-1 hostid host type baremetal',
+                'no port id 111',
+                ]
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
+
+    @patch(EAPI_SEND_FUNC)
     def test_unplug_host_from_network(self, mock_send_eapi_req):
         tenant_id = 'ten-1'
         vm_id = 'vm-1'
@@ -734,3 +802,202 @@ class NegativeRPCWrapperTestCase(testlib_api.SqlTestCase):
         with mock.patch.object(arista_eapi.LOG, 'error') as log_err:
             self.assertRaises(arista_exc.AristaRpcError, drv.get_tenants)
             log_err.assert_called_once_with(mock.ANY)
+
+
+class RPCWrapperEapiValidConfigTrunkTestCase(testlib_api.SqlTestCase):
+    """Test cases to test plug trunk port into network."""
+
+    def setUp(self):
+        super(RPCWrapperEapiValidConfigTrunkTestCase, self).setUp()
+        setup_valid_config()
+        ndb = mock.MagicMock()
+        self.drv = arista_eapi.AristaRPCWrapperEapi(ndb)
+        self.drv._server_ip = "10.11.12.13"
+        self.region = 'RegionOne'
+        arista_eapi.db_lib = mock.MagicMock()
+
+    @patch(EAPI_SEND_FUNC)
+    def test_plug_host_into_network(self, mock_send_eapi_req):
+        tenant_id = 'ten-1'
+        network_id = 'net-id-1'
+        vm_id = 'vm-1'
+        port_id = 111
+        host = 'host'
+        port_name = '111-port'
+        sub_segment_id = 'sub_segment_id_1'
+        sub_segmentation_id = 1002
+        sub_network_id = 'subnet-id'
+        subport_id = 222
+        segment_id = 'segment_id_1'
+        segments = [{'network_type': 'vlan', 'physical_network': 'default',
+                     'segmentation_id': 1234, 'id': segment_id}]
+        binding_level = FakePortBindingLevel(subport_id, 0, 'vendor-1',
+                                             sub_segment_id)
+        subport_segments = [binding_level]
+        trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
+                                        'port_id': subport_id,
+                                        'segmentation_id': sub_segmentation_id,
+                                        'segmentation_type': 'vlan'}],
+                         'trunk_id': 'trunk_id'}
+        self.drv._ndb.get_network_id_from_port_id.return_value = sub_network_id
+        arista_eapi.db_lib.get_port_binding_level.return_value = \
+            subport_segments
+
+        self.drv.plug_host_into_network(vm_id, host, port_id,
+                                        network_id, tenant_id, segments,
+                                        port_name, trunk_details=trunk_details)
+
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
+                'region RegionOne',
+                'tenant ten-1', 'vm id vm-1 hostid host',
+                'port id 111 name "111-port" network-id net-id-1',
+                ]
+        for level, segment in enumerate(segments):
+            cmd2.append('segment level %s id %s' % (level, segment['id']))
+        cmd2.append('port id 222 network-id subnet-id')
+        for segment in subport_segments:
+            cmd2.append('segment level %s id %s' % (segment.level,
+                                                    segment.segment_id))
+
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
+
+    @patch(EAPI_SEND_FUNC)
+    def test_plug_baremetal_into_network(self, mock_send_eapi_req):
+        tenant_id = 'ten-2'
+        network_id = 'net-id-1'
+        bm_id = 'bm-1'
+        port_id = 'p1'
+        host = 'host'
+        port_name = 'name_p1'
+        device_owner = 'compute:None'
+        subport_id = 222
+        sub_segment_id = 'sub_segment_id_1'
+
+        segments = [{'segmentation_id': 1001,
+                     'id': 'segment_id_1',
+                     'network_type': 'vlan',
+                     'is_dynamic': False}]
+
+        subport_net_id = 'net-id-2'
+        binding_level = FakePortBindingLevel(subport_id, 0, 'vendor-1',
+                                             sub_segment_id)
+        subport_segments = [binding_level]
+
+        trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
+                                        'port_id': 'p2',
+                                        'segmentation_id': 1002,
+                                        'segmentation_type': 'vlan'}],
+                         'trunk_id': 'trunk_id'}
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
+        bindings = switch_bindings['local_link_information']
+        self.drv._ndb.get_network_id_from_port_id.return_value = subport_net_id
+        arista_eapi.db_lib.get_port_binding_level.return_value = \
+            subport_segments
+
+        self.drv.bm_and_dvr_supported = mock.MagicMock(return_value=True)
+
+        self.drv.plug_baremetal_into_network(bm_id, host, port_id,
+                                             network_id, tenant_id,
+                                             segments, port_name,
+                                             device_owner,
+                                             None, None, 'baremetal',
+                                             bindings, trunk_details)
+
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
+                'region RegionOne',
+                'tenant ten-2',
+                'instance id bm-1 hostid host type baremetal',
+                'port id p1 name "name_p1" network-id net-id-1 '
+                'type native switch-id switch-id-1 switchport Eth1',
+                ]
+        for level, segment in enumerate(segments):
+            cmd2.append('segment level %s id %s' % (level, segment['id']))
+        cmd2.append('port id p2 network-id net-id-2 '
+                    'type allowed switch-id switch-id-1 switchport Eth1', )
+        for segment in subport_segments:
+            cmd2.append('segment level %s id %s' % (segment.level,
+                                                    segment.segment_id))
+        cmd2.append('exit')
+
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
+
+    @patch(EAPI_SEND_FUNC)
+    def test_unplug_host_from_network(self, mock_send_eapi_req):
+        tenant_id = 'ten-2'
+        network_id = 'net-id-1'
+        vm_id = 'vm-2'
+        port_id = 111
+        host = 'host'
+        subport_id = 222
+
+        trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
+                                        'port_id': subport_id,
+                                        'segmentation_id': 123,
+                                        'segmentation_type': 'vlan'}],
+                         'trunk_id': 'trunk_id'}
+        self.drv.unplug_host_from_network(vm_id, host, port_id,
+                                          network_id, tenant_id,
+                                          trunk_details)
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
+                'region RegionOne',
+                'tenant ten-2', 'vm id vm-2 hostid host',
+                'no port id 222',
+                'no port id 111',
+                ]
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
+
+    @patch(EAPI_SEND_FUNC)
+    def test_unplug_baremetal_from_network(self, mock_send_eapi_req):
+        tenant_id = 'ten-2'
+        network_id = 'net-id-1'
+        bm_id = 'bm-2'
+        port_id = 111
+        host = 'host'
+        subport_id = 222
+
+        trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
+                                        'port_id': subport_id,
+                                        'segmentation_id': 123,
+                                        'segmentation_type': 'vlan'}],
+                         'trunk_id': 'trunk_id'}
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
+        bindings = switch_bindings['local_link_information']
+        self.drv.bm_and_dvr_supported = mock.MagicMock(return_value=True)
+        self.drv.unplug_baremetal_from_network(bm_id, host, port_id,
+                                               network_id, tenant_id,
+                                               None, 'baremetal',
+                                               bindings, trunk_details)
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable', 'configure', 'cvx', 'service openstack',
+                'region RegionOne',
+                'tenant ten-2',
+                'instance id bm-2 hostid host type baremetal',
+                'no port id 222',
+                'no port id 111',
+                ]
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
+
+    def _verify_send_eapi_request_calls(self, mock_send_eapi_req, cmds,
+                                        commands_to_log=None):
+        calls = []
+        calls.extend(
+            mock.call(cmds=cmd, commands_to_log=log_cmd)
+            for cmd, log_cmd in six.moves.zip(cmds, commands_to_log or cmds))
+        mock_send_eapi_req.assert_has_calls(calls)
+
+
+class FakePortBindingLevel(object):
+    """Port binding object for testing purposes only."""
+
+    def __init__(self, port_id, level, driver, segment_id):
+        self.port_id = port_id
+        self.level = level
+        self.driver = driver
+        self.segment_id = segment_id
