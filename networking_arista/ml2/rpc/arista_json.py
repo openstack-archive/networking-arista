@@ -516,7 +516,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         self.delete_instance_bulk(tenant_id, dhcp_id_list,
                                   const.InstanceType.DHCP)
 
-    def delete_port(self, port_id, instance_id, instance_type, device_owner=None):
+    def delete_port(self, port_id, instance_id, instance_type,
+                    device_owner=None):
         path = ('region/%s/port?portId=%s&id=%s&type=%s' %
                 (self.region, port_id, instance_id, instance_type))
         port = self._create_port_data(port_id, None, None, instance_id,
@@ -568,23 +569,24 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         if trunk_details and trunk_details.get('sub_ports'):
             for subport in trunk_details['sub_ports']:
                 subport_id = subport['port_id']
-                subport_net_id = self._ndb.get_network_id_from_port_id(subport_id)
-                subport_name = 'name_%s'% subport_id
+                subport_net_id = self._ndb.get_network_id_from_port_id(
+                    subport_id)
+                subport_name = 'name_%s' % subport_id
                 sub_device_owner = 'trunk:subport'
                 port = self._create_port_data(subport_id, tenant_id,
                                               subport_net_id, device_id,
                                               subport_name, device_type,
                                               [host_id], sub_device_owner)
 
-                self._send_api_request('region/' + self.region + '/port', 'POST',
-                                       [port])
+                self._send_api_request('region/' + self.region + '/port',
+                                       'POST', [port])
         if device_type in const.InstanceType.VIRTUAL_INSTANCE_TYPES:
             self.bind_port_to_host(port_id, host_id, net_id, segments)
             if trunk_details and trunk_details.get('sub_ports'):
                 for subport in trunk_details['sub_ports']:
                     subport_id = subport['port_id']
                     subport_net_id = self._ndb.get_network_id_from_port_id(
-                                                                    subport_id)
+                        subport_id)
                     sub_segments = self._ndb.get_network_segments(
                         subport_net_id, dynamic=False, context=None)
                     self.bind_port_to_host(subport_id, host_id,
@@ -596,7 +598,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 for subport in trunk_details['sub_ports']:
                     subport_id = subport['port_id']
                     subport_net_id = self._ndb.get_network_id_from_port_id(
-                                                                    subport_id)
+                        subport_id)
                     sub_segments = self._ndb.get_network_segments(
                         subport_net_id, dynamic=False, context=None)
                     self.bind_port_to_switch_interface(subport_id, host_id,

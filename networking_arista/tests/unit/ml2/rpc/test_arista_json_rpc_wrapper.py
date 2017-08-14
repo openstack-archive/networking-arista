@@ -19,12 +19,12 @@ import socket
 
 import mock
 from mock import patch
+from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
+from neutron_lib.db import api as db_api
 from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
 from neutron_lib.plugins.ml2 import api as driver_api
-from neutron_lib.api.definitions import portbindings
-from neutron_lib.db import api as db_api
 from oslo_config import cfg
 from oslo_utils import importutils
 
@@ -659,9 +659,9 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
+
 class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
-    """Test cases to test plug trunk port into network.
-    """
+    """Test cases to test plug trunk port into network. """
 
     def setUp(self):
         super(RPCWrapperJSONValidConfigTrunkTestCase, self).setUp()
@@ -710,11 +710,13 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
              [{'id': 'vm-1', 'hostId': 'host'}]),
             ('region/RegionOne/port', 'POST',
              [{'id': 'p1', 'hosts': ['host'], 'tenantId': 'ten-1',
-               'networkId': 'net-id-1', 'instanceId': 'vm-1', 'name': 'name_p1',
+               'networkId': 'net-id-1', 'instanceId': 'vm-1',
+               'name': 'name_p1',
                'instanceType': 'vm', 'vlanType': 'allowed'}]),
             ('region/RegionOne/port', 'POST',
              [{'id': 'p2', 'hosts': ['host'], 'tenantId': 'ten-1',
-               'networkId': 'net-id-2', 'instanceId': 'vm-1', 'name': 'name_p2',
+               'networkId': 'net-id-2', 'instanceId': 'vm-1',
+               'name': 'name_p2',
                'instanceType': 'vm', 'vlanType': 'allowed'}]),
             ('region/RegionOne/port/p1/binding', 'POST',
              [{'portId': 'p1', 'hostBinding': [{'host': 'host', 'segment': [{
@@ -722,7 +724,8 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
                  'networkId': 'net-id-1', 'segment_type': 'static'}]}]}]),
             ('region/RegionOne/port/p2/binding', 'POST',
              [{'portId': 'p2', 'hostBinding': [{'host': 'host', 'segment': [{
-                 'id': 'sub_segment_id_1', 'type': 'vlan', 'segmentationId': 1002,
+                 'id': 'sub_segment_id_1', 'type': 'vlan',
+                 'segmentationId': 1002,
                  'networkId': 'net-id-2', 'segment_type': 'static'}]}]}]),
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
@@ -753,10 +756,9 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
                                         'segmentation_id': 1112,
                                         'segmentation_type': 'vlan'}],
                          'trunk_id': 'trunk_id'}
-        switch_bindings = {'local_link_information':
-                        [{'port_id': 'Eth1',
-                          'switch_id': 'switch-id-1',
-                          'switch_info': 'switch-1'}]}
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
         bindings = switch_bindings['local_link_information']
         self.drv._ndb.get_network_id_from_port_id.return_value = subport_net_id
         self.drv._ndb.get_network_segments.return_value = subport_segments
@@ -772,31 +774,38 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
              [{'id': 'bm-1', 'hostId': 'host'}]),
             ('region/RegionOne/port', 'POST',
              [{'id': 'p1', 'hosts': ['host'], 'tenantId': 'ten-2',
-               'networkId': 'net-id-1', 'instanceId': 'bm-1', 'name': 'name_p1',
+               'networkId': 'net-id-1', 'instanceId': 'bm-1',
+               'name': 'name_p1',
                'instanceType': 'baremetal', 'vlanType': 'native'}]),
             ('region/RegionOne/port', 'POST',
              [{'id': 'p2', 'hosts': ['host'], 'tenantId': 'ten-2',
-               'networkId': 'net-id-2', 'instanceId': 'bm-1', 'name': 'name_p2',
+               'networkId': 'net-id-2', 'instanceId': 'bm-1',
+               'name': 'name_p2',
                'instanceType': 'baremetal', 'vlanType': 'allowed'}]),
             ('region/RegionOne/port/p1/binding', 'POST',
-             [{'portId': 'p1', 'switchBinding': [{'host': 'host',
-                  'switch': 'switch-id-1', 'interface': 'Eth1', 'segment': [{
-                  'id': 'segment_id_1', 'type': 'vlan', 'segmentationId': 1111,
-                  'networkId': 'net-id-1', 'segment_type': 'static'}]}]}]),
+             [{'portId': 'p1', 'switchBinding': [
+                 {'host': 'host', 'switch': 'switch-id-1',
+                  'interface': 'Eth1', 'segment':
+                      [{'id': 'segment_id_1', 'type': 'vlan',
+                        'segmentationId': 1111, 'networkId': 'net-id-1',
+                        'segment_type': 'static'}]}]}]),
             ('region/RegionOne/port/p2/binding', 'POST',
-             [{'portId': 'p2', 'switchBinding': [{'host': 'host',
-                  'switch': 'switch-id-1', 'interface': 'Eth1', 'segment': [{
-                  'id': 'sub_segment_id_1', 'type': 'vlan', 'segmentationId': 1112,
-                  'networkId': 'net-id-2', 'segment_type': 'static'}]}]}]),
+             [{'portId': 'p2', 'switchBinding':
+                 [{'host': 'host', 'switch': 'switch-id-1',
+                   'interface': 'Eth1', 'segment':
+                       [{'id': 'sub_segment_id_1', 'type': 'vlan',
+                         'segmentationId': 1112, 'networkId': 'net-id-2',
+                         'segment_type': 'static'}]}]}]),
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
     @patch('networking_arista.ml2.rpc.arista_json.AristaRPCWrapperJSON.'
            'get_instance_ports')
-    def test_unplug_virtual_trunk_port_from_network(self, mock_get_instance_ports,
-                                              mock_send_api_req):
-        #trunk port
+    def test_unplug_virtual_trunk_port_from_network(self,
+                                                    mock_get_instance_ports,
+                                                    mock_send_api_req):
+        # trunk port
         trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
                                         'port_id': 'subport',
                                         'segmentation_id': 1001,
@@ -806,10 +815,10 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
         self.drv.unplug_port_from_network('vm1', 'compute', 'h1', 'trunk_port',
                                           'n1', 't1', None, None,
                                           trunk_details=trunk_details)
-        subport = self.drv._create_port_data('subport', None, None, 'vm1', None,
-                                             'vm', None)
-        trunk_port = self.drv._create_port_data('trunk_port', None, None, 'vm1',
-                                                None, 'vm', None)
+        subport = self.drv._create_port_data('subport', None, None, 'vm1',
+                                             None, 'vm', None)
+        trunk_port = self.drv._create_port_data('trunk_port', None, None,
+                                                'vm1', None, 'vm', None)
         calls = [
             ('region/RegionOne/port/subport/binding', 'DELETE',
              [{'portId': 'subport', 'hostBinding': [{'host': 'h1'}]}]),
@@ -826,8 +835,9 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
     @patch(JSON_SEND_FUNC)
     @patch('networking_arista.ml2.rpc.arista_json.AristaRPCWrapperJSON.'
            'get_instance_ports')
-    def test_unplug_baremetal_trunk_port_from_network(self, mock_get_instance_ports,
-                                                mock_send_api_req):
+    def test_unplug_baremetal_trunk_port_from_network(self,
+                                                      mock_get_instance_ports,
+                                                      mock_send_api_req):
         # trunk port
         trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
                                         'port_id': 'subport',
@@ -839,8 +849,9 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
         self.drv.unplug_port_from_network('bm1', 'baremetal', 'h1', 'p1', 'n1',
                                           't1', None, 'baremetal',
                                           switch_bindings, trunk_details)
-        subport = self.drv._create_port_data('subport', None, None, 'bm1', None,
-                                             'baremetal', None, 'trunk:subport')
+        subport = self.drv._create_port_data('subport', None, None, 'bm1',
+                                             None, 'baremetal', None,
+                                             'trunk:subport')
         trunk_port = self.drv._create_port_data('p1', None, None, 'bm1',
                                                 None, 'baremetal', None)
         calls = [
@@ -905,6 +916,7 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
         return FakePortContext(port, port, network, port['status'],
                                binding_levels)
 
+
 class FakeNetworkContext(object):
     """To generate network context for testing purposes only."""
 
@@ -928,6 +940,7 @@ class FakeNetworkContext(object):
     @property
     def network_segments(self):
         return self._segments
+
 
 class FakePortContext(object):
     """To generate port context for testing purposes only."""
@@ -988,6 +1001,7 @@ class FakePortContext(object):
         for segment in self._network_context.network_segments:
             if segment[driver_api.ID] == segment_id:
                 return segment
+
 
 class FakePortBindingLevel(object):
     """Port binding object for testing purposes only."""

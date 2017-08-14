@@ -718,6 +718,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     LOG.info(_LI("Port plugged into network"))
                     # Plug port into the network only if it exists in the db
                     # and is bound to a host and the port is up.
+                    trunk_details = port.get('trunk_details')
                     self.rpc.plug_port_into_network(device_id,
                                                     hostname,
                                                     port_id,
@@ -729,7 +730,8 @@ class AristaDriver(driver_api.MechanismDriver):
                                                     vnic_type,
                                                     segments=segments,
                                                     switch_bindings=bindings,
-                                                    trunk_details=port.get('trunk_details'))
+                                                    trunk_details=trunk_details
+                                                    )
                 else:
                     LOG.info(_LI("Port not plugged into network"))
             except arista_exc.AristaRpcError as err:
@@ -816,11 +818,12 @@ class AristaDriver(driver_api.MechanismDriver):
                 # If we do not have network associated with this, ignore it
                 return
             hostname = self._host_name(host)
+            trunk_details = port.get('trunk_details')
             self.rpc.unplug_port_from_network(device_id, device_owner,
                                               hostname, port_id, network_id,
                                               tenant_id, sg, vnic_type,
                                               switch_bindings=switch_bindings,
-                                              trunk_details=port.get('trunk_details'))
+                                              trunk_details=trunk_details)
             self.rpc.remove_security_group(sg, switch_bindings)
 
             # if necessary, delete tenant as well.

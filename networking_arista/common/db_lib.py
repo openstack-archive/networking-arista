@@ -454,14 +454,16 @@ def get_port_binding_level(filters):
         return (session.query(ml2_models.PortBindingLevel).
                 filter_by(**filters).all())
 
+
 def get_trunk_port(subPort_id):
     """Returns trunk parent port based on sub port id."""
     session = db.get_reader_session()
     with session.begin():
         trunk_id = (session.query(trunk_models.SubPort).
-                filter_by(port_id=subPort_id).all())[0].trunk_id
+                    filter_by(port_id=subPort_id).all())[0].trunk_id
         return (session.query(trunk_models.Trunk).
                 filter_by(id=trunk_id).all())[0].port
+
 
 class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
                   sec_db.SecurityGroupDbMixin):

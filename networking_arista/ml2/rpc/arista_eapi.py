@@ -315,10 +315,10 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                 port_id = subport['port_id']
                 net_id = self._ndb.get_network_id_from_port_id(port_id)
                 segments = self._ndb.get_network_segments(
-                               net_id, dynamic=False, context=None)
+                    net_id, dynamic=False, context=None)
 
                 cmds.append('port id %s network-id %s' %
-                        (port_id, net_id))
+                            (port_id, net_id))
                 cmds.extend(
                     'segment level %d id %s' % (level, segment['id'])
                     for level, segment in enumerate(segments))
@@ -366,17 +366,19 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     if trunk_details and trunk_details.get('sub_ports'):
                         for subport in trunk_details['sub_ports']:
                             port_id = subport['port_id']
-                            net_id = self._ndb.get_network_id_from_port_id(port_id)
+                            net_id = self._ndb.get_network_id_from_port_id(
+                                port_id)
                             segments = self._ndb.get_network_segments(
-                                               net_id, dynamic=False, context=None)
+                                net_id, dynamic=False, context=None)
 
-                            cmds.append('port id %s network-id %s type allowed '
-                                        'switch-id %s switchport %s' %
+                            cmds.append('port id %s network-id %s type allowed'
+                                        ' switch-id %s switchport %s' %
                                         (port_id, net_id, binding['switch_id'],
                                             binding['port_id']))
                             cmds.extend('segment level %d id %s' % (level,
                                         segment['id'])
-                                        for level, segment in enumerate(segments))
+                                        for level, segment in
+                                        enumerate(segments))
 
                 else:
                     msg = _('switch and port ID not specified for baremetal')
@@ -435,7 +437,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
     def unplug_baremetal_from_network(self, vm_id, host, port_id,
                                       network_id, tenant_id, sg, vnic_type,
-                                      switch_bindings=None, trunk_details=None):
+                                      switch_bindings=None,
+                                      trunk_details=None):
         # Basic error checking for baremental deployments
         # notice that the following method throws and exception
         # if an error condition exists

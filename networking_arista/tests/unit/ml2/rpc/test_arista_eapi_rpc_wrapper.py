@@ -127,10 +127,9 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
                      'network_type': 'vlan',
                      'is_dynamic': False}]
 
-        switch_bindings = {'local_link_information':
-                               [{'port_id': 'Eth1',
-                                 'switch_id': 'switch-id-1',
-                                 'switch_info': 'switch-1'}]}
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
         bindings = switch_bindings['local_link_information']
 
         self.drv.bm_and_dvr_supported = mock.MagicMock(return_value=True)
@@ -162,10 +161,9 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
         bm_id = 'bm-1'
         port_id = 111
         host = 'host'
-        switch_bindings = {'local_link_information':
-                               [{'port_id': 'Eth1',
-                                 'switch_id': 'switch-id-1',
-                                 'switch_info': 'switch-1'}]}
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
         bindings = switch_bindings['local_link_information']
         self.drv.bm_and_dvr_supported = mock.MagicMock(return_value=True)
         self.drv.unplug_baremetal_from_network(bm_id, host, port_id,
@@ -803,9 +801,9 @@ class NegativeRPCWrapperTestCase(testlib_api.SqlTestCase):
             self.assertRaises(arista_exc.AristaRpcError, drv.get_tenants)
             log_err.assert_called_once_with(mock.ANY)
 
+
 class RPCWrapperEapiValidConfigTrunkTestCase(testlib_api.SqlTestCase):
-    """Test cases to test plug trunk port into network.
-    """
+    """Test cases to test plug trunk port into network."""
 
     def setUp(self):
         super(RPCWrapperEapiValidConfigTrunkTestCase, self).setUp()
@@ -883,15 +881,14 @@ class RPCWrapperEapiValidConfigTrunkTestCase(testlib_api.SqlTestCase):
                                         'segmentation_id': 1002,
                                         'segmentation_type': 'vlan'}],
                          'trunk_id': 'trunk_id'}
-        switch_bindings = {'local_link_information':
-                               [{'port_id': 'Eth1',
-                                 'switch_id': 'switch-id-1',
-                                 'switch_info': 'switch-1'}]}
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
         bindings = switch_bindings['local_link_information']
         self.drv._ndb.get_network_id_from_port_id.return_value = subport_net_id
         self.drv._ndb.get_network_segments.return_value = subport_segments
 
-        self.drv.bm_and_dvr_supported = mock.MagicMock( return_value=True )
+        self.drv.bm_and_dvr_supported = mock.MagicMock(return_value=True)
 
         self.drv.plug_baremetal_into_network(bm_id, host, port_id,
                                              network_id, tenant_id,
@@ -957,10 +954,9 @@ class RPCWrapperEapiValidConfigTrunkTestCase(testlib_api.SqlTestCase):
                                         'segmentation_id': 123,
                                         'segmentation_type': 'vlan'}],
                          'trunk_id': 'trunk_id'}
-        switch_bindings = {'local_link_information':
-                               [{'port_id': 'Eth1',
-                                 'switch_id': 'switch-id-1',
-                                 'switch_info': 'switch-1'}]}
+        switch_bindings = {'local_link_information': [
+            {'port_id': 'Eth1', 'switch_id': 'switch-id-1',
+             'switch_info': 'switch-1'}]}
         bindings = switch_bindings['local_link_information']
         self.drv.bm_and_dvr_supported = mock.MagicMock(return_value=True)
         self.drv.unplug_baremetal_from_network(bm_id, host, port_id,

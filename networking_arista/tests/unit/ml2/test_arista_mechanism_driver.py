@@ -211,6 +211,7 @@ class AristaProvisionedVlansStorageTestCase(testlib_api.SqlTestCase):
         self.assertEqual(net_list, expected_eos_net_list, ('%s != %s' %
                          (net_list, expected_eos_net_list)))
 
+
 class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
     """Main test cases for Arista Mechanism driver.
 
