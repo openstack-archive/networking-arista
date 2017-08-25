@@ -56,7 +56,6 @@ class AristaDriver(driver_api.MechanismDriver):
         self.ndb = db_lib.NeutronNets()
         self.db_nets = db.AristaProvisionedNets()
         self.db_vms = db.AristaProvisionedVms()
-        self.db_tenants = db.AristaProvisionedTenants()
 
         confg = cfg.CONF.ml2_arista
         self.segmentation_type = db_lib.VLAN_SEGMENTATION
@@ -109,7 +108,6 @@ class AristaDriver(driver_api.MechanismDriver):
         network_id = network['id']
         tenant_id = network['tenant_id'] or constants.INTERNAL_TENANT_ID
         with self.eos_sync_lock:
-            db_lib.remember_tenant(tenant_id)
             for segment in segments:
                 db_lib.remember_network_segment(tenant_id,
                                                 network_id,
@@ -554,7 +552,6 @@ class AristaDriver(driver_api.MechanismDriver):
                 LOG.info(
                     _LI("Adding %s to provisioned network database"), seg)
                 with self.eos_sync_lock:
-                    db_lib.remember_tenant(tenant_id)
                     db_lib.remember_network_segment(
                         tenant_id, network_id,
                         seg[driver_api.SEGMENTATION_ID],
@@ -585,7 +582,6 @@ class AristaDriver(driver_api.MechanismDriver):
                 if not port_provisioned:
                     LOG.info("Remembering the port")
                     # Create a new port in the DB
-                    db_lib.remember_tenant(tenant_id)
                     db_lib.remember_vm(device_id, host, port_id,
                                        network_id, tenant_id)
                 else:
@@ -917,7 +913,6 @@ class AristaDriver(driver_api.MechanismDriver):
         objects_for_tenant = (db_lib.num_nets_provisioned(tenant_id) +
                               db_lib.num_vms_provisioned(tenant_id))
         if not objects_for_tenant:
-            db_lib.forget_tenant(tenant_id)
             try:
                 self.rpc.delete_tenant(tenant_id)
             except arista_exc.AristaRpcError:
