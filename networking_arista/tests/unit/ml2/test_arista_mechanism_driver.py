@@ -34,29 +34,6 @@ class AristaProvisionedVlansStorageTestCase(testlib_api.SqlTestCase):
     as a group.
     """
 
-    def test_network_is_remembered(self):
-        tenant_id = 'test'
-        network_id = '123'
-        segmentation_id = 456
-        segment_id = 'segment_id_%s' % segmentation_id
-
-        db_lib.remember_network_segment(tenant_id, network_id, segmentation_id,
-                                        segment_id)
-        net_provisioned = db_lib.is_network_provisioned(tenant_id,
-                                                        network_id)
-        self.assertTrue(net_provisioned, 'Network must be provisioned')
-
-    def test_network_is_removed(self):
-        tenant_id = 'test'
-        network_id = '123'
-        segment_id = 'segment_id_1'
-
-        db_lib.remember_network_segment(tenant_id, network_id, '123',
-                                        segment_id)
-        db_lib.forget_network_segment(tenant_id, network_id)
-        net_provisioned = db_lib.is_network_provisioned(tenant_id, network_id)
-        self.assertFalse(net_provisioned, 'The network should be deleted')
-
     def test_vm_is_remembered(self):
         vm_id = 'VM-1'
         tenant_id = 'test'
@@ -81,38 +58,6 @@ class AristaProvisionedVlansStorageTestCase(testlib_api.SqlTestCase):
         vm_provisioned = db_lib.is_vm_provisioned(vm_id, host_id, port_id,
                                                   network_id, tenant_id)
         self.assertFalse(vm_provisioned, 'The vm should be deleted')
-
-    def test_remembers_multiple_networks(self):
-        tenant_id = 'test'
-        expected_num_nets = 100
-        segment_id = 'segment_%s'
-        nets = ['id%s' % n for n in range(expected_num_nets)]
-        for net_id in nets:
-            db_lib.remember_network_segment(tenant_id, net_id, 123,
-                                            segment_id % net_id)
-
-        num_nets_provisioned = db_lib.num_nets_provisioned(tenant_id)
-        self.assertEqual(expected_num_nets, num_nets_provisioned,
-                         'There should be %d nets, not %d' %
-                         (expected_num_nets, num_nets_provisioned))
-
-    def test_removes_all_networks(self):
-        tenant_id = 'test'
-        num_nets = 100
-        old_nets = db_lib.num_nets_provisioned(tenant_id)
-        nets = ['id_%s' % n for n in range(num_nets)]
-        segment_id = 'segment_%s'
-        for net_id in nets:
-            db_lib.remember_network_segment(tenant_id, net_id, 123,
-                                            segment_id % net_id)
-        for net_id in nets:
-            db_lib.forget_network_segment(tenant_id, net_id)
-
-        num_nets_provisioned = db_lib.num_nets_provisioned(tenant_id)
-        expected = old_nets
-        self.assertEqual(expected, num_nets_provisioned,
-                         'There should be %d nets, not %d' %
-                         (expected, num_nets_provisioned))
 
     def test_num_vm_is_valid(self):
         tenant_id = 'test'
@@ -139,35 +84,6 @@ class AristaProvisionedVlansStorageTestCase(testlib_api.SqlTestCase):
         # clean up afterwards
         db_lib.forget_port(port_id, host_id)
 
-    def test_get_network_list_returns_eos_compatible_data(self):
-        tenant = u'test-1'
-        segm_type = 'vlan'
-        network_id = u'123'
-        network2_id = u'1234'
-        vlan_id = 123
-        vlan2_id = 1234
-        segment_id1 = '11111-%s' % vlan_id
-        segment_id2 = '11111-%s' % vlan2_id
-        expected_eos_net_list = {network_id: {u'networkId': network_id,
-                                              u'segmentationTypeId': vlan_id,
-                                              u'tenantId': tenant,
-                                              u'segmentId': segment_id1,
-                                              u'segmentationType': segm_type},
-                                 network2_id: {u'networkId': network2_id,
-                                               u'tenantId': tenant,
-                                               u'segmentId': segment_id2,
-                                               u'segmentationTypeId': vlan2_id,
-                                               u'segmentationType': segm_type}}
-
-        db_lib.remember_network_segment(tenant,
-                                        network_id, vlan_id, segment_id1)
-        db_lib.remember_network_segment(tenant,
-                                        network2_id, vlan2_id, segment_id2)
-
-        net_list = db_lib.get_networks(tenant)
-        self.assertEqual(net_list, expected_eos_net_list, ('%s != %s' %
-                         (net_list, expected_eos_net_list)))
-
 
 class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
     """Main test cases for Arista Mechanism driver.
@@ -184,64 +100,6 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
 
     def tearDown(self):
         super(RealNetStorageAristaDriverTestCase, self).tearDown()
-
-    def test_create_and_delete_network(self):
-        tenant_id = 'ten-1'
-        network_id = 'net1-id'
-        segmentation_id = 1001
-
-        network_context = utils.get_network_context(tenant_id,
-                                                    network_id,
-                                                    segmentation_id)
-        self.drv.create_network_precommit(network_context)
-        net_provisioned = db_lib.is_network_provisioned(tenant_id, network_id)
-        self.assertTrue(net_provisioned, 'The network should be created')
-
-        expected_num_nets = 1
-        num_nets_provisioned = db_lib.num_nets_provisioned(tenant_id)
-        self.assertEqual(expected_num_nets, num_nets_provisioned,
-                         'There should be %d nets, not %d' %
-                         (expected_num_nets, num_nets_provisioned))
-
-        # Now test the delete network
-        self.drv.delete_network_precommit(network_context)
-        net_provisioned = db_lib.is_network_provisioned(tenant_id, network_id)
-        self.assertFalse(net_provisioned, 'The network should be created')
-
-        expected_num_nets = 0
-        num_nets_provisioned = db_lib.num_nets_provisioned(tenant_id)
-        self.assertEqual(expected_num_nets, num_nets_provisioned,
-                         'There should be %d nets, not %d' %
-                         (expected_num_nets, num_nets_provisioned))
-
-    def test_create_and_delete_multiple_networks(self):
-        tenant_id = 'ten-1'
-        expected_num_nets = 100
-        segmentation_id = 1001
-        nets = ['id%s' % n for n in range(expected_num_nets)]
-        for net_id in nets:
-            network_context = utils.get_network_context(tenant_id,
-                                                        net_id,
-                                                        segmentation_id)
-            self.drv.create_network_precommit(network_context)
-
-        num_nets_provisioned = db_lib.num_nets_provisioned(tenant_id)
-        self.assertEqual(expected_num_nets, num_nets_provisioned,
-                         'There should be %d nets, not %d' %
-                         (expected_num_nets, num_nets_provisioned))
-
-        # Now test the delete networks
-        for net_id in nets:
-            network_context = utils.get_network_context(tenant_id,
-                                                        net_id,
-                                                        segmentation_id)
-            self.drv.delete_network_precommit(network_context)
-
-        num_nets_provisioned = db_lib.num_nets_provisioned(tenant_id)
-        expected_num_nets = 0
-        self.assertEqual(expected_num_nets, num_nets_provisioned,
-                         'There should be %d nets, not %d' %
-                         (expected_num_nets, num_nets_provisioned))
 
     def test_create_and_delete_ports(self):
         tenant_id = 'ten-1'
@@ -295,12 +153,11 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
         utils.create_network('t2', 'n2', 20)
         utils.create_network('', 'ha-network', 100)
 
-        # Create some networks in Arista db
-        db_lib.remember_network_segment('t1', 'n1', 10, 'segment_id_10')
-        db_lib.remember_network_segment('t2', 'n2', 20, 'segment_id_20')
-        db_lib.remember_network_segment('admin',
-                                        'ha-network', 100, 'segment_id_100')
-        db_lib.remember_network_segment('t3', 'n3', 30, 'segment_id_30')
+        db_lib.remember_vm('v1', 'h1', 'p1', 'n1', 't1')
+        db_lib.remember_vm('v2', 'h2', 'p2', 'n2', 't1')
+        db_lib.remember_vm('ha-instance', 'ha-host', 'ha-port',
+                           'ha-network', 'admin')
+        db_lib.remember_vm('v3', 'h3', 'p3', 'n3', 't3')
 
         # Initialize the driver which should clean up the extra networks
         self.drv.initialize()
@@ -309,12 +166,12 @@ class RealNetStorageAristaDriverTestCase(testlib_api.SqlTestCase):
 
         with mock.patch.object(worker.sync_service, 'do_synchronize') as ds:
             worker.start()
-            adb_networks = db_lib.get_networks(tenant_id='any')
+            adb_ports = db_lib.get_ports()
 
-            # 'n3' should now be deleted from the Arista DB
+            # 'p3' should now be deleted from the Arista DB
             self.assertEqual(
-                set(('n1', 'n2', 'ha-network')),
-                set(adb_networks.keys())
+                set(('p1', 'p2', 'ha-port')),
+                set(adb_ports.keys())
             )
 
             ds.assert_called_once_with()

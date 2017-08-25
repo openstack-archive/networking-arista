@@ -131,3 +131,37 @@ class DbLibTest(testlib_api.SqlTestCase):
         tenants = db_lib.get_tenants()
         self.assertEqual(tenants, set([tenant_1_id, tenant_2_id,
                                        tenant_3_id, tenant_4_id]))
+
+    def test_get_all_anet_nets(self):
+        net_1_id = 'n1'
+        net_2_id = 'n2'
+        db_lib.remember_vm('vm1', 'h1', 'p1', net_1_id, 't1')
+        db_lib.remember_vm('vm2', 'h2', 'p2', net_2_id, 't2')
+        db_lib.remember_vm('vm3', 'h3', 'p3', net_2_id, 't3')
+        self.assertEqual(db_lib.get_all_anet_nets(),
+                         set([net_1_id, net_2_id]))
+
+    def test_tenant_provisioned(self):
+        tenant_1_id = 't1'
+        port_1_id = 'p1'
+        tenant_2_id = 't2'
+        port_2_id = 'p2'
+        network_id = 'network-id'
+        self.assertFalse(db_lib.tenant_provisioned(tenant_1_id))
+        self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
+        n_ctx = utils.create_network(tenant_1_id, network_id, 11, shared=True)
+        self.assertTrue(db_lib.tenant_provisioned(tenant_1_id))
+        self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
+        p1_ctx = utils.create_port(tenant_1_id, network_id, 'vm1',
+                                   port_1_id, n_ctx)
+        self.assertTrue(db_lib.tenant_provisioned(tenant_1_id))
+        self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
+        p2_ctx = utils.create_port(tenant_2_id, network_id, 'vm2',
+                                   port_2_id, n_ctx)
+        self.assertTrue(db_lib.tenant_provisioned(tenant_1_id))
+        self.assertTrue(db_lib.tenant_provisioned(tenant_2_id))
+        utils.delete_port(p1_ctx, port_1_id)
+        utils.delete_port(p2_ctx, port_2_id)
+        utils.delete_network(n_ctx, network_id)
+        self.assertFalse(db_lib.tenant_provisioned(tenant_1_id))
+        self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))

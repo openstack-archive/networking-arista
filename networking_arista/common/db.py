@@ -28,28 +28,6 @@ class HasTenant(object):
                           index=True)
 
 
-class AristaProvisionedNets(model_base.BASEV2, model_base.HasId,
-                            HasTenant):
-    """Stores networks provisioned on Arista EOS.
-
-    Saves the segmentation ID for each network that is provisioned
-    on EOS. This information is used during synchronization between
-    Neutron and EOS.
-    """
-    __tablename__ = 'arista_provisioned_nets'
-
-    network_id = sa.Column(sa.String(UUID_LEN))
-    segmentation_id = sa.Column(sa.Integer)
-
-    def eos_network_representation(self, segmentation_type):
-        return {u'networkId': self.network_id,
-                u'segmentationTypeId': self.segmentation_id,
-                u'segmentationType': segmentation_type,
-                u'tenantId': self.tenant_id,
-                u'segmentId': self.id,
-                }
-
-
 class AristaProvisionedVms(model_base.BASEV2, model_base.HasId,
                            HasTenant):
     """Stores VMs provisioned on Arista EOS.
