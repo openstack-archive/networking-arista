@@ -68,10 +68,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         tenant_id = 'tenant-1'
         network_id = 'net-1'
         segmentation_id = 42
-        segment_id = 'segment_id_1'
         utils.create_network(tenant_id, network_id, segmentation_id)
-        db_lib.remember_network_segment(tenant_id, network_id, segmentation_id,
-                                        segment_id)
 
         self.rpc.get_tenants.return_value = {}
 
@@ -108,8 +105,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                             expected_calls,
                             )
                         )
-
-        db_lib.forget_network_segment(tenant_id, network_id)
 
     def test_sync_start_failure(self):
         """Tests that we force another sync when sync_start fails.
@@ -173,17 +168,12 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         tenant_1_net_1_seg_id = 11
         utils.create_network(tenant_1_id, tenant_1_net_1_id,
                              tenant_1_net_1_seg_id)
-        db_lib.remember_network_segment(tenant_1_id, tenant_1_net_1_id,
-                                        tenant_1_net_1_seg_id, 'segment_id_11')
 
         tenant_2_id = 'tenant-2'
         tenant_2_net_1_id = 'ten-2-net-1'
         tenant_2_net_1_seg_id = 21
         utils.create_network(tenant_2_id, tenant_2_net_1_id,
                              tenant_2_net_1_seg_id)
-
-        db_lib.remember_network_segment(tenant_2_id, tenant_2_net_1_id,
-                                        tenant_2_net_1_seg_id, 'segment_id_21')
 
         self.rpc.get_tenants.return_value = {
             tenant_1_id: {
@@ -234,9 +224,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         self.rpc.assert_has_calls(expected_calls)
 
-        db_lib.forget_network_segment(tenant_1_id, tenant_1_net_1_id)
-        db_lib.forget_network_segment(tenant_2_id, tenant_2_net_1_id)
-
     def test_synchronize_all_networks(self):
         """Test to ensure that only the required resources are sent to EOS."""
 
@@ -247,16 +234,12 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         tenant_1_net_1_seg_id = 11
         utils.create_network(tenant_1_id, tenant_1_net_1_id,
                              tenant_1_net_1_seg_id)
-        db_lib.remember_network_segment(tenant_1_id, tenant_1_net_1_id,
-                                        tenant_1_net_1_seg_id, 'segment_id_11')
 
         tenant_2_id = 'tenant-2'
         tenant_2_net_1_id = 'ten-2-net-1'
         tenant_2_net_1_seg_id = 21
         utils.create_network(tenant_2_id, tenant_2_net_1_id,
                              tenant_2_net_1_seg_id)
-        db_lib.remember_network_segment(tenant_2_id, tenant_2_net_1_id,
-                                        tenant_2_net_1_seg_id, 'segment_id_21')
 
         self.rpc.get_tenants.return_value = {}
 
@@ -335,9 +318,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                             )
                         )
 
-        db_lib.forget_network_segment(tenant_1_id, tenant_1_net_1_id)
-        db_lib.forget_network_segment(tenant_2_id, tenant_2_net_1_id)
-
     def test_synchronize_shared_network_ports(self):
         """Test to ensure that shared network ports are synchronized.
 
@@ -352,8 +332,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         seg_id = 11
         network_ctx = utils.create_network(tenant_1_id, network_id, seg_id,
                                            shared=True)
-        db_lib.remember_network_segment(tenant_1_id, network_id,
-                                        seg_id, 'segment_id_11')
 
         host_id = 'host-1'
         port_1_id = 'port-1'
@@ -473,4 +451,3 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
 
         db_lib.forget_all_ports_for_network(network_id)
-        db_lib.forget_network_segment(tenant_1_id, network_id)
