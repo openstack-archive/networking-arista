@@ -72,16 +72,12 @@ class AristaSyncWorker(worker.BaseWorker):
 
         LOG.info('Arista Sync: DB Cleanup')
         neutron_nets = self.ndb.get_all_networks()
-        arista_db_nets = db_lib.get_networks(tenant_id='any')
-        neutron_net_ids = set()
-        for net in neutron_nets:
-            neutron_net_ids.add(net['id'])
+        arista_db_nets = db_lib.get_all_anet_nets()
+        neutron_net_ids = set([net['id'] for net in neutron_nets])
 
         # Remove networks from the Arista DB if the network does not exist in
         # Neutron DB
-        for net_id in set(arista_db_nets.keys()).difference(neutron_net_ids):
-            tenant_network = arista_db_nets[net_id]
-            db_lib.forget_network_segment(tenant_network['tenantId'], net_id)
+        for net_id in arista_db_nets.difference(neutron_net_ids):
             db_lib.forget_all_ports_for_network(net_id)
 
 
@@ -172,12 +168,6 @@ class SyncService(object):
         # operations fail, then force_sync is set to true
         self._force_sync = False
 
-        # Create a dict of networks keyed by id.
-        neutron_nets = dict(
-            (network['id'], network) for network in
-            self._ndb.get_all_networks()
-        )
-
         # Get Baremetal port switch_bindings, if any
         port_profiles = db_lib.get_all_portbindings()
         # To support shared networks, split the sync loop in two parts:
@@ -186,7 +176,8 @@ class SyncService(object):
         # all tenats are updated before VMs are updated
         instances_to_update = {}
         for tenant in db_tenants:
-            db_nets = db_lib.get_networks(tenant)
+            db_nets = {n['id']: n
+                       for n in self._ndb.get_all_networks_for_tenant(tenant)}
             db_instances = db_lib.get_vms(tenant)
 
             eos_nets = self._get_eos_networks(eos_tenants, tenant)
@@ -247,10 +238,10 @@ class SyncService(object):
                     networks = [{
                         'network_id': net_id,
                         'network_name':
-                            neutron_nets.get(net_id, {'name': ''})['name'],
+                            db_nets.get(net_id, {'name': ''})['name'],
                         'shared':
-                            neutron_nets.get(net_id,
-                                             {'shared': False})['shared'],
+                            db_nets.get(net_id,
+                                        {'shared': False})['shared'],
                         'segments': self._ndb.get_all_network_segments(net_id),
                         }
                         for net_id in nets_to_update
