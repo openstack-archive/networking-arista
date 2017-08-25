@@ -26,9 +26,7 @@ from networking_arista.common import constants
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2.rpc import arista_eapi
-from networking_arista.tests.unit.ml2.test_arista_mechanism_driver import \
-    FakePortBindingLevel
-import networking_arista.tests.unit.ml2.utils as utils
+from networking_arista.tests.unit import utils
 
 
 EAPI_SEND_FUNC = ('networking_arista.ml2.rpc.arista_eapi.AristaRPCWrapperEapi'
@@ -833,8 +831,8 @@ class RPCWrapperEapiValidConfigTrunkTestCase(testlib_api.SqlTestCase):
         segment_id = 'segment_id_1'
         segments = [{'network_type': 'vlan', 'physical_network': 'default',
                      'segmentation_id': 1234, 'id': segment_id}]
-        binding_level = FakePortBindingLevel(subport_id, 0, 'vendor-1',
-                                             sub_segment_id)
+        binding_level = utils.FakePortBindingLevel(subport_id, 0, 'vendor-1',
+                                                   sub_segment_id)
         subport_segments = [binding_level]
         trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
                                         'port_id': subport_id,
@@ -882,8 +880,8 @@ class RPCWrapperEapiValidConfigTrunkTestCase(testlib_api.SqlTestCase):
                      'is_dynamic': False}]
 
         subport_net_id = 'net-id-2'
-        binding_level = FakePortBindingLevel(subport_id, 0, 'vendor-1',
-                                             sub_segment_id)
+        binding_level = utils.FakePortBindingLevel(subport_id, 0, 'vendor-1',
+                                                   sub_segment_id)
         subport_segments = [binding_level]
 
         trunk_details = {'sub_ports': [{'mac_address': 'mac_address',
