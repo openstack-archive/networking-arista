@@ -22,6 +22,7 @@ from neutron.tests.unit import testlib_api
 
 from networking_arista.common import db_lib
 from networking_arista.ml2 import arista_sync
+from networking_arista.tests.unit import utils
 
 
 class SyncServiceTest(testlib_api.SqlTestCase):
@@ -68,7 +69,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         network_id = 'net-1'
         segmentation_id = 42
         segment_id = 'segment_id_1'
-        db_lib.remember_tenant(tenant_id)
+        utils.create_network(tenant_id, network_id, segmentation_id)
         db_lib.remember_network_segment(tenant_id, network_id, segmentation_id,
                                         segment_id)
 
@@ -95,7 +96,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                 tenant_id,
                 [{'network_id': network_id,
                   'segments': [],
-                  'network_name': '',
+                  'network_name': network_id,
                   'shared': False}],
                 sync=True),
             mock.call.sync_end(),
@@ -109,7 +110,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                         )
 
         db_lib.forget_network_segment(tenant_id, network_id)
-        db_lib.forget_tenant(tenant_id)
 
     def test_sync_start_failure(self):
         """Tests that we force another sync when sync_start fails.
@@ -171,14 +171,17 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         tenant_1_id = 'tenant-1'
         tenant_1_net_1_id = 'ten-1-net-1'
         tenant_1_net_1_seg_id = 11
-        db_lib.remember_tenant(tenant_1_id)
+        utils.create_network(tenant_1_id, tenant_1_net_1_id,
+                             tenant_1_net_1_seg_id)
         db_lib.remember_network_segment(tenant_1_id, tenant_1_net_1_id,
                                         tenant_1_net_1_seg_id, 'segment_id_11')
 
         tenant_2_id = 'tenant-2'
         tenant_2_net_1_id = 'ten-2-net-1'
         tenant_2_net_1_seg_id = 21
-        db_lib.remember_tenant(tenant_2_id)
+        utils.create_network(tenant_2_id, tenant_2_net_1_id,
+                             tenant_2_net_1_seg_id)
+
         db_lib.remember_network_segment(tenant_2_id, tenant_2_net_1_id,
                                         tenant_2_net_1_seg_id, 'segment_id_21')
 
@@ -221,7 +224,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                 tenant_2_id,
                 [{'network_id': tenant_2_net_1_id,
                   'segments': [],
-                  'network_name': '',
+                  'network_name': tenant_2_net_1_id,
                   'shared': False}],
                 sync=True),
 
@@ -233,25 +236,25 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
         db_lib.forget_network_segment(tenant_1_id, tenant_1_net_1_id)
         db_lib.forget_network_segment(tenant_2_id, tenant_2_net_1_id)
-        db_lib.forget_tenant(tenant_1_id)
-        db_lib.forget_tenant(tenant_2_id)
 
     def test_synchronize_all_networks(self):
         """Test to ensure that only the required resources are sent to EOS."""
 
         # Store two tenants in a db and none on EOS.
         # The sync should send details of all tenants to EOS
-        tenant_1_id = u'tenant-1'
-        tenant_1_net_1_id = u'ten-1-net-1'
+        tenant_1_id = 'tenant-1'
+        tenant_1_net_1_id = 'ten-1-net-1'
         tenant_1_net_1_seg_id = 11
-        db_lib.remember_tenant(tenant_1_id)
+        utils.create_network(tenant_1_id, tenant_1_net_1_id,
+                             tenant_1_net_1_seg_id)
         db_lib.remember_network_segment(tenant_1_id, tenant_1_net_1_id,
                                         tenant_1_net_1_seg_id, 'segment_id_11')
 
-        tenant_2_id = u'tenant-2'
-        tenant_2_net_1_id = u'ten-2-net-1'
+        tenant_2_id = 'tenant-2'
+        tenant_2_net_1_id = 'ten-2-net-1'
         tenant_2_net_1_seg_id = 21
-        db_lib.remember_tenant(tenant_2_id)
+        utils.create_network(tenant_2_id, tenant_2_net_1_id,
+                             tenant_2_net_1_seg_id)
         db_lib.remember_network_segment(tenant_2_id, tenant_2_net_1_id,
                                         tenant_2_net_1_seg_id, 'segment_id_21')
 
@@ -280,7 +283,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                 tenant_1_id,
                 [{'network_id': tenant_1_net_1_id,
                   'segments': [],
-                  'network_name': '',
+                  'network_name': tenant_1_net_1_id,
                   'shared': False}],
                 sync=True),
 
@@ -288,51 +291,135 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                 tenant_2_id,
                 [{'network_id': tenant_2_net_1_id,
                   'segments': [],
-                  'network_name': '',
+                  'network_name': tenant_2_net_1_id,
                   'shared': False}],
                 sync=True),
             mock.call.sync_end(),
             mock.call.get_region_updated_time()
         ]
 
-        # The create_network_bulk() can be called in different order. So split
+        # The create_instance_bulk() can be called in different order. So split
         # it up. The first part checks if the initial set of methods are
         # invoked.
         idx = expected_calls.index(mock.call.get_tenants()) + 1
-        self.assertTrue(self.rpc.mock_calls[:idx] == expected_calls[:idx],
-                        "Seen: %s\nExpected: %s" % (
-                            self.rpc.mock_calls,
-                            expected_calls,
-                            )
-                        )
-        # Check if tenant 1 networks are created. It must be one of the two
-        # methods.
-        self.assertTrue(self.rpc.mock_calls[idx] in
-                        expected_calls[idx:idx + 2],
-                        "Seen: %s\nExpected: %s" % (
-                            self.rpc.mock_calls,
-                            expected_calls,
-                            )
-                        )
-        # Check if tenant 2 networks are created. It must be one of the two
-        # methods.
-        self.assertTrue(self.rpc.mock_calls[idx + 1] in
-                        expected_calls[idx:idx + 2],
-                        "Seen: %s\nExpected: %s" % (
-                            self.rpc.mock_calls,
-                            expected_calls,
-                            )
-                        )
+        self.rpc.assert_has_calls(expected_calls[:idx])
+
+        # Check if tenant ports are created.
+        self.rpc.assert_has_calls(expected_calls[idx:idx + 2], any_order=True)
+
         # Check if the sync end methods are invoked.
-        self.assertTrue(self.rpc.mock_calls[idx + 2:] ==
-                        expected_calls[idx + 2:],
-                        "Seen: %s\nExpected: %s" % (
-                            self.rpc.mock_calls,
-                            expected_calls,
-                            )
-                        )
+        self.rpc.assert_has_calls(expected_calls[idx + 2:])
 
         db_lib.forget_network_segment(tenant_1_id, tenant_1_net_1_id)
         db_lib.forget_network_segment(tenant_2_id, tenant_2_net_1_id)
-        db_lib.forget_tenant(tenant_1_id)
-        db_lib.forget_tenant(tenant_2_id)
+
+    def test_synchronize_shared_network_ports(self):
+        """Test to ensure that shared network ports are synchronized.
+
+        This is to ensure that ports whose tenant id does not match the
+        network tenant id are still sync'd. The test stores a network and
+        2 ports in the neutron db and only the network in EOS.
+        The sync should send details of the ports to EOS.
+        """
+
+        tenant_1_id = 'tenant-1'
+        network_id = 'net-1'
+        seg_id = 11
+        network_ctx = utils.create_network(tenant_1_id, network_id, seg_id,
+                                           shared=True)
+        db_lib.remember_network_segment(tenant_1_id, network_id,
+                                        seg_id, 'segment_id_11')
+
+        host_id = 'host-1'
+        port_1_id = 'port-1'
+        device_1_id = 'vm-1'
+        utils.create_port(tenant_1_id, network_id, device_1_id, port_1_id,
+                          network_ctx)
+        db_lib.remember_vm(device_1_id, host_id, port_1_id, network_id,
+                           tenant_1_id)
+
+        tenant_2_id = 'tenant-2'
+        port_2_id = 'port-2'
+        device_2_id = 'vm-2'
+        utils.create_port(tenant_2_id, network_id, device_2_id, port_2_id,
+                          network_ctx)
+        db_lib.remember_vm(device_2_id, host_id, port_2_id, network_id,
+                           tenant_2_id)
+
+        self.rpc.get_tenants.return_value = {
+            tenant_1_id: {
+                'tenantVmInstances': {},
+                'tenantBaremetalInstances': {},
+                'tenantNetworks': {
+                    network_id: {
+                        'networkId': network_id,
+                        'shared': True,
+                        'networkName': '',
+                        'segmenationType': 'vlan',
+                        'segmentationTypeId': seg_id,
+                    }
+                }
+            }
+        }
+
+        self.rpc.sync_start.return_value = True
+        self.rpc.sync_end.return_value = True
+        self.rpc.check_cvx_availability.return_value = True
+        self.rpc.get_region_updated_time.return_value = {'regionTimestamp': 1}
+
+        self.rpc._baremetal_supported.return_value = False
+        self.rpc.get_all_baremetal_hosts.return_value = {}
+
+        self.sync_service.do_synchronize()
+
+        expected_calls = [
+            mock.call.perform_sync_of_sg(),
+            mock.call.check_cvx_availability(),
+            mock.call.get_region_updated_time(),
+            mock.call.sync_start(),
+            mock.call.register_with_eos(sync=True),
+            mock.call.check_supported_features(),
+            mock.call.get_tenants(),
+
+            mock.call.create_instance_bulk(
+                tenant_1_id,
+                {port_1_id: {'device_owner': 'compute',
+                             'device_id': device_1_id,
+                             'name': '',
+                             'id': port_1_id,
+                             'tenant_id': tenant_1_id,
+                             'network_id': network_id}},
+                db_lib.get_vms(tenant_1_id),
+                {},
+                sync=True),
+
+            mock.call.create_instance_bulk(
+                tenant_2_id,
+                {port_2_id: {'device_owner': 'compute',
+                             'device_id': device_2_id,
+                             'name': '',
+                             'id': port_2_id,
+                             'tenant_id': tenant_2_id,
+                             'network_id': network_id}},
+                db_lib.get_vms(tenant_2_id),
+                {},
+                sync=True),
+
+            mock.call.sync_end(),
+            mock.call.get_region_updated_time()
+        ]
+
+        # The create_instance_bulk() can be called in different order. So split
+        # it up. The first part checks if the initial set of methods are
+        # invoked.
+        idx = expected_calls.index(mock.call.get_tenants()) + 1
+        self.rpc.assert_has_calls(expected_calls[:idx])
+
+        # Check if tenant ports are created.
+        self.rpc.assert_has_calls(expected_calls[idx:idx + 2], any_order=True)
+
+        # Check if the sync end methods are invoked.
+        self.rpc.assert_has_calls(expected_calls[idx + 2:])
+
+        db_lib.forget_all_ports_for_network(network_id)
+        db_lib.forget_network_segment(tenant_1_id, network_id)
