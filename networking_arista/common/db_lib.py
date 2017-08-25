@@ -20,6 +20,7 @@ from neutron_lib.plugins.ml2 import api as driver_api
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db.models import segment as segment_models
+from neutron.db import models_v2
 from neutron.db import securitygroups_db as sec_db
 from neutron.db import segments_db
 from neutron.plugins.ml2 import models as ml2_models
@@ -28,46 +29,6 @@ from neutron.services.trunk import models as trunk_models
 from networking_arista.common import db as db_models
 
 VLAN_SEGMENTATION = 'vlan'
-
-
-def remember_tenant(tenant_id):
-    """Stores a tenant information in repository.
-
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_writer_session()
-    with session.begin():
-        tenant = (session.query(db_models.AristaProvisionedTenants).
-                  filter_by(tenant_id=tenant_id).first())
-        if not tenant:
-            tenant = db_models.AristaProvisionedTenants(tenant_id=tenant_id)
-            session.add(tenant)
-
-
-def forget_tenant(tenant_id):
-    """Removes a tenant information from repository.
-
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_writer_session()
-    with session.begin():
-        (session.query(db_models.AristaProvisionedTenants).
-         filter_by(tenant_id=tenant_id).
-         delete())
-
-
-def get_all_tenants():
-    """Returns a list of all tenants stored in repository."""
-    session = db.get_reader_session()
-    with session.begin():
-        return session.query(db_models.AristaProvisionedTenants).all()
-
-
-def num_provisioned_tenants():
-    """Returns number of tenants stored in repository."""
-    session = db.get_reader_session()
-    with session.begin():
-        return session.query(db_models.AristaProvisionedTenants).count()
 
 
 def remember_vm(vm_id, host_id, port_id, network_id, tenant_id):
@@ -255,19 +216,6 @@ def is_network_provisioned(tenant_id, network_id, segmentation_id=None,
         return num_nets > 0
 
 
-def is_tenant_provisioned(tenant_id):
-    """Checks if a tenant is already known to EOS
-
-    :returns: True, if yes; False otherwise.
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_reader_session()
-    with session.begin():
-        num_tenants = (session.query(db_models.AristaProvisionedTenants).
-                       filter_by(tenant_id=tenant_id).count())
-    return num_tenants > 0
-
-
 def num_nets_provisioned(tenant_id):
     """Returns number of networks for a given tennat.
 
@@ -406,16 +354,17 @@ def get_ports(tenant_id=None):
 
 
 def get_tenants():
-    """Returns list of all tenants in EOS-compatible format."""
+    """Returns list of all project/tenant ids that may be relevant on CVX."""
     session = db.get_reader_session()
+    project_ids = set()
     with session.begin():
-        model = db_models.AristaProvisionedTenants
-        all_tenants = session.query(model)
-        res = dict(
-            (tenant.tenant_id, tenant.eos_tenant_representation())
-            for tenant in all_tenants
-        )
-        return res
+        network_model = models_v2.Network
+        project_ids |= set(pid[0] for pid in
+                           session.query(network_model.project_id).distinct())
+        port_model = models_v2.Port
+        project_ids |= set(pid[0] for pid in
+                           session.query(port_model.project_id).distinct())
+    return project_ids
 
 
 def _make_port_dict(record):
@@ -439,7 +388,7 @@ def get_all_baremetal_ports():
 
 def get_all_portbindings():
     """Returns a list of all ports bindings."""
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         query = session.query(ml2_models.PortBinding)
         ports = query.all()
@@ -500,13 +449,6 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
     def __init__(self):
         self.admin_ctx = nctx.get_admin_context()
 
-    def get_network_name(self, tenant_id, network_id):
-        network = self._get_network(tenant_id, network_id)
-        network_name = None
-        if network:
-            network_name = network[0]['name']
-        return network_name
-
     def get_all_networks_for_tenant(self, tenant_id):
         filters = {'tenant_id': [tenant_id]}
         return super(NeutronNets,
@@ -555,12 +497,6 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
         ctxt = context if context else self.admin_ctx
         return super(NeutronNets,
                      self).get_networks(ctxt, filters=filters) or []
-
-    def _get_network(self, tenant_id, network_id):
-        filters = {'tenant_id': [tenant_id],
-                   'id': [network_id]}
-        return super(NeutronNets,
-                     self).get_networks(self.admin_ctx, filters=filters) or []
 
     def get_subnet_info(self, subnet_id):
         return self.get_subnet(subnet_id)
