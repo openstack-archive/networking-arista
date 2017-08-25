@@ -86,6 +86,12 @@ def create_network(tenant_id, net_id, seg_id, shared=False):
     return net_ctx
 
 
+def delete_network(context, network_id):
+    ndb = db_lib.NeutronNets()
+    ndb.delete_network(context, network_id)
+    context.session.flush()
+
+
 def create_port(tenant_id, net_id, device_id, port_id, network_ctx):
     session = db_api.get_writer_session()
     ndb = db_lib.NeutronNets()
@@ -98,6 +104,13 @@ def create_port(tenant_id, net_id, device_id, port_id, network_ctx):
     return port_ctx
 
 
+def delete_port(context, port_id):
+    ndb = db_lib.NeutronNets()
+    ndb.set_ipam_backend()
+    ndb.delete_port(context, port_id)
+    context.session.flush()
+
+
 class FakeNetworkContext(object):
     """To generate network context for testing purposes only."""
 
@@ -107,6 +120,7 @@ class FakeNetworkContext(object):
         self._original_network = original_network
         self._segments = segments
         self.is_admin = False
+        self.is_advsvc = False
         self.tenant_id = network['tenant_id']
         self.session = session or db_api.get_reader_session()
 
@@ -137,6 +151,7 @@ class FakePortContext(object):
         self.is_admin = False
         self.is_advsvc = False
         self.tenant_id = port['tenant_id']
+        self.project_id = port['tenant_id']
         self.session = session or db_api.get_reader_session()
 
     @property

@@ -94,59 +94,6 @@ def forget_port(port_id, host_id):
             host_id=host_id).delete()
 
 
-def remember_network_segment(tenant_id,
-                             network_id, segmentation_id, segment_id):
-    """Stores all relevant information about a Network in repository.
-
-    :param tenant_id: globally unique neutron tenant identifier
-    :param network_id: globally unique neutron network identifier
-    :param segmentation_id: segmentation id that is assigned to the network
-    :param segment_id: globally unique neutron network segment identifier
-    """
-    session = db.get_writer_session()
-    with session.begin():
-        net = db_models.AristaProvisionedNets(
-            tenant_id=tenant_id,
-            id=segment_id,
-            network_id=network_id,
-            segmentation_id=segmentation_id)
-        session.add(net)
-
-
-def forget_network_segment(tenant_id, network_id, segment_id=None):
-    """Deletes all relevant information about a Network from repository.
-
-    :param tenant_id: globally unique neutron tenant identifier
-    :param network_id: globally unique neutron network identifier
-    :param segment_id: globally unique neutron network segment identifier
-    """
-    filters = {
-        'tenant_id': tenant_id,
-        'network_id': network_id
-    }
-    if segment_id:
-        filters['id'] = segment_id
-
-    session = db.get_writer_session()
-    with session.begin():
-        (session.query(db_models.AristaProvisionedNets).
-         filter_by(**filters).delete())
-
-
-def get_segmentation_id(tenant_id, network_id):
-    """Returns Segmentation ID (VLAN) associated with a network.
-
-    :param tenant_id: globally unique neutron tenant identifier
-    :param network_id: globally unique neutron network identifier
-    """
-    session = db.get_reader_session()
-    with session.begin():
-        net = (session.query(db_models.AristaProvisionedNets).
-               filter_by(tenant_id=tenant_id,
-                         network_id=network_id).first())
-        return net.segmentation_id if net else None
-
-
 def is_vm_provisioned(vm_id, host_id, port_id,
                       network_id, tenant_id):
     """Checks if a VM is already known to EOS
@@ -190,41 +137,6 @@ def is_port_provisioned(port_id, host_id=None):
         return num_ports > 0
 
 
-def is_network_provisioned(tenant_id, network_id, segmentation_id=None,
-                           segment_id=None):
-    """Checks if a networks is already known to EOS
-
-    :returns: True, if yes; False otherwise.
-    :param tenant_id: globally unique neutron tenant identifier
-    :param network_id: globally unique neutron network identifier
-    :param segment_id: globally unique neutron network segment identifier
-    """
-    session = db.get_reader_session()
-    with session.begin():
-        filters = {'tenant_id': tenant_id,
-                   'network_id': network_id}
-        if segmentation_id:
-            filters['segmentation_id'] = segmentation_id
-        if segment_id:
-            filters['id'] = segment_id
-
-        num_nets = (session.query(db_models.AristaProvisionedNets).
-                    filter_by(**filters).count())
-
-        return num_nets > 0
-
-
-def num_nets_provisioned(tenant_id):
-    """Returns number of networks for a given tennat.
-
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_reader_session()
-    with session.begin():
-        return (session.query(db_models.AristaProvisionedNets).
-                filter_by(tenant_id=tenant_id).count())
-
-
 def num_vms_provisioned(tenant_id):
     """Returns number of VMs for a given tennat.
 
@@ -234,35 +146,6 @@ def num_vms_provisioned(tenant_id):
     with session.begin():
         return (session.query(db_models.AristaProvisionedVms).
                 filter_by(tenant_id=tenant_id).count())
-
-
-def get_networks(tenant_id):
-    """Returns all networks for a given tenant in EOS-compatible format.
-
-    See AristaRPCWrapper.get_network_list() for return value format.
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_reader_session()
-    with session.begin():
-        model = db_models.AristaProvisionedNets
-        # hack for pep8 E711: comparison to None should be
-        # 'if cond is not None'
-        none = None
-        all_nets = []
-        if tenant_id != 'any':
-            all_nets = (session.query(model).
-                        filter(model.tenant_id == tenant_id,
-                               model.segmentation_id != none))
-        else:
-            all_nets = (session.query(model).
-                        filter(model.segmentation_id != none))
-
-        res = dict(
-            (net.network_id, net.eos_network_representation(
-                VLAN_SEGMENTATION))
-            for net in all_nets
-        )
-        return res
 
 
 def get_vms(tenant_id):
@@ -349,6 +232,30 @@ def get_ports(tenant_id=None):
         ports[port.port_id]['hosts'].append(port.host_id)
 
     return ports
+
+
+def get_all_anet_nets():
+    """Return the set of networks in the arista_provisioned_vms table."""
+    session = db.get_reader_session()
+    network_ids = set()
+    with session.begin():
+        model = db_models.AristaProvisionedVms
+        network_ids |= set(nid[0] for nid in
+                           session.query(model.network_id).distinct())
+    return network_ids
+
+
+def tenant_provisioned(tid):
+    """Returns true if any networks or ports exist for a tenant."""
+    session = db.get_reader_session()
+    with session.begin():
+        network_model = models_v2.Network
+        port_model = models_v2.Port
+        res = bool(
+            session.query(network_model).filter_by(tenant_id=tid).count() or
+            session.query(port_model).filter_by(tenant_id=tid).count()
+        )
+    return res
 
 
 def get_tenants():
