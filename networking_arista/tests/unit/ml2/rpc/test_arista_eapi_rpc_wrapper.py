@@ -22,7 +22,7 @@ from neutron.tests.unit import testlib_api
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2.rpc import arista_eapi
-import networking_arista.tests.unit.ml2.utils as utils
+from networking_arista.tests.unit import utils
 
 
 EAPI_SEND_FUNC = ('networking_arista.ml2.rpc.arista_eapi.AristaRPCWrapperEapi'

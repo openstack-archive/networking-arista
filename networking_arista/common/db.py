@@ -69,15 +69,3 @@ class AristaProvisionedVms(model_base.BASEV2, model_base.HasId,
                 u'deviceId': self.vm_id,
                 u'hosts': [self.host_id],
                 u'networkId': self.network_id}
-
-
-class AristaProvisionedTenants(model_base.BASEV2, model_base.HasId,
-                               HasTenant):
-    """Stores Tenants provisioned on Arista EOS.
-
-    Tenants list is maintained for sync between Neutron and EOS.
-    """
-    __tablename__ = 'arista_provisioned_tenants'
-
-    def eos_tenant_representation(self):
-        return {u'tenantId': self.tenant_id}
