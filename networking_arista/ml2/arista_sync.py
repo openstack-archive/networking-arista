@@ -159,7 +159,7 @@ class SyncService(object):
 
         # Delete tenants that are in EOS, but not in the database
         tenants_to_delete = frozenset(eos_tenants.keys()).difference(
-            db_tenants.keys())
+            db_tenants)
 
         if tenants_to_delete:
             try:
@@ -186,7 +186,7 @@ class SyncService(object):
         # In second loop, update VMs. This is done to ensure that networks for
         # all tenats are updated before VMs are updated
         instances_to_update = {}
-        for tenant in db_tenants.keys():
+        for tenant in db_tenants:
             db_nets = db_lib.get_networks(tenant)
             db_instances = db_lib.get_vms(tenant)
 
