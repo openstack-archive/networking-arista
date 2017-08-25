@@ -14,14 +14,12 @@
 # limitations under the License.
 
 import mock
-from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
-from neutron_lib.plugins.ml2 import api as driver_api
 
-from neutron.common import constants as neutron_const
 from neutron.tests.unit import testlib_api
 
 from networking_arista.ml2 import mechanism_arista
+from networking_arista.tests.unit import utils
 
 INTERNAL_TENANT_ID = 'INTERNAL-TENANT-ID'
 
@@ -49,7 +47,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1001
 
         self.drv.rpc.hpb_supported.return_value = True
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -58,7 +56,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.hpb_supported(),
-            mock.call.remember_tenant(tenant_id),
             mock.call.remember_network_segment(tenant_id,
                                                network_id,
                                                segmentation_id,
@@ -73,7 +70,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'net2-id'
         segmentation_id = 1002
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -83,7 +80,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls += [
             mock.call.hpb_supported(),
-            mock.call.remember_tenant(INTERNAL_TENANT_ID),
             mock.call.remember_network_segment(INTERNAL_TENANT_ID,
                                                network_id,
                                                segmentation_id,
@@ -97,7 +93,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'net1-id'
         segmentation_id = 1001
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -125,7 +121,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'net2-id'
         segmentation_id = 1002
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -153,7 +149,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'net1-id'
         segmentation_id = 1001
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -178,7 +174,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'net2-id'
         segmentation_id = 1002
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -203,7 +199,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'net1-id'
         segmentation_id = 1001
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -232,7 +228,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1001
 
         self.drv.rpc.hpb_supported.return_value = True
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -246,7 +242,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                      network_context.network_segments),
             mock.call.num_nets_provisioned(tenant_id),
             mock.call.num_vms_provisioned(tenant_id),
-            mock.call.forget_tenant(tenant_id),
             mock.call.delete_tenant(tenant_id),
         ]
 
@@ -258,7 +253,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'net2-id'
         segmentation_id = 1002
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -271,7 +266,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                      network_context.network_segments),
             mock.call.num_nets_provisioned(INTERNAL_TENANT_ID),
             mock.call.num_vms_provisioned(INTERNAL_TENANT_ID),
-            mock.call.forget_tenant(INTERNAL_TENANT_ID),
             mock.call.delete_tenant(INTERNAL_TENANT_ID),
         ]
 
@@ -283,12 +277,12 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1001
         vm_id = 'vm1'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
 
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -303,7 +297,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.is_network_provisioned(tenant_id, network_id, None),
-            mock.call.remember_tenant(tenant_id),
             mock.call.remember_vm(vm_id, host_id, port_id,
                                   network_id, tenant_id)
         ]
@@ -317,11 +310,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1002
         vm_id = 'vm2'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -338,7 +331,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         expected_calls += [
             mock.call.is_network_provisioned(INTERNAL_TENANT_ID, network_id,
                                              None),
-            mock.call.remember_tenant(INTERNAL_TENANT_ID),
             mock.call.remember_vm(vm_id, host_id, port_id,
                                   network_id, INTERNAL_TENANT_ID)
         ]
@@ -350,11 +342,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1001
         vm_id = 'vm1'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -394,11 +386,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1002
         vm_id = 'vm2'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -438,12 +430,12 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1001
         vm_id = 'vm1'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
 
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -467,11 +459,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1002
         vm_id = 'vm2'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -495,11 +487,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1001
         vm_id = 'vm1'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -533,7 +525,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.remove_security_group(None, profile),
             mock.call.num_nets_provisioned(tenant_id),
             mock.call.num_vms_provisioned(tenant_id),
-            mock.call.forget_tenant(tenant_id),
             mock.call.delete_tenant(tenant_id),
             mock.call.hpb_supported(),
         ]
@@ -550,11 +541,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1002
         vm_id = 'vm2'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -583,7 +574,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.remove_security_group(None, profile),
             mock.call.num_nets_provisioned(INTERNAL_TENANT_ID),
             mock.call.num_vms_provisioned(INTERNAL_TENANT_ID),
-            mock.call.forget_tenant(INTERNAL_TENANT_ID),
             mock.call.delete_tenant(INTERNAL_TENANT_ID),
             mock.call.hpb_supported(),
         ]
@@ -605,12 +595,12 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1001
         vm_id = 'vm1'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
 
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -632,7 +622,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              segmentation_id,
                                              segment_id),
             mock.call.is_port_provisioned(port_id, None),
-            mock.call.remember_tenant(tenant_id),
             mock.call.remember_vm(vm_id, host_id, port_id,
                                   network_id, tenant_id)
         ]
@@ -646,11 +635,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1002
         vm_id = 'vm2'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -686,11 +675,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1003
         vm_id = 'vm3'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -722,7 +711,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         # DVR ports
         # <port, host> does not exist. It should be added to the DB
         owner = n_const.DEVICE_OWNER_DVR_INTERFACE
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               router_id,
                                               network_context,
@@ -733,7 +722,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id, segment_id),
             mock.call.is_port_provisioned(port_id, host_id),
-            mock.call.remember_tenant(tenant_id),
             mock.call.remember_vm(router_id, host_id, port_id,
                                   network_id, tenant_id)
         ]
@@ -755,12 +743,12 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1001
         vm_id = 'vm1'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
         segments = network_context.network_segments
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -816,12 +804,12 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1002
         vm_id = 'vm2'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
         segments = network_context.network_segments
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
                                               network_context)
@@ -874,14 +862,14 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segmentation_id = 1003
         router_id = 'r1'
 
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
         segments = network_context.network_segments
         network_name = network_context.current['name']
         owner = n_const.DEVICE_OWNER_DVR_INTERFACE
-        port_context = self._get_port_context(tenant_id,
+        port_context = utils.get_port_context(tenant_id,
                                               network_id,
                                               router_id,
                                               network_context,
@@ -989,12 +977,12 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'n1'
         old_device_id = 'old_device_id'
         new_device_id = 'new_device_id'
-        reserved_device = neutron_const.DEVICE_ID_RESERVED_DHCP_PORT
+        reserved_device = n_const.DEVICE_ID_RESERVED_DHCP_PORT
         old_host = 'ubuntu1'
         new_host = 'ubuntu2'
         port_id = 101
         segmentation_id = 1000
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -1002,7 +990,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Active <old host, old dhcp, vif:ovs>) to
         # (Active <old host, reserved, vif:ovs>)
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, old_device_id,
             network_context, device_owner=n_const.DEVICE_OWNER_DHCP)
         context.current['device_id'] = reserved_device
@@ -1030,7 +1018,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Active <old host, reserved, vif:ovs>) to
         # (Down   <new host, new dhcp, vif:unbound>)
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, reserved_device, network_context,
             device_owner=n_const.DEVICE_OWNER_DHCP)
         context.current['device_id'] = new_device_id
@@ -1051,7 +1039,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Down   <new host, new dhcp, vif:unbound>) to
         # (Down   <new host, new dhcp, vif:ovs>) to
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, new_device_id, network_context,
             device_owner=n_const.DEVICE_OWNER_DHCP, status='DOWN')
 
@@ -1069,7 +1057,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Down   <new host, new dhcp, vif:ovs>) to
         # (Build  <new host, new dhcp, vif:ovs>) to
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, new_device_id, network_context,
             device_owner=n_const.DEVICE_OWNER_DHCP, status='DOWN')
 
@@ -1089,7 +1077,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Build  <new host, new dhcp, vif:ovs>) to
         # (Active <new host, new dhcp, vif:ovs>)
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, new_device_id, network_context,
             device_owner=n_const.DEVICE_OWNER_DHCP, status='BUILD')
 
@@ -1138,12 +1126,12 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'n1'
         old_device_id = 'old_device_id'
         new_device_id = 'new_device_id'
-        reserved_device = neutron_const.DEVICE_ID_RESERVED_DHCP_PORT
+        reserved_device = n_const.DEVICE_ID_RESERVED_DHCP_PORT
         old_host = 'ubuntu1'
         new_host = 'ubuntu2'
         port_id = 101
         segmentation_id = 1000
-        network_context = self._get_network_context(tenant_id,
+        network_context = utils.get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
                                                     False)
@@ -1151,7 +1139,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Active <old host, old dhcp, vif:ovs>) to
         # (Active <old host, reserved, vif:ovs>)
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, old_device_id, network_context,
             device_owner=n_const.DEVICE_OWNER_DHCP)
         context.current['device_id'] = reserved_device
@@ -1200,7 +1188,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Active <old host, reserved, vif:ovs>) to
         # (Down   <new host, new dhcp, vif:unbound>)
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, reserved_device, network_context,
             device_owner=n_const.DEVICE_OWNER_DHCP)
         context.current['device_id'] = new_device_id
@@ -1238,7 +1226,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Down   <new host, new dhcp, vif:unbound>) to
         # (Down   <new host, new dhcp, vif:ovs>) to
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, new_device_id, network_context,
             device_owner=n_const.DEVICE_OWNER_DHCP, status='DOWN')
         context.current['binding:host_id'] = new_host
@@ -1269,7 +1257,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Down   <new host, new dhcp, vif:ovs>) to
         # (Build  <new host, new dhcp, vif:ovs>) to
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, new_device_id, network_context,
             device_owner=n_const.DEVICE_OWNER_DHCP, status='DOWN')
         context.current['binding:host_id'] = new_host
@@ -1301,7 +1289,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         # (Build  <new host, new dhcp, vif:ovs>) to
         # (Active <new host, new dhcp, vif:ovs>)
-        context = self._get_port_context(
+        context = utils.get_port_context(
             tenant_id, network_id, new_device_id, network_context,
             device_owner=n_const.DEVICE_OWNER_DHCP, status='BUILD')
         context.current['binding:host_id'] = new_host
@@ -1323,54 +1311,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
 
-    def _get_network_context(self, tenant_id, net_id,
-                             segmentation_id, shared):
-        network = {'id': net_id,
-                   'tenant_id': tenant_id,
-                   'name': 'test-net',
-                   'shared': shared}
-        network_segments = [{'segmentation_id': segmentation_id,
-                             'physical_network': u'default',
-                             'id': 'segment-id-for-%s' % segmentation_id,
-                             'network_type': 'vlan'}]
-        return FakeNetworkContext(tenant_id, network, network_segments,
-                                  network)
-
-    def _get_port_context(self, tenant_id, net_id, device_id, network,
-                          device_owner='compute', status='ACTIVE'):
-        port = {'device_id': device_id,
-                'device_owner': device_owner,
-                'binding:host_id': 'ubuntu1',
-                'name': 'test-port',
-                'tenant_id': tenant_id,
-                'id': 101,
-                'network_id': net_id,
-                'binding:vnic_type': None,
-                'binding:profile': [],
-                'security_groups': None,
-                'status': 'ACTIVE',
-                }
-        orig_port = {'device_id': device_id,
-                     'device_owner': device_owner,
-                     'binding:host_id': 'ubuntu1',
-                     'name': 'test-port',
-                     'tenant_id': tenant_id,
-                     'id': 101,
-                     'network_id': net_id,
-                     'binding:vnic_type': None,
-                     'binding:profile': [],
-                     'security_groups': None,
-                     'status': 'ACTIVE',
-                     }
-        binding_levels = []
-        for level, segment in enumerate(network.network_segments):
-            binding_levels.append(FakePortBindingLevel(port['id'],
-                                                       level,
-                                                       'vendor-1',
-                                                       segment['id']))
-        return FakePortContext(port, dict(orig_port), network, status,
-                               binding_levels)
-
 
 class fake_keystone_info_class(object):
     """To generate fake Keystone Authentication token information
@@ -1385,104 +1325,9 @@ class fake_keystone_info_class(object):
     admin_tenant_name = 'tenant_name'
 
 
-class FakeNetworkContext(object):
-    """To generate network context for testing purposes only."""
-
-    def __init__(self, tenant_id, network, segments=None,
-                 original_network=None):
-        self._network = network
-        self._original_network = original_network
-        self._segments = segments
-        self._plugin_context = FakePluginContext(tenant_id)
-
-    @property
-    def current(self):
-        return self._network
-
-    @property
-    def original(self):
-        return self._original_network
-
-    @property
-    def network_segments(self):
-        return self._segments
-
-
-class FakePortContext(object):
-    """To generate port context for testing purposes only."""
-
-    def __init__(self, port, original_port, network, status,
-                 binding_levels):
-        self._plugin_context = FakePluginContext('test')
-        self._port = port
-        self._original_port = original_port
-        self._network_context = network
-        self._status = status
-        self._binding_levels = binding_levels
-        self._original_binding_levels = []
-
-    @property
-    def current(self):
-        return self._port
-
-    @property
-    def original(self):
-        return self._original_port
-
-    @property
-    def network(self):
-        return self._network_context
-
-    @property
-    def host(self):
-        return self._port.get(portbindings.HOST_ID)
-
-    @property
-    def original_host(self):
-        return self._original_port.get(portbindings.HOST_ID)
-
-    @property
-    def status(self):
-        return self._status
-
-    @property
-    def original_status(self):
-        if self._original_port:
-            return self._original_port['status']
-
-    @property
-    def binding_levels(self):
-        if self._binding_levels:
-            return [{
-                driver_api.BOUND_DRIVER: level.driver,
-                driver_api.BOUND_SEGMENT:
-                    self._expand_segment(level.segment_id)
-            } for level in self._binding_levels]
-
-    @property
-    def bottom_bound_segment(self):
-        if self._binding_levels:
-            return self._expand_segment(self._binding_levels[-1].segment_id)
-
-    def _expand_segment(self, segment_id):
-        for segment in self._network_context.network_segments:
-            if segment[driver_api.ID] == segment_id:
-                return segment
-
-
 class FakePluginContext(object):
     """Plugin context for testing purposes only."""
 
     def __init__(self, tenant_id):
         self.tenant_id = tenant_id
         self.session = mock.MagicMock()
-
-
-class FakePortBindingLevel(object):
-    """Port binding object for testing purposes only."""
-
-    def __init__(self, port_id, level, driver, segment_id):
-        self.port_id = port_id
-        self.level = level
-        self.driver = driver
-        self.segment_id = segment_id

@@ -20,7 +20,7 @@ import os
 from neutron_lib.db import api as db_api
 from oslo_config import cfg
 from oslo_log import log as logging
-from six import add_metaclass
+import six
 
 from neutron.db.models.plugins.ml2 import vlanallocation
 
@@ -31,7 +31,7 @@ from networking_arista.ml2 import arista_sec_gp
 LOG = logging.getLogger(__name__)
 
 
-@add_metaclass(abc.ABCMeta)
+@six.add_metaclass(abc.ABCMeta)
 class AristaRPCWrapperBase(object):
     """Wraps Arista JSON RPC.
 
@@ -89,7 +89,9 @@ class AristaRPCWrapperBase(object):
 
     def _get_random_name(self, length=10):
         """Returns a base64 encoded name."""
-        return base64.b64encode(os.urandom(10)).translate(None, '=+/')
+        result = base64.b64encode(os.urandom(10)).translate(None, b'=+/')
+
+        return result if six.PY2 else result.decode('utf-8')
 
     def _get_cvx_hosts(self):
         cvx = []

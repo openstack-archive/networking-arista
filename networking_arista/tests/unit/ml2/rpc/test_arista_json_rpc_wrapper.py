@@ -29,7 +29,7 @@ from neutron.tests.unit import testlib_api
 
 from networking_arista.common import db_lib
 from networking_arista.ml2.rpc import arista_json
-import networking_arista.tests.unit.ml2.utils as utils
+from networking_arista.tests.unit import utils
 
 
 BASE_RPC = "networking_arista.ml2.rpc.arista_json.AristaRPCWrapperJSON."

@@ -22,8 +22,6 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 
-from neutron.common import constants as neutron_const
-
 from networking_arista._i18n import _, _LI, _LE
 from networking_arista.common import constants
 from networking_arista.common import db
@@ -58,7 +56,6 @@ class AristaDriver(driver_api.MechanismDriver):
         self.ndb = db_lib.NeutronNets()
         self.db_nets = db.AristaProvisionedNets()
         self.db_vms = db.AristaProvisionedVms()
-        self.db_tenants = db.AristaProvisionedTenants()
 
         confg = cfg.CONF.ml2_arista
         self.segmentation_type = db_lib.VLAN_SEGMENTATION
@@ -111,7 +108,6 @@ class AristaDriver(driver_api.MechanismDriver):
         network_id = network['id']
         tenant_id = network['tenant_id'] or constants.INTERNAL_TENANT_ID
         with self.eos_sync_lock:
-            db_lib.remember_tenant(tenant_id)
             for segment in segments:
                 db_lib.remember_network_segment(tenant_id,
                                                 network_id,
@@ -556,7 +552,6 @@ class AristaDriver(driver_api.MechanismDriver):
                 LOG.info(
                     _LI("Adding %s to provisioned network database"), seg)
                 with self.eos_sync_lock:
-                    db_lib.remember_tenant(tenant_id)
                     db_lib.remember_network_segment(
                         tenant_id, network_id,
                         seg[driver_api.SEGMENTATION_ID],
@@ -587,7 +582,6 @@ class AristaDriver(driver_api.MechanismDriver):
                 if not port_provisioned:
                     LOG.info("Remembering the port")
                     # Create a new port in the DB
-                    db_lib.remember_tenant(tenant_id)
                     db_lib.remember_vm(device_id, host, port_id,
                                        network_id, tenant_id)
                 else:
@@ -700,7 +694,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     port_down = context.status == n_const.PORT_STATUS_DOWN
 
                 if orig_host and (port_down or host != orig_host or
-                   device_id == neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
+                   device_id == n_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     LOG.info("Deleting the port %s" % str(orig_port))
                     # The port moved to a different host or the VM
                     # connected to the port was deleted or its in DOWN
@@ -708,7 +702,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     self._delete_port(orig_port, orig_host, tenant_id)
                 if(port_provisioned and net_provisioned and hostname and
                    is_vm_boot and not port_down and
-                   device_id != neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
+                   device_id != n_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     LOG.info(_LI("Port plugged into network"))
                     # Plug port into the network only if it exists in the db
                     # and is bound to a host and the port is up.
@@ -919,7 +913,6 @@ class AristaDriver(driver_api.MechanismDriver):
         objects_for_tenant = (db_lib.num_nets_provisioned(tenant_id) +
                               db_lib.num_vms_provisioned(tenant_id))
         if not objects_for_tenant:
-            db_lib.forget_tenant(tenant_id)
             try:
                 self.rpc.delete_tenant(tenant_id)
             except arista_exc.AristaRpcError:
