@@ -321,7 +321,7 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
             dev_id = 'dev-id-%d' % device_id
             devices[dev_id] = {'vmId': dev_id,
                                'baremetal_instance': False,
-                               'ports': []
+                               'ports': {}
                                }
             for port_id in range(1, num_ports_per_device):
                 port_id = 'port-id-%d-%d' % (device_id, port_id)
@@ -330,7 +330,7 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
                     'hosts': ['host_%d' % (device_count)],
                     'portId': port_id
                 }
-                devices[dev_id]['ports'].append(port)
+                devices[dev_id]['ports'][port_id] = port
 
         device_owners = [n_const.DEVICE_OWNER_DHCP, 'compute',
                          n_const.DEVICE_OWNER_DVR_INTERFACE]
@@ -368,8 +368,7 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
                 'tenant ten-3']
 
         for device in devices.values():
-            for v_port in device['ports']:
-                port_id = v_port['portId']
+            for port_id, v_port in six.iteritems(device['ports']):
                 port = create_ports[port_id]
                 host = v_port['hosts'][0]
                 device_owner = port['device_owner']
@@ -603,7 +602,7 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
             dev_id = 'dev-id-%d' % device_id
             devices[dev_id] = {'vmId': dev_id,
                                'baremetal_instance': False,
-                               'ports': []
+                               'ports': {}
                                }
             for port_id in range(1, num_ports_per_device + 1):
                 port_id = 'port-id-%d-%d' % (device_id, port_id)
@@ -612,7 +611,7 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
                     'hosts': ['host_%d' % (device_count)],
                     'portId': port_id
                 }
-                devices[dev_id]['ports'].append(port)
+                devices[dev_id]['ports'][port_id] = port
 
         device_owners = [n_const.DEVICE_OWNER_DHCP, 'compute',
                          n_const.DEVICE_OWNER_DVR_INTERFACE]
@@ -650,8 +649,7 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
                 'tenant ten-3']
 
         for count, device in enumerate(devices.values(), 1):
-            for v_port in device['ports']:
-                port_id = v_port['portId']
+            for port_id, v_port in six.iteritems(device['ports']):
                 port = create_ports[port_id]
                 host = v_port['hosts'][0]
                 vm_id = device['vmId']
