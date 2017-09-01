@@ -273,7 +273,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
             dev_id = 'dev-id-%d' % device_id
             devices[dev_id] = {'vmId': dev_id,
                                'baremetal_instance': False,
-                               'ports': []
+                               'ports': {}
                                }
             for port_id in range(0, num_ports_per_device):
                 port_id = 'port-id-%d-%d' % (device_id, port_id)
@@ -282,7 +282,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                     'hosts': ['host_%d' % (device_count)],
                     'portId': port_id
                 }
-                devices[dev_id]['ports'].append(port)
+                devices[dev_id]['ports'][port_id] = port
             device_count += 1
 
         device_owners = [n_const.DEVICE_OWNER_DHCP,
