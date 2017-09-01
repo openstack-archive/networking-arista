@@ -29,11 +29,12 @@ LOG = logging.getLogger(__name__)
 
 
 class AristaSyncWorker(worker.BaseWorker):
-    def __init__(self, rpc, ndb):
+    def __init__(self, rpc, ndb, manage_fabric, managed_physnets):
         super(AristaSyncWorker, self).__init__(worker_process_count=0)
         self.ndb = ndb
         self.rpc = rpc
-        self.sync_service = SyncService(rpc, ndb)
+        self.sync_service = SyncService(rpc, ndb, manage_fabric,
+                                        managed_physnets)
         rpc.sync_service = self.sync_service
         self._loop = None
 
@@ -43,7 +44,6 @@ class AristaSyncWorker(worker.BaseWorker):
         self._sync_running = True
         self._sync_event = threading.Event()
 
-        self._cleanup_db()
         # Registering with EOS updates self.rpc.region_updated_time. Clear it
         # to force an initial sync
         self.rpc.clear_region_updated_time()
@@ -67,19 +67,6 @@ class AristaSyncWorker(worker.BaseWorker):
         self.wait()
         self.start()
 
-    def _cleanup_db(self):
-        """Clean up any unnecessary entries in our DB."""
-
-        LOG.info('Arista Sync: DB Cleanup')
-        neutron_nets = self.ndb.get_all_networks()
-        arista_db_nets = db_lib.get_all_anet_nets()
-        neutron_net_ids = set([net['id'] for net in neutron_nets])
-
-        # Remove networks from the Arista DB if the network does not exist in
-        # Neutron DB
-        for net_id in arista_db_nets.difference(neutron_net_ids):
-            db_lib.forget_all_ports_for_network(net_id)
-
 
 class SyncService(object):
     """Synchronization of information between Neutron and EOS
@@ -88,11 +75,14 @@ class SyncService(object):
     ensures that Networks and VMs configured on EOS/Arista HW
     are always in sync with Neutron DB.
     """
-    def __init__(self, rpc_wrapper, neutron_db):
+    def __init__(self, rpc_wrapper, neutron_db, manage_fabric=True,
+                 managed_physnets=None):
         self._rpc = rpc_wrapper
         self._ndb = neutron_db
         self._force_sync = True
         self._region_updated_time = None
+        self._manage_fabric = manage_fabric
+        self._managed_physnets = managed_physnets
 
     def force_sync(self):
         """Sets the force_sync flag."""
@@ -179,14 +169,14 @@ class SyncService(object):
         for tenant in db_tenants:
             db_nets = {n['id']: n
                        for n in self._ndb.get_all_networks_for_tenant(tenant)}
-            db_instances = db_lib.get_vms(tenant)
+            db_instances = db_lib.get_instances(tenant)
 
             eos_nets = self._get_eos_networks(eos_tenants, tenant)
             eos_vms, eos_bms, eos_routers = self._get_eos_vms(eos_tenants,
                                                               tenant)
 
             db_nets_key_set = frozenset(db_nets.keys())
-            db_instances_key_set = frozenset(db_instances.keys())
+            db_instances_key_set = frozenset(db_instances)
             eos_nets_key_set = frozenset(eos_nets.keys())
             eos_vms_key_set = frozenset(eos_vms.keys())
             eos_routers_key_set = frozenset(eos_routers.keys())
@@ -260,11 +250,13 @@ class SyncService(object):
                 LOG.warning(constants.EOS_UNREACHABLE_MSG)
                 self._force_sync = True
 
-        # Now update the VMs
+        # Now update the instances
         for tenant in instances_to_update:
             if not instances_to_update[tenant]:
                 continue
             try:
+                instance_ports = db_lib.get_instance_ports(
+                    tenant, self._manage_fabric, self._managed_physnets)
                 # Filter the ports to only the vms that we are interested
                 # in.
                 ports_of_interest = {}
@@ -273,13 +265,11 @@ class SyncService(object):
                         self._port_dict_representation(port))
 
                 if ports_of_interest:
-                    db_vms = db_lib.get_vms(tenant)
-                    if db_vms:
-                        self._rpc.create_instance_bulk(tenant,
-                                                       ports_of_interest,
-                                                       db_vms,
-                                                       port_profiles,
-                                                       sync=True)
+                    self._rpc.create_instance_bulk(tenant,
+                                                   ports_of_interest,
+                                                   instance_ports,
+                                                   port_profiles,
+                                                   sync=True)
             except arista_exc.AristaRpcError:
                 LOG.warning(constants.EOS_UNREACHABLE_MSG)
                 self._force_sync = True
