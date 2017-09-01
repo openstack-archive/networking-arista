@@ -66,9 +66,9 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         }
 
         tenant_id = 'tenant-1'
-        network_id = 'net-1'
+        network_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'
         segmentation_id = 42
-        utils.create_network(tenant_id, network_id, segmentation_id)
+        n_ctx = utils.create_network(tenant_id, network_id, segmentation_id)
 
         self.rpc.get_tenants.return_value = {}
 
@@ -92,7 +92,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.create_network_bulk(
                 tenant_id,
                 [{'network_id': network_id,
-                  'segments': [],
+                  'segments': n_ctx.network_segments,
                   'network_name': network_id,
                   'shared': False}],
                 sync=True),
@@ -164,16 +164,16 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         # Store two tenants in a db and a single tenant in EOS.
         # The sync should send details of the second tenant to EOS
         tenant_1_id = 'tenant-1'
-        tenant_1_net_1_id = 'ten-1-net-1'
+        tenant_1_net_1_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'
         tenant_1_net_1_seg_id = 11
         utils.create_network(tenant_1_id, tenant_1_net_1_id,
                              tenant_1_net_1_seg_id)
 
         tenant_2_id = 'tenant-2'
-        tenant_2_net_1_id = 'ten-2-net-1'
+        tenant_2_net_1_id = 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'
         tenant_2_net_1_seg_id = 21
-        utils.create_network(tenant_2_id, tenant_2_net_1_id,
-                             tenant_2_net_1_seg_id)
+        n2_ctx = utils.create_network(tenant_2_id, tenant_2_net_1_id,
+                                      tenant_2_net_1_seg_id)
 
         self.rpc.get_tenants.return_value = {
             tenant_1_id: {
@@ -213,7 +213,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.create_network_bulk(
                 tenant_2_id,
                 [{'network_id': tenant_2_net_1_id,
-                  'segments': [],
+                  'segments': n2_ctx.network_segments,
                   'network_name': tenant_2_net_1_id,
                   'shared': False}],
                 sync=True),
@@ -230,16 +230,16 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         # Store two tenants in a db and none on EOS.
         # The sync should send details of all tenants to EOS
         tenant_1_id = 'tenant-1'
-        tenant_1_net_1_id = 'ten-1-net-1'
+        tenant_1_net_1_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'
         tenant_1_net_1_seg_id = 11
-        utils.create_network(tenant_1_id, tenant_1_net_1_id,
-                             tenant_1_net_1_seg_id)
+        n1_ctx = utils.create_network(tenant_1_id, tenant_1_net_1_id,
+                                      tenant_1_net_1_seg_id)
 
         tenant_2_id = 'tenant-2'
-        tenant_2_net_1_id = 'ten-2-net-1'
+        tenant_2_net_1_id = 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'
         tenant_2_net_1_seg_id = 21
-        utils.create_network(tenant_2_id, tenant_2_net_1_id,
-                             tenant_2_net_1_seg_id)
+        n2_ctx = utils.create_network(tenant_2_id, tenant_2_net_1_id,
+                                      tenant_2_net_1_seg_id)
 
         self.rpc.get_tenants.return_value = {}
 
@@ -265,7 +265,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.create_network_bulk(
                 tenant_1_id,
                 [{'network_id': tenant_1_net_1_id,
-                  'segments': [],
+                  'segments': n1_ctx.network_segments,
                   'network_name': tenant_1_net_1_id,
                   'shared': False}],
                 sync=True),
@@ -273,7 +273,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.create_network_bulk(
                 tenant_2_id,
                 [{'network_id': tenant_2_net_1_id,
-                  'segments': [],
+                  'segments': n2_ctx.network_segments,
                   'network_name': tenant_2_net_1_id,
                   'shared': False}],
                 sync=True),
@@ -328,26 +328,21 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         """
 
         tenant_1_id = 'tenant-1'
-        network_id = 'net-1'
+        network_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'
         seg_id = 11
         network_ctx = utils.create_network(tenant_1_id, network_id, seg_id,
                                            shared=True)
 
-        host_id = 'host-1'
         port_1_id = 'port-1'
         device_1_id = 'vm-1'
         utils.create_port(tenant_1_id, network_id, device_1_id, port_1_id,
                           network_ctx)
-        db_lib.remember_vm(device_1_id, host_id, port_1_id, network_id,
-                           tenant_1_id)
 
         tenant_2_id = 'tenant-2'
         port_2_id = 'port-2'
         device_2_id = 'vm-2'
         utils.create_port(tenant_2_id, network_id, device_2_id, port_2_id,
                           network_ctx)
-        db_lib.remember_vm(device_2_id, host_id, port_2_id, network_id,
-                           tenant_2_id)
 
         self.rpc.get_tenants.return_value = {
             tenant_1_id: {
@@ -392,7 +387,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                              'id': port_1_id,
                              'tenant_id': tenant_1_id,
                              'network_id': network_id}},
-                db_lib.get_vms(tenant_1_id),
+                db_lib.get_instance_ports(tenant_1_id),
                 {},
                 sync=True),
 
@@ -404,7 +399,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                              'id': port_2_id,
                              'tenant_id': tenant_2_id,
                              'network_id': network_id}},
-                db_lib.get_vms(tenant_2_id),
+                db_lib.get_instance_ports(tenant_2_id),
                 {},
                 sync=True),
 
@@ -449,5 +444,3 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                             expected_calls,
                             )
                         )
-
-        db_lib.forget_all_ports_for_network(network_id)

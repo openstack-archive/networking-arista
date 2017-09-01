@@ -429,8 +429,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         portBindings = {}
 
         for vm in vms.values():
-            for v_port in vm['ports']:
-                port_id = v_port['portId']
+            for port_id, v_port in six.iteritems(vm['ports']):
                 if not v_port['hosts']:
                     # Skip all the ports that have no host associsted with them
                     continue
@@ -440,7 +439,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 neutron_port = neutron_ports[port_id]
 
                 inst_id = vm['vmId']
-                inst_host = vm['ports'][0]['hosts'][0]
+                inst_host = v_port['hosts'][0]
                 instance = self._create_instance_data(inst_id, inst_host)
 
                 device_owner = neutron_port['device_owner']
