@@ -24,9 +24,9 @@ from oslo_utils import excutils
 
 from networking_arista._i18n import _, _LI, _LE
 from networking_arista.common import constants
-from networking_arista.common import db
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
+from networking_arista.common import utils
 from networking_arista.ml2 import arista_sync
 from networking_arista.ml2.rpc.arista_eapi import AristaRPCWrapperEapi
 from networking_arista.ml2.rpc.arista_json import AristaRPCWrapperJSON
@@ -54,7 +54,6 @@ class AristaDriver(driver_api.MechanismDriver):
     def __init__(self, rpc=None):
 
         self.ndb = db_lib.NeutronNets()
-        self.db_vms = db.AristaProvisionedVms()
 
         confg = cfg.CONF.ml2_arista
         self.segmentation_type = db_lib.VLAN_SEGMENTATION
@@ -91,7 +90,9 @@ class AristaDriver(driver_api.MechanismDriver):
         self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
 
     def get_workers(self):
-        return [arista_sync.AristaSyncWorker(self.rpc, self.ndb)]
+        return [arista_sync.AristaSyncWorker(self.rpc, self.ndb,
+                                             self.manage_fabric,
+                                             self.managed_physnets)]
 
     def create_network_postcommit(self, context):
         """Provision the network on the Arista Hardware."""
@@ -156,16 +157,6 @@ class AristaDriver(driver_api.MechanismDriver):
                                   'Reason: %(err)s'),
                               {'name': network_name, 'err': err})
 
-    def delete_network_precommit(self, context):
-        """Delete the network information from the DB."""
-        network = context.current
-        network_id = network['id']
-        with self.eos_sync_lock:
-            if db_lib.are_ports_attached_to_network(network_id):
-                db_lib.forget_all_ports_for_network(network_id)
-                LOG.info(_LI('Deleting all ports on network %s'),
-                         network_id)
-
     def delete_network_postcommit(self, context):
         """Send network delete request to Arista HW."""
         network = context.current
@@ -194,20 +185,6 @@ class AristaDriver(driver_api.MechanismDriver):
                 LOG.error(_LE('delete_network_postcommit: Did not delete '
                               'network %(network_id)s. Reason: %(err)s'),
                           {'network_id': network_id, 'err': err})
-
-    def create_port_precommit(self, context):
-        """Remember the information about a VM and its ports
-
-        A VM information, along with the physical host information
-        is saved.
-        """
-
-        # Returning from here, since the update_port_precommit is performing
-        # same operation, and also need of port binding information to decide
-        # whether to react to a port create event which is not available when
-        # this method is called.
-
-        return
 
     def _get_physnet_from_link_info(self, port, physnet_info):
 
@@ -322,32 +299,6 @@ class AristaDriver(driver_api.MechanismDriver):
                 # The network_type is vlan, try binding process for baremetal.
                 self._bind_port_to_baremetal(context, segment)
 
-    def create_port_postcommit(self, context):
-        """Plug a physical host into a network.
-
-        Send provisioning request to Arista Hardware to plug a host
-        into appropriate network.
-        """
-
-        # Returning from here, since the update_port_postcommit is performing
-        # same operation, and also need of port binding information to decide
-        # whether to react to a port create event which is not available when
-        # this method is called.
-
-        return
-
-    def _supported_device_owner(self, device_owner):
-        supported_device_owner = [n_const.DEVICE_OWNER_DHCP,
-                                  n_const.DEVICE_OWNER_DVR_INTERFACE]
-
-        if any([device_owner in supported_device_owner,
-                device_owner.startswith('compute') and
-                device_owner != 'compute:probe',
-                device_owner.startswith('baremetal')]):
-            return True
-
-        LOG.debug('Unsupported device owner: %s', device_owner)
-
     def _network_owner_tenant(self, context, network_id, tenant_id):
         tid = tenant_id
         if network_id and tenant_id:
@@ -388,34 +339,6 @@ class AristaDriver(driver_api.MechanismDriver):
                     bound_segment.get(driver_api.PHYSICAL_NETWORK))):
                 bound_segments.append(bound_segment)
         return bound_segments
-
-    def _handle_port_migration_precommit(self, context):
-        """Handles port migration in precommit
-
-        It updates the port's new host in the DB
-        """
-        orig_port = context.original
-        orig_host = context.original_host
-        new_host = context.host
-        new_port = context.current
-        port_id = orig_port['id']
-
-        if new_host and orig_host and new_host != orig_host:
-            LOG.debug("Handling port migration for: %s " % orig_port)
-            network_id = orig_port['network_id']
-            tenant_id = orig_port['tenant_id'] or constants.INTERNAL_TENANT_ID
-            # Ensure that we use tenant Id for the network owner
-            tenant_id = self._network_owner_tenant(context, network_id,
-                                                   tenant_id)
-            device_id = new_port['device_id']
-            with self.eos_sync_lock:
-                port_provisioned = db_lib.is_port_provisioned(port_id,
-                                                              orig_host)
-                if port_provisioned:
-                    db_lib.update_port(device_id, new_host, port_id,
-                                       network_id, tenant_id)
-
-            return True
 
     def _handle_port_migration_postcommit(self, context):
         """Handles port migration in postcommit
@@ -464,95 +387,6 @@ class AristaDriver(driver_api.MechanismDriver):
 
             return True
 
-    def update_port_precommit(self, context):
-        """Update the name of a given port.
-
-        At the moment we only support port name change.
-        Any other change to port is not supported at this time.
-        We do not store the port names, therefore, no DB store
-        action is performed here.
-        """
-        new_port = context.current
-        orig_port = context.original
-        if new_port['name'] != orig_port['name']:
-            LOG.info(_LI('Port name changed to %s'), new_port['name'])
-        device_id = new_port['device_id']
-        host = context.host
-
-        pretty_log("update_port_precommit: new", new_port)
-        pretty_log("update_port_precommit: orig", orig_port)
-
-        if not self._supported_device_owner(new_port['device_owner']):
-            return
-
-        # Check if it is port migration case
-        if self._handle_port_migration_precommit(context):
-            return
-
-        # Check if the port is part of managed physical network
-        seg_info = self._bound_segments(context)
-        if not seg_info:
-            # Ignoring the update as the port is not managed by
-            # arista mechanism driver.
-            return
-
-        # device_id and device_owner are set on VM boot
-        port_id = new_port['id']
-        network_id = new_port['network_id']
-        tenant_id = new_port['tenant_id'] or constants.INTERNAL_TENANT_ID
-        # Ensure that we use tenant Id for the network owner
-        tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
-
-        with self.eos_sync_lock:
-            port_down = False
-            if(new_port['device_owner'] ==
-               n_const.DEVICE_OWNER_DVR_INTERFACE):
-                # We care about port status only for DVR ports because
-                # for DVR, a single port exists on multiple hosts. If a port
-                # is no longer needed on a host then the driver gets a
-                # port_update notification for that <port, host> with the
-                # port status as PORT_STATUS_DOWN.
-                port_down = context.status == n_const.PORT_STATUS_DOWN
-
-            if host and not port_down:
-                port_host_filter = None
-                if(new_port['device_owner'] ==
-                   n_const.DEVICE_OWNER_DVR_INTERFACE):
-                    # <port, host> uniquely identifies a DVR port. Other
-                    # ports are identified by just the port id
-                    port_host_filter = host
-
-                port_provisioned = db_lib.is_port_provisioned(
-                    port_id, port_host_filter)
-
-                if not port_provisioned:
-                    LOG.info("Remembering the port")
-                    # Create a new port in the DB
-                    db_lib.remember_vm(device_id, host, port_id,
-                                       network_id, tenant_id)
-                else:
-                    if(new_port['device_id'] != orig_port['device_id'] or
-                       context.host != context.original_host or
-                       new_port['network_id'] != orig_port['network_id'] or
-                       new_port['tenant_id'] != orig_port['tenant_id']):
-                        LOG.info("Updating the port")
-                        # Port exists in the DB. Update it
-                        db_lib.update_port(device_id, host, port_id,
-                                           network_id, tenant_id)
-            else:  # Unbound or down port does not concern us
-                orig_host = context.original_host
-                LOG.info("Forgetting the port on %s" % str(orig_host))
-                db_lib.forget_port(port_id, orig_host)
-
-    def _port_updated(self, context):
-        """Returns true if any port parameters have changed."""
-        new_port = context.current
-        orig_port = context.original
-        return (new_port['device_id'] != orig_port['device_id'] or
-                context.host != context.original_host or
-                new_port['network_id'] != orig_port['network_id'] or
-                new_port['tenant_id'] != orig_port['tenant_id'])
-
     def update_port_postcommit(self, context):
         """Update the name of a given port in EOS.
 
@@ -567,7 +401,7 @@ class AristaDriver(driver_api.MechanismDriver):
         host = context.host
         is_vm_boot = device_id and device_owner
 
-        if not self._supported_device_owner(device_owner):
+        if not utils.supported_device_owner(device_owner):
             return
 
         vnic_type = port['binding:vnic_type']
@@ -601,15 +435,7 @@ class AristaDriver(driver_api.MechanismDriver):
 
         with self.eos_sync_lock:
             hostname = self._host_name(host)
-            port_host_filter = None
-            if(port['device_owner'] ==
-               n_const.DEVICE_OWNER_DVR_INTERFACE):
-                # <port, host> uniquely identifies a DVR port. Other
-                # ports are identified by just the port id
-                port_host_filter = host
 
-            port_provisioned = db_lib.is_port_provisioned(port_id,
-                                                          port_host_filter)
             segments = []
             if self.rpc.hpb_supported():
                 segments = seg_info
@@ -637,8 +463,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     # connected to the port was deleted or its in DOWN
                     # state. So delete the old port on the old host.
                     self._delete_port(orig_port, orig_host, tenant_id)
-                if(port_provisioned and hostname and
-                   is_vm_boot and not port_down and
+                if(hostname and is_vm_boot and not port_down and
                    device_id != n_const.DEVICE_ID_RESERVED_DHCP_PORT):
                     LOG.info(_LI("Port plugged into network"))
                     # Plug port into the network only if it exists in the db
@@ -660,18 +485,6 @@ class AristaDriver(driver_api.MechanismDriver):
                 LOG.error(_LE('update_port_postcommit: Did not update '
                               'port %(port_id)s. Reason: %(err)s'),
                           {'port_id': port_id, 'err': err})
-
-    def delete_port_precommit(self, context):
-        """Delete information about a VM and host from the DB."""
-        port = context.current
-
-        pretty_log("delete_port_precommit:", port)
-
-        port_id = port['id']
-        host_id = context.host
-        with self.eos_sync_lock:
-            if db_lib.is_port_provisioned(port_id, host_id):
-                db_lib.forget_port(port_id, host_id)
 
     def delete_port_postcommit(self, context):
         """Unplug a physical host from a network.
@@ -717,7 +530,7 @@ class AristaDriver(driver_api.MechanismDriver):
         network_id = port['network_id']
         device_owner = port['device_owner']
 
-        if not self._supported_device_owner(device_owner):
+        if not utils.supported_device_owner(device_owner):
             return
 
         vnic_type = port['binding:vnic_type']

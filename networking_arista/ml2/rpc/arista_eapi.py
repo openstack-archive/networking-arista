@@ -535,8 +535,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         for vm in vms.values():
             counter += 1
 
-            for v_port in vm['ports']:
-                port_id = v_port['portId']
+            for port_id, v_port in six.iteritems(vm['ports']):
                 if not v_port['hosts']:
                     # Skip all the ports that have no host associsted with them
                     continue

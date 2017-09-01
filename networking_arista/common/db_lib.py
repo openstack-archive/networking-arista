@@ -19,230 +19,78 @@ from neutron_lib.plugins.ml2 import api as driver_api
 
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
+from neutron.db.models import segment as segment_models
 from neutron.db import models_v2
 from neutron.db import securitygroups_db as sec_db
 from neutron.db import segments_db
 from neutron.plugins.ml2 import models as ml2_models
 
-from networking_arista.common import db as db_models
+from networking_arista.common import utils
 
 VLAN_SEGMENTATION = 'vlan'
 
 
-def remember_vm(vm_id, host_id, port_id, network_id, tenant_id):
-    """Stores all relevant information about a VM in repository.
-
-    :param vm_id: globally unique identifier for VM instance
-    :param host_id: ID of the host where the VM is placed
-    :param port_id: globally unique port ID that connects VM to network
-    :param network_id: globally unique neutron network identifier
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_writer_session()
-    with session.begin():
-        vm = db_models.AristaProvisionedVms(
-            vm_id=vm_id,
-            host_id=host_id,
-            port_id=port_id,
-            network_id=network_id,
-            tenant_id=tenant_id)
-        session.add(vm)
-
-
-def forget_all_ports_for_network(net_id):
-    """Removes all ports for a given network fron repository.
-
-    :param net_id: globally unique network ID
-    """
-    session = db.get_writer_session()
-    with session.begin():
-        (session.query(db_models.AristaProvisionedVms).
-         filter_by(network_id=net_id).delete())
-
-
-def update_port(vm_id, host_id, port_id, network_id, tenant_id):
-    """Updates the port details in the database.
-
-    :param vm_id: globally unique identifier for VM instance
-    :param host_id: ID of the new host where the VM is placed
-    :param port_id: globally unique port ID that connects VM to network
-    :param network_id: globally unique neutron network identifier
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_writer_session()
-    with session.begin():
-        port = session.query(db_models.AristaProvisionedVms).filter_by(
-            port_id=port_id).first()
-        if port:
-            # Update the VM's host id
-            port.host_id = host_id
-            port.vm_id = vm_id
-            port.network_id = network_id
-            port.tenant_id = tenant_id
-
-
-def forget_port(port_id, host_id):
-    """Deletes the port from the database
-
-    :param port_id: globally unique port ID that connects VM to network
-    :param host_id: host to which the port is bound to
-    """
-    session = db.get_writer_session()
-    with session.begin():
-        session.query(db_models.AristaProvisionedVms).filter_by(
-            port_id=port_id,
-            host_id=host_id).delete()
-
-
-def is_vm_provisioned(vm_id, host_id, port_id,
-                      network_id, tenant_id):
-    """Checks if a VM is already known to EOS
-
-    :returns: True, if yes; False otherwise.
-    :param vm_id: globally unique identifier for VM instance
-    :param host_id: ID of the host where the VM is placed
-    :param port_id: globally unique port ID that connects VM to network
-    :param network_id: globally unique neutron network identifier
-    :param tenant_id: globally unique neutron tenant identifier
-    """
+def get_instance_ports(tenant_id, manage_fabric=True, managed_physnets=None):
+    """Returns all instance ports for a given tenant."""
     session = db.get_reader_session()
     with session.begin():
-        num_vm = (session.query(db_models.AristaProvisionedVms).
-                  filter_by(tenant_id=tenant_id,
-                            vm_id=vm_id,
-                            port_id=port_id,
-                            network_id=network_id,
-                            host_id=host_id).count())
-        return num_vm > 0
-
-
-def is_port_provisioned(port_id, host_id=None):
-    """Checks if a port is already known to EOS
-
-    :returns: True, if yes; False otherwise.
-    :param port_id: globally unique port ID that connects VM to network
-    :param host_id: host to which the port is bound to
-    """
-
-    filters = {
-        'port_id': port_id
-    }
-    if host_id:
-        filters['host_id'] = host_id
-
-    session = db.get_reader_session()
-    with session.begin():
-        num_ports = (session.query(db_models.AristaProvisionedVms).
-                     filter_by(**filters).count())
-        return num_ports > 0
-
-
-def num_vms_provisioned(tenant_id):
-    """Returns number of VMs for a given tennat.
-
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_reader_session()
-    with session.begin():
-        return (session.query(db_models.AristaProvisionedVms).
-                filter_by(tenant_id=tenant_id).count())
-
-
-def get_vms(tenant_id):
-    """Returns all VMs for a given tenant in EOS-compatible format.
-
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_reader_session()
-    with session.begin():
-        model = db_models.AristaProvisionedVms
         # hack for pep8 E711: comparison to None should be
         # 'if cond is not None'
         none = None
-        all_ports = (session.query(model).
-                     filter(model.tenant_id == tenant_id,
-                            model.host_id != none,
-                            model.vm_id != none,
-                            model.network_id != none,
-                            model.port_id != none))
+        port_model = models_v2.Port
+        binding_level_model = ml2_models.PortBindingLevel
+        segment_model = segment_models.NetworkSegment
+        all_ports = (session.query(port_model,
+                                   binding_level_model, segment_model).join(
+            binding_level_model).join(segment_model).
+            filter(port_model.tenant_id == tenant_id,
+                   binding_level_model.host != none,
+                   port_model.device_id != none,
+                   port_model.network_id != none))
+        if not manage_fabric:
+            all_ports = all_ports.filter(
+                segment_model.physical_network != none)
+        if managed_physnets is not None:
+            managed_physnets.append(None)
+            all_ports = all_ports.filter(segment_model.physical_network.in_(
+                managed_physnets))
+
+        def eos_port_representation(port):
+            return {u'portId': port.id,
+                    u'deviceId': port.device_id,
+                    u'hosts': set([bl.host for bl in port.binding_levels]),
+                    u'networkId': port.network_id}
+
         ports = {}
         for port in all_ports:
-            if port.port_id not in ports:
-                ports[port.port_id] = port.eos_port_representation()
-            else:
-                ports[port.port_id]['hosts'].append(port.host_id)
+            if not utils.supported_device_owner(port.Port.device_owner):
+                continue
+            ports[port.Port.id] = eos_port_representation(port.Port)
 
         vm_dict = dict()
 
         def eos_vm_representation(port):
             return {u'vmId': port['deviceId'],
                     u'baremetal_instance': False,
-                    u'ports': [port]}
+                    u'ports': {port['portId']: port}}
 
         for port in ports.values():
             deviceId = port['deviceId']
             if deviceId in vm_dict:
-                vm_dict[deviceId]['ports'].append(port)
+                vm_dict[deviceId]['ports'][port['portId']] = port
             else:
                 vm_dict[deviceId] = eos_vm_representation(port)
         return vm_dict
 
 
-def are_ports_attached_to_network(net_id):
-    """Checks if a given network is used by any port, excluding dhcp port.
-
-    :param net_id: globally unique network ID
-    """
+def get_instances(tenant):
+    """Returns set of all instance ids that may be relevant on CVX."""
     session = db.get_reader_session()
     with session.begin():
-        model = db_models.AristaProvisionedVms
-        return session.query(model).filter_by(network_id=net_id).filter(
-            ~model.vm_id.startswith('dhcp')).count() > 0
-
-
-def get_ports(tenant_id=None):
-    """Returns all ports of VMs in EOS-compatible format.
-
-    :param tenant_id: globally unique neutron tenant identifier
-    """
-    session = db.get_reader_session()
-    with session.begin():
-        model = db_models.AristaProvisionedVms
-        # hack for pep8 E711: comparison to None should be
-        # 'if cond is not None'
-        none = None
-        if tenant_id:
-            all_ports = (session.query(model).
-                         filter(model.tenant_id == tenant_id,
-                                model.host_id != none,
-                                model.vm_id != none,
-                                model.network_id != none,
-                                model.port_id != none))
-        else:
-            all_ports = (session.query(model).
-                         filter(model.tenant_id != none,
-                                model.host_id != none,
-                                model.vm_id != none,
-                                model.network_id != none,
-                                model.port_id != none))
-    ports = {}
-    for port in all_ports:
-        if port.port_id not in ports:
-            ports[port.port_id] = port.eos_port_representation()
-        ports[port.port_id]['hosts'].append(port.host_id)
-
-    return ports
-
-
-def get_all_anet_nets():
-    """Return the set of networks in the arista_provisioned_vms table."""
-    session = db.get_reader_session()
-    network_ids = set()
-    with session.begin():
-        model = db_models.AristaProvisionedVms
-        network_ids |= set(nid[0] for nid in
-                           session.query(model.network_id).distinct())
-    return network_ids
+        port_model = models_v2.Port
+        return set(device_id[0] for device_id in
+                   session.query(port_model.device_id).
+                   filter(port_model.tenant_id == tenant).distinct())
 
 
 def tenant_provisioned(tid):
