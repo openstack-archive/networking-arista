@@ -103,6 +103,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             # reraise the exception
             with excutils.save_and_reraise_exception() as ctxt:
                 ctxt.reraise = True
+        return {} if method == 'GET' else None
 
     def _check_if_cvx_leader(self, host):
         url = 'agent/'
