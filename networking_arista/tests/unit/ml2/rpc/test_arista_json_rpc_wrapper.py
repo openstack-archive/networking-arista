@@ -655,3 +655,15 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
              [{'id': 'router1'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch(JSON_SEND_FUNC)
+    def test_get_returns(self, mock_send_api_req):
+        mock_send_api_req.return_value = None
+        self.assertNotEqual(self.drv.get_vms_for_tenant(''), None)
+        self.assertNotEqual(self.drv.get_dhcps_for_tenant(''), None)
+        self.assertNotEqual(self.drv.get_baremetals_for_tenant(''), None)
+        self.assertNotEqual(self.drv.get_routers_for_tenant(''), None)
+        self.assertNotEqual(self.drv.get_ports_for_tenant('', 'vm'), None)
+        self.assertNotEqual(self.drv.get_tenants(), None)
+        self.assertNotEqual(self.drv.get_networks(''), None)
+        self.assertNotEqual(self.drv.get_instance_ports('', 'vm'), None)
