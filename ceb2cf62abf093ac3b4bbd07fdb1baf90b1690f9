@@ -1,0 +1,9 @@
+Code-Review+1: Anuraag Mittal <vendor.bitbucket@yahoo.com>
+Code-Review+2: Nader Lahouti <nader.lahouti@gmail.com>
+Workflow+1: Nader Lahouti <nader.lahouti@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 06 Sep 2017 21:54:30 +0000
+Reviewed-on: https://review.openstack.org/501376
+Project: openstack/networking-arista
+Branch: refs/heads/stable/ocata
