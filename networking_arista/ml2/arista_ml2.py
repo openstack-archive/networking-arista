@@ -708,28 +708,28 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def get_vms_for_tenant(self, tenant):
         path = 'region/' + self.region + '/vm?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self._send_api_request(path, 'GET') or {}
 
     def get_dhcps_for_tenant(self, tenant):
         path = 'region/' + self.region + '/dhcp?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self._send_api_request(path, 'GET') or {}
 
     def get_baremetals_for_tenant(self, tenant):
         path = 'region/' + self.region + '/baremetal?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self._send_api_request(path, 'GET') or {}
 
     def get_routers_for_tenant(self, tenant):
         path = 'region/' + self.region + '/router?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self._send_api_request(path, 'GET') or {}
 
     def get_ports_for_tenant(self, tenant, pType):
         path = 'region/%s/port?tenantId=%s&type=%s' % (self.region,
                                                        tenant, pType)
-        return self._send_api_request(path, 'GET')
+        return self._send_api_request(path, 'GET') or {}
 
     def get_tenants(self):
         path = 'region/' + self.region + '/tenant'
-        tenants = self._send_api_request(path, 'GET')
+        tenants = self._send_api_request(path, 'GET') or {}
         d = {}
         for ten in tenants:
             ten['tenantId'] = ten.pop('id')
@@ -769,7 +769,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def get_networks(self, tenant):
         path = 'region/' + self.region + '/network?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self._send_api_request(path, 'GET') or {}
 
     def create_network_bulk(self, tenant_id, network_list, sync=False):
         self._create_tenant_if_needed(tenant_id)
@@ -1033,7 +1033,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def get_instance_ports(self, instance_id, instance_type):
         path = ('region/%s/port?id=%s&type=%s' %
                 (self.region, instance_id, instance_type))
-        return self._send_api_request(path, 'GET')
+        return self._send_api_request(path, 'GET') or {}
 
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
