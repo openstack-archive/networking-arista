@@ -70,6 +70,7 @@ function configure_arista() {
 }
 
 if [[ "$1" == "stack" && "$2" == "pre-install" ]]; then
+    neutron_service_plugin_class_add "trunk"
     if is_service_enabled "q-agt"; then
         install_lldp
     fi
