@@ -15,6 +15,7 @@
 
 import functools
 import operator
+import requests
 import socket
 
 import mock
@@ -655,6 +656,32 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
              [{'id': 'router1'}])
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch('requests.get')
+    @patch(BASE_RPC + '_get_eos_master')
+    def test_get_value_error(self, mock_get_eos_master, mock_requests_get):
+        mock_get_eos_master.return_value = 'fake_master'
+        mock_requests_get.return_value = requests.Response()
+        self.assertIsNotNone(self.drv.get_vms_for_tenant(''))
+        self.assertIsNotNone(self.drv.get_dhcps_for_tenant(''))
+        self.assertIsNotNone(self.drv.get_baremetals_for_tenant(''))
+        self.assertIsNotNone(self.drv.get_routers_for_tenant(''))
+        self.assertIsNotNone(self.drv.get_ports_for_tenant('', 'vm'))
+        self.assertIsNotNone(self.drv.get_tenants())
+        self.assertIsNotNone(self.drv.get_networks(''))
+        self.assertIsNotNone(self.drv.get_instance_ports('', 'vm'))
+
+    @patch(BASE_RPC + '_get_eos_master')
+    def test_get_exception(self, mock_get_eos_master):
+        mock_get_eos_master.return_value = 'fake_master'
+        self.assertIsNotNone(self.drv.get_vms_for_tenant(''))
+        self.assertIsNotNone(self.drv.get_dhcps_for_tenant(''))
+        self.assertIsNotNone(self.drv.get_baremetals_for_tenant(''))
+        self.assertIsNotNone(self.drv.get_routers_for_tenant(''))
+        self.assertIsNotNone(self.drv.get_ports_for_tenant('', 'vm'))
+        self.assertIsNotNone(self.drv.get_tenants())
+        self.assertIsNotNone(self.drv.get_networks(''))
+        self.assertIsNotNone(self.drv.get_instance_ports('', 'vm'))
 
 
 class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
