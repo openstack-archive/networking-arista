@@ -77,22 +77,11 @@ class AristaDriver(driver_api.MechanismDriver):
             self.eapi = rpc
         else:
             self.eapi = AristaRPCWrapperEapi(self.ndb)
-            api_type = confg['api_type'].upper()
-            if api_type == 'EAPI':
-                LOG.info("Using EAPI for RPC")
-                self.rpc = AristaRPCWrapperEapi(self.ndb)
-            elif api_type == 'JSON':
-                LOG.info("Using JSON for RPC")
-                self.rpc = AristaRPCWrapperJSON(self.ndb)
-            else:
-                msg = "RPC mechanism %s not recognized" % api_type
-                LOG.error(msg)
-                raise arista_exc.AristaRpcError(msg=msg)
+            self.rpc = AristaRPCWrapperJSON(self.ndb)
 
     def initialize(self):
         if self.rpc.check_cvx_availability():
             self.rpc.register_with_eos()
-            self.rpc.check_supported_features()
 
         self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
         registry.subscribe(self.set_subport,
@@ -108,12 +97,6 @@ class AristaDriver(driver_api.MechanismDriver):
 
         network = context.current
         segments = context.network_segments
-        if not self.rpc.hpb_supported():
-            # Hierarchical port binding is not supported by CVX, only
-            # allow VLAN network type.
-            if(segments and
-                    segments[0][driver_api.NETWORK_TYPE] != n_const.TYPE_VLAN):
-                return
         network_id = network['id']
         tenant_id = network['tenant_id'] or constants.INTERNAL_TENANT_ID
         with self.eos_sync_lock:
@@ -212,16 +195,6 @@ class AristaDriver(driver_api.MechanismDriver):
         """Send network delete request to Arista HW."""
         network = context.current
         segments = context.network_segments
-        if not self.rpc.hpb_supported():
-            # Hierarchical port binding is not supported by CVX, only
-            # send the request if network type is VLAN.
-            if (segments and
-                    segments[0][driver_api.NETWORK_TYPE] != n_const.TYPE_VLAN):
-                # If network type is not VLAN, do nothing
-                return
-            # No need to pass segments info when calling delete_network as
-            # HPB is not supported.
-            segments = []
         network_id = network['id']
         tenant_id = network['tenant_id'] or constants.INTERNAL_TENANT_ID
         with self.eos_sync_lock:
@@ -334,11 +307,6 @@ class AristaDriver(driver_api.MechanismDriver):
                           "found", {'port': port.get('id')})
                 continue
             if segment[driver_api.NETWORK_TYPE] == n_const.TYPE_VXLAN:
-                # Check if CVX supports HPB
-                if not self.rpc.hpb_supported():
-                    LOG.debug("bind_port: HPB is not supported")
-                    return
-
                 # The physical network is connected to arista switches,
                 # allocate dynamic segmentation id to bind the port to
                 # the network that the port belongs to.
@@ -695,7 +663,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     segmentation_id=seg[driver_api.SEGMENTATION_ID]):
                     net_provisioned = False
             segments = []
-            if net_provisioned and self.rpc.hpb_supported():
+            if net_provisioned:
                 segments = seg_info
                 all_segments = self.ndb.get_all_network_segments(
                     network_id, context=context._plugin_context)
@@ -845,10 +813,6 @@ class AristaDriver(driver_api.MechanismDriver):
         param context: The port context
         param tenant_id: The tenant which the port belongs to
         """
-
-        if not self.rpc.hpb_supported():
-            # Returning as HPB not supported by CVX
-            return
 
         port = context.current
         network_id = port.get('network_id')
