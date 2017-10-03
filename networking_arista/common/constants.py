@@ -23,18 +23,8 @@ UNABLE_TO_DELETE_DEVICE_MSG = _('Unable to delete device')
 INTERNAL_TENANT_ID = 'INTERNAL-TENANT-ID'
 MECHANISM_DRV_NAME = 'arista'
 
-# Insert a heartbeat command every 100 commands
-HEARTBEAT_INTERVAL = 100
-
-# Commands dict keys
-CMD_SYNC_HEARTBEAT = 'SYNC_HEARTBEAT'
-CMD_REGION_SYNC = 'REGION_SYNC'
-CMD_INSTANCE = 'INSTANCE'
-
 # EAPI error messages of interest
 ERR_CVX_NOT_LEADER = 'only available on cluster leader'
-ERR_DVR_NOT_SUPPORTED = 'EOS version on CVX does not support DVR'
-BAREMETAL_NOT_SUPPORTED = 'EOS version on CVX dpes not support Baremetal'
 
 # Flat network constant
 NETWORK_TYPE_FLAT = 'flat'

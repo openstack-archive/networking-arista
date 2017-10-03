@@ -139,14 +139,6 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         self.create_region(self.region)
         self._set_region_update_interval()
 
-    def check_supported_features(self):
-        # We don't use this function as we know the features
-        # that are available once using this API.
-        pass
-
-    def bm_and_dvr_supported(self):
-        return True
-
     def get_region_updated_time(self):
         path = 'agent/'
         data = self._send_api_request(path, 'GET')
@@ -172,12 +164,6 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             if region['name'] == name:
                 return region
         return None
-
-    def sync_supported(self):
-        return True
-
-    def hpb_supported(self):
-        return True
 
     def sync_start(self):
         try:
