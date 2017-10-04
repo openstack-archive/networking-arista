@@ -148,6 +148,7 @@ class SyncService(object):
         try:
             # Register with EOS to ensure that it has correct credentials
             self._rpc.register_with_eos(sync=True)
+            self._rpc.check_supported_features()
             eos_tenants = self._rpc.get_tenants()
         except arista_exc.AristaRpcError:
             LOG.warning(constants.EOS_UNREACHABLE_MSG)
@@ -229,17 +230,25 @@ class SyncService(object):
                 if vms_to_delete:
                     self._rpc.delete_vm_bulk(tenant, vms_to_delete, sync=True)
                 if routers_to_delete:
-                    self._rpc.delete_instance_bulk(
-                        tenant,
-                        routers_to_delete,
-                        constants.InstanceType.ROUTER,
-                        sync=True)
+                    if self._rpc.bm_and_dvr_supported():
+                        self._rpc.delete_instance_bulk(
+                            tenant,
+                            routers_to_delete,
+                            constants.InstanceType.ROUTER,
+                            sync=True)
+                    else:
+                        LOG.info(constants.ERR_DVR_NOT_SUPPORTED)
+
                 if bms_to_delete:
-                    self._rpc.delete_instance_bulk(
-                        tenant,
-                        bms_to_delete,
-                        constants.InstanceType.BAREMETAL,
-                        sync=True)
+                    if self._rpc.bm_and_dvr_supported():
+                        self._rpc.delete_instance_bulk(
+                            tenant,
+                            bms_to_delete,
+                            constants.InstanceType.BAREMETAL,
+                            sync=True)
+                    else:
+                        LOG.info(constants.BAREMETAL_NOT_SUPPORTED)
+
                 if nets_to_delete:
                     self._rpc.delete_network_bulk(tenant, nets_to_delete,
                                                   sync=True)

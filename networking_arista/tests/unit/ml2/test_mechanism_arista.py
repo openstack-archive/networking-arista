@@ -51,6 +51,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'net1-id'
         segmentation_id = 1001
 
+        self.drv.rpc.hpb_supported.return_value = True
         network_context = self._get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
@@ -59,6 +60,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segment_id = network_context.network_segments[0]['id']
 
         expected_calls = [
+            mock.call.hpb_supported(),
             mock.call.remember_tenant(tenant_id),
             mock.call.remember_network_segment(tenant_id,
                                                network_id,
@@ -83,6 +85,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         segment_id = network_context.network_segments[0]['id']
 
         expected_calls += [
+            mock.call.hpb_supported(),
             mock.call.remember_tenant(INTERNAL_TENANT_ID),
             mock.call.remember_network_segment(INTERNAL_TENANT_ID,
                                                network_id,
@@ -231,6 +234,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network_id = 'net1-id'
         segmentation_id = 1001
 
+        self.drv.rpc.hpb_supported.return_value = True
         network_context = self._get_network_context(tenant_id,
                                                     network_id,
                                                     segmentation_id,
@@ -240,6 +244,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         mechanism_arista.db_lib.num_vms_provisioned.return_value = 0
         self.drv.delete_network_postcommit(network_context)
         expected_calls = [
+            mock.call.hpb_supported(),
             mock.call.delete_network(tenant_id, network_id,
                                      network_context.network_segments),
             mock.call.num_nets_provisioned(tenant_id),
@@ -264,6 +269,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         self.drv.delete_network_postcommit(network_context)
         expected_calls += [
+            mock.call.hpb_supported(),
             mock.call.delete_network(INTERNAL_TENANT_ID, network_id,
                                      network_context.network_segments),
             mock.call.num_nets_provisioned(INTERNAL_TENANT_ID),
@@ -514,6 +520,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.ndb.get_network_from_net_id.return_value = [network]
         physnet = dict(physnet='default')
         self.fake_rpc.get_physical_network.return_value = physnet
+        self.drv.rpc.hpb_supported.return_value = True
+
         self.drv.delete_port_postcommit(port_context)
 
         expected_calls = [
@@ -531,6 +539,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.num_vms_provisioned(tenant_id),
             mock.call.forget_tenant(tenant_id),
             mock.call.delete_tenant(tenant_id),
+            mock.call.hpb_supported(),
         ]
         for binding_level in port_context.binding_levels:
             expected_calls.append(mock.call.is_network_provisioned(tenant_id,
@@ -581,6 +590,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.num_vms_provisioned(INTERNAL_TENANT_ID),
             mock.call.forget_tenant(INTERNAL_TENANT_ID),
             mock.call.delete_tenant(INTERNAL_TENANT_ID),
+            mock.call.hpb_supported(),
         ]
         for binding_level in port_context.binding_levels:
             expected_calls.append(mock.call.is_network_provisioned(
@@ -627,6 +637,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.ndb.get_network_from_net_id.return_value = [network]
         physnet = dict(physnet='default')
         self.fake_rpc.get_physical_network.return_value = physnet
+        self.drv.rpc.hpb_supported.return_value = True
 
         self.drv.delete_port_postcommit(port_context)
 
@@ -645,6 +656,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.num_vms_provisioned(tenant_id),
             mock.call.forget_tenant(tenant_id),
             mock.call.delete_tenant(tenant_id),
+            mock.call.hpb_supported(),
         ]
         for binding_level in port_context.binding_levels:
             expected_calls.append(mock.call.is_network_provisioned(
@@ -959,6 +971,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         mechanism_arista.db_lib.num_nets_provisioned.return_value = 1
         mechanism_arista.db_lib.num_vms_provisioned.return_value = 1
         self.drv.ndb.get_all_network_segments.return_value = segments
+        mechanism_arista.db_lib.hpb_supported.return_value = True
 
         network = {'tenant_id': tenant_id}
         self.drv.ndb.get_network_from_net_id.return_value = [network]
@@ -973,6 +986,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         profile = port['binding:profile']
         network_name = network_context.current['name']
 
+        self.drv.rpc.hpb_supported.return_value = True
         self.drv.update_port_postcommit(port_context)
 
         expected_calls = [
@@ -982,6 +996,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              None, None),
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id, None),
+            mock.call.hpb_supported(),
             mock.call.create_network_segments(tenant_id, network_id,
                                               network_name,
                                               segments),
@@ -1041,6 +1056,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              None, None),
             mock.call.is_network_provisioned(INTERNAL_TENANT_ID, network_id,
                                              segmentation_id, None),
+            mock.call.hpb_supported(),
             mock.call.create_network_segments(INTERNAL_TENANT_ID, network_id,
                                               network_name,
                                               segments),
@@ -1101,6 +1117,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              None, None),
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id, None),
+            mock.call.hpb_supported(),
             mock.call.create_network_segments(tenant_id, network_id,
                                               network_name,
                                               segments),
@@ -1126,6 +1143,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              None, None),
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id, None),
+            mock.call.hpb_supported(),
             mock.call.create_network_segments(tenant_id, network_id,
                                               network_name,
                                               segments),
@@ -1174,6 +1192,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         mechanism_arista.db_lib.num_nets_provisioned.return_value = 1
         mechanism_arista.db_lib.num_vms_provisioned.return_value = 1
         self.drv.ndb.get_all_network_segments.return_value = segments
+        mechanism_arista.db_lib.hpb_supported.return_value = True
 
         network = {'tenant_id': tenant_id}
         self.drv.ndb.get_network_from_net_id.return_value = [network]
@@ -1197,6 +1216,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              None, None),
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id, None),
+            mock.call.hpb_supported(),
             mock.call.create_network_segments(tenant_id, network_id,
                                               network_name,
                                               segments),
@@ -1421,7 +1441,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         mechanism_arista.db_lib.num_nets_provisioned.return_value = 1
         mechanism_arista.db_lib.num_vms_provisioned.return_value = 1
 
-        self.drv.ndb.get_all_network_segments.return_value = segments
+        self.drv.rpc.hpb_supported.return_value = False
+        self.drv.ndb.get_network_segments.return_value = segments
 
         mechanism_arista.db_lib.reset_mock()
         self.drv.update_port_postcommit(context)
@@ -1433,9 +1454,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id,
                                              None),
-            mock.call.create_network_segments(tenant_id, network_id,
-                                              network_context.current['name'],
-                                              segments),
+            mock.call.hpb_supported(),
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              None, None),
             mock.call.unplug_port_from_network(old_device_id,
@@ -1510,16 +1529,14 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id,
                                              None),
-            mock.call.create_network_segments(tenant_id, network_id,
-                                              network_context.current['name'],
-                                              segments),
+            mock.call.hpb_supported(),
             mock.call.plug_port_into_network(new_device_id,
                                              new_host,
                                              port_id, network_id,
                                              tenant_id, port_name,
                                              n_const.DEVICE_OWNER_DHCP,
                                              None, None, vnic_type,
-                                             segments=segments,
+                                             segments=[],
                                              switch_bindings=profile,
                                              trunk_details=None),
         ]
@@ -1545,16 +1562,14 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id,
                                              None),
-            mock.call.create_network_segments(tenant_id, network_id,
-                                              network_context.current['name'],
-                                              segments),
+            mock.call.hpb_supported(),
             mock.call.plug_port_into_network(new_device_id,
                                              new_host,
                                              port_id, network_id,
                                              tenant_id, port_name,
                                              n_const.DEVICE_OWNER_DHCP,
                                              None, None, vnic_type,
-                                             segments=segments,
+                                             segments=[],
                                              switch_bindings=profile,
                                              trunk_details=None),
         ]
@@ -1580,6 +1595,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.is_network_provisioned(tenant_id, network_id,
                                              segmentation_id,
                                              None),
+            mock.call.hpb_supported(),
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
