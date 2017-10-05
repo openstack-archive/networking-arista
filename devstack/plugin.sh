@@ -18,6 +18,7 @@ function configure_arista() {
     iniset $ARISTA_ML2_CONF_FILE ml2_arista eapi_host $ARISTA_EAPI_HOST
     iniset $ARISTA_ML2_CONF_FILE ml2_arista eapi_username $ARISTA_EAPI_USERNAME
     iniset $ARISTA_ML2_CONF_FILE ml2_arista eapi_password $ARISTA_EAPI_PASSWORD
+    iniset $ARISTA_ML2_CONF_FILE ml2_arista api_type $ARISTA_API_TYPE
     iniset $ARISTA_ML2_CONF_FILE ml2_arista region_name $ARISTA_REGION_NAME
 
     if [ -n "${ARISTA_USE_FQDN+x}" ]; then

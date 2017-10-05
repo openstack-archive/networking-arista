@@ -89,6 +89,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.get_region_updated_time(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
+            mock.call.check_supported_features(),
             mock.call.get_tenants(),
             mock.call.create_network_bulk(
                 tenant_id,
@@ -195,6 +196,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.get_region_updated_time(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
+            mock.call.check_supported_features(),
             mock.call.get_tenants(),
 
             mock.call.create_network_bulk(
@@ -253,6 +255,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             mock.call.get_region_updated_time(),
             mock.call.sync_start(),
             mock.call.register_with_eos(sync=True),
+            mock.call.check_supported_features(),
             mock.call.get_tenants(),
 
             mock.call.create_network_bulk(
