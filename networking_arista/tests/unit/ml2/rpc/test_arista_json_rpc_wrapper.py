@@ -113,13 +113,28 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
+    @patch('requests.Response')
+    def test_sync_start_exception(self, mock_response):
+        mock_response.ok.return_value = False
+        self.assertFalse(self.drv.sync_start())
+
+    @patch(JSON_SEND_FUNC)
+    def test_sync_start_no_region(self, mock_send_api_req):
+        mock_send_api_req.return_value = {}
+        self.assertFalse(self.drv.sync_start())
+        calls = [
+            ('region/RegionOne', 'GET'),
+            ('region/', 'POST', [{'name': 'RegionOne'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
     @patch(JSON_SEND_FUNC)
     @patch(RAND_FUNC, _get_random_name)
     def test_sync_end(self, mock_send_api_req):
         mock_send_api_req.return_value = [{'requester':
                                            self._get_random_name()}]
         self.drv.current_sync_name = self._get_random_name()
-        assert self.drv.sync_end()
+        self.assertTrue(self.drv.sync_end())
         calls = [
             ('region/RegionOne/sync', 'DELETE')
         ]
@@ -131,11 +146,22 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         calls = [('region/', 'POST', [{'name': 'foo'}])]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
+    @patch('requests.Response')
+    def test_get_region_exception(self, mock_response):
+        mock_response.ok.return_value = False
+        self.assertIsNone(self.drv.get_region('foo'))
+
     @patch(JSON_SEND_FUNC)
     def test_delete_region(self, mock_send_api_req):
         self.drv.delete_region('foo')
         calls = [('region/', 'DELETE', [{'name': 'foo'}])]
         self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    @patch('requests.Response')
+    def test_get_region__updated_exception(self, mock_response):
+        mock_response.ok.return_value = False
+        self.assertEqual(self.drv.get_region_updated_time(),
+                         {'regionTimestamp': ''})
 
     @patch(JSON_SEND_FUNC)
     def test_get_tenants(self, mock_send_api_req):

@@ -78,8 +78,14 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
             resp = func(url, timeout=self.conn_timeout, verify=False,
                         data=data, headers=request_headers)
-            LOG.info(_LI('JSON response contains: %s'), resp.json())
-            return resp.json()
+            msg = (_LI('JSON response contains: %(code)s %(resp)s') %
+                   {'code': resp.status_code,
+                   'resp': resp.json()})
+            LOG.info(msg)
+            if resp.ok:
+                return resp.json()
+            else:
+                raise arista_exc.AristaRpcError(msg=resp.json().get('error'))
         except requests.exceptions.ConnectionError:
             msg = (_('Error connecting to %(url)s') % {'url': url})
             LOG.warning(msg)
@@ -149,8 +155,11 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def get_region_updated_time(self):
         path = 'agent/'
-        data = self._send_api_request(path, 'GET')
-        return {'regionTimestamp': data['uuid']}
+        try:
+            data = self._send_api_request(path, 'GET')
+            return {'regionTimestamp': data.get('uuid', '')}
+        except arista_exc.AristaRpcError:
+            return {'regionTimestamp': ''}
 
     def create_region(self, region):
         path = 'region/'
@@ -166,11 +175,14 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         return self.delete_region(self.region)
 
     def get_region(self, name):
-        path = 'region/'
-        regions = self._send_api_request(path, 'GET')
-        for region in regions:
-            if region['name'] == name:
-                return region
+        path = 'region/%s' % name
+        try:
+            regions = self._send_api_request(path, 'GET')
+            for region in regions:
+                if region['name'] == name:
+                    return region
+        except arista_exc.AristaRpcError:
+            pass
         return None
 
     def sync_supported(self):
@@ -182,6 +194,13 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def sync_start(self):
         try:
             region = self.get_region(self.region)
+
+            # If the region doesn't exist, we may need to create
+            # it in order for POSTs to the sync endpoint to succeed
+            if not region:
+                self.register_with_eos()
+                return False
+
             if region and region['syncStatus'] == 'syncInProgress':
                 LOG.info('Sync in progress, not syncing')
                 return False
@@ -425,6 +444,10 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 instance = self._create_instance_data(inst_id, inst_host)
 
                 device_owner = neutron_port['device_owner']
+
+                if port_id not in port_profiles:
+                    continue
+
                 vnic_type = port_profiles[port_id]['vnic_type']
                 if device_owner == n_const.DEVICE_OWNER_DHCP:
                     instance_type = const.InstanceType.DHCP

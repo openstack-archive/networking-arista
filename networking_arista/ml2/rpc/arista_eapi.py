@@ -609,6 +609,10 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     port_name = 'name "%s"' % neutron_port['name']
 
                 device_owner = neutron_port['device_owner']
+
+                if port_id not in port_profiles:
+                    continue
+
                 vnic_type = port_profiles[port_id]['vnic_type']
                 network_id = neutron_port['network_id']
                 segments = []
