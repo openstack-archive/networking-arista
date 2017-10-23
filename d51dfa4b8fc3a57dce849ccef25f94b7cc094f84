@@ -1,0 +1,8 @@
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Mon, 23 Oct 2017 18:25:28 +0000
+Reviewed-on: https://review.openstack.org/513557
+Project: openstack/networking-arista
+Branch: refs/heads/stable/ocata
