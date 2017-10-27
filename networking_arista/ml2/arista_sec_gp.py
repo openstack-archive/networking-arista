@@ -13,6 +13,7 @@
 #    under the License.
 
 import json
+import re
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -112,6 +113,25 @@ class AristaSecGroupSwitchDriver(object):
                     'at least one switch must be specified ')
             LOG.exception(msg)
             raise arista_exc.AristaConfigError(msg=msg)
+
+    def _get_port_for_acl(self, port_id, server):
+        """Gets interface name for ACLs
+
+        Finds the Port-Channel name if port_id is in a Port-Channel, otherwise
+        ACLs are applied to Ethernet interface.
+
+        :param port_id: Name of port from ironic db
+        :param server: Server endpoint on the Arista switch to be configured
+        """
+        all_intf_info = self._run_eos_cmds(
+            ['show interfaces %s' % port_id], server)[0]
+        intf_info = all_intf_info.get('interfaces', {}).get(port_id, {})
+        member_info = intf_info.get('interfaceMembership', '')
+        port_group_info = re.search('Member of (?P<port_group>\S+)',
+                                    member_info)
+        if port_group_info:
+            port_id = port_group_info.group('port_group')
+        return port_id
 
     def _create_acl_on_eos(self, in_cmds, out_cmds, protocol, cidr,
                            from_port, to_port, direction):
@@ -239,7 +259,7 @@ class AristaSecGroupSwitchDriver(object):
         :param server: Server endpoint on the Arista switch to be configured
         """
         cmds = []
-
+        port_id = self._get_port_for_acl(port_id, server)
         for c in self.aclApplyDict[direction]:
             cmds.append(c.format(port_id, name))
 
@@ -255,6 +275,7 @@ class AristaSecGroupSwitchDriver(object):
         """
         cmds = []
 
+        port_id = self._get_port_for_acl(port_id, server)
         acl_cmd = self.aclApplyDict['rm_ingress']
         if direction == 'egress':
             acl_cmd = self.aclApplyDict['rm_egress']
@@ -528,19 +549,29 @@ class AristaSecGroupSwitchDriver(object):
         command_start = ['enable', 'configure']
         command_end = ['exit']
         full_command = command_start + commands + command_end
+        return self._run_eos_cmds(full_command, server)
 
-        LOG.info(_LI('Executing command on Arista EOS: %s'), full_command)
+    def _run_eos_cmds(self, commands, server):
+        """Execute/sends a CAPI (Command API) command to EOS.
+
+        This method is useful for running show commands that require no
+        prefix or postfix commands.
+
+        :param commands : List of commands to be executed on EOS.
+        :param server: Server endpoint on the Arista switch to be configured
+        """
+        LOG.info(_LI('Executing command on Arista EOS: %s'), commands)
 
         try:
             # this returns array of return values for every command in
-            # full_command list
-            ret = server.execute(full_command)
+            # commands list
+            ret = server.execute(commands)
             LOG.info(_LI('Results of execution on Arista EOS: %s'), ret)
-
+            return ret
         except Exception:
             msg = (_('Error occurred while trying to execute '
                      'commands %(cmd)s on EOS %(host)s') %
-                   {'cmd': full_command, 'host': server})
+                   {'cmd': commands, 'host': server})
             LOG.exception(msg)
             raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
