@@ -1,0 +1,9 @@
+Code-Review+2: Alex Reimers <areimers@arista.com>
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Wed, 01 Nov 2017 15:21:48 +0000
+Reviewed-on: https://review.openstack.org/513547
+Project: openstack/networking-arista
+Branch: refs/heads/stable/pike
