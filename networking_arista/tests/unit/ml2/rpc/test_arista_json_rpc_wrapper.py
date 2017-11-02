@@ -36,6 +36,7 @@ import networking_arista.tests.unit.ml2.utils as utils
 BASE_RPC = "networking_arista.ml2.rpc.arista_json.AristaRPCWrapperJSON."
 JSON_SEND_FUNC = BASE_RPC + "_send_api_request"
 RAND_FUNC = BASE_RPC + "_get_random_name"
+DB_LIB_MODULE = 'networking_arista.ml2.rpc.arista_json.db_lib'
 
 
 def setup_valid_config():
@@ -262,7 +263,8 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
-    def test_create_instance_bulk(self, mock_send_api_req):
+    @patch(DB_LIB_MODULE)
+    def test_create_instance_bulk(self, mock_db_lib, mock_send_api_req):
         tenant_id = 'ten-3'
         num_devices = 8
         num_ports_per_device = 2
@@ -301,6 +303,19 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                     'network_id': 'network-id-%d' % net_count,
                     'name': 'port-%d-%d' % (device_id, port_id),
                     'tenant_id': tenant_id,
+                    'segments': [{
+                        'network_id': 'network-id-%d' % net_count,
+                        'segment_type': 'static',
+                        'segmentation_id': (5000 + net_count),
+                        'is_dynamic': False,
+                        'network_type': 'vxlan',
+                        'id': 'segment-id-%d' % (5000 + net_count)},
+                        {'network_id': 'network-id-%d' % net_count,
+                         'segment_type': 'dynamic',
+                         'segmentation_id': (500 + net_count),
+                         'is_dynamic': True,
+                         'network_type': 'vlan',
+                         'id': 'segment-id-%d' % (500 + net_count)}],
                 }
                 port_list.append(port)
                 net_count += 1
@@ -308,6 +323,10 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         create_ports = {}
         for port in port_list:
             create_ports.update(utils.port_dict_representation(port))
+
+        port_network_segments = {}
+        for port in port_list:
+            port_network_segments[port['portId']] = port['segments']
 
         profiles = {}
         for port in port_list:
@@ -317,6 +336,9 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                     'vnic_type': 'baremetal',
                     'profile': '{"local_link_information":'
                     '[{"switch_id": "switch01", "port_id": "Ethernet1"}]}'}
+
+        mock_db_lib.get_network_segments_by_port_id.side_effect = (
+            lambda x: port_network_segments.get(x))
         self.drv.create_instance_bulk(tenant_id, create_ports, devices,
                                       profiles)
         calls = [
@@ -407,64 +429,244 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                   'instanceType': 'router', 'vlanType': 'allowed'}]),
 
             ('region/RegionOne/port/port-id-0-0/binding',
-             'POST', [{'portId': 'port-id-0-0', 'hostBinding': [
-                      {'segment': [], 'host': 'host_0'}]}]),
+             'POST', [{'portId': 'port-id-0-0',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-0',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5000,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5000'},
+                                       {'networkId': 'network-id-0',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 500,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-500'}],
+                           'host': 'host_0'}]}]),
             ('region/RegionOne/port/port-id-0-1/binding',
-             'POST', [{'portId': 'port-id-0-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_0'}]}]),
+             'POST', [{'portId': 'port-id-0-1',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-1',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5001,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5001'},
+                                       {'networkId': 'network-id-1',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 501,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-501'}],
+                           'host': 'host_0'}]}]),
 
             ('region/RegionOne/port/port-id-1-0/binding',
-             'POST', [{'portId': 'port-id-1-0', 'hostBinding': [
-                      {'segment': [], 'host': 'host_1'}]}]),
+             'POST', [{'portId': 'port-id-1-0',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-2',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5002,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5002'},
+                                       {'networkId': 'network-id-2',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 502,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-502'}],
+                           'host': 'host_1'}]}]),
             ('region/RegionOne/port/port-id-1-1/binding',
-             'POST', [{'portId': 'port-id-1-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_1'}]}]),
+             'POST', [{'portId': 'port-id-1-1',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-3',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5003,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5003'},
+                                       {'networkId': 'network-id-3',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 503,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-503'}],
+                           'host': 'host_1'}]}]),
 
             ('region/RegionOne/port/port-id-2-0/binding',
-             'POST', [{'portId': 'port-id-2-0', 'switchBinding': [
-                      {'interface': u'Ethernet1', 'host': 'host_2',
-                       'segment': [], 'switch': u'switch01'}]}]),
+             'POST', [{'portId': 'port-id-2-0',
+                       'switchBinding': [{
+                           'interface': u'Ethernet1',
+                           'host': 'host_2',
+                           'segment': [{'networkId': 'network-id-4',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5004,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5004'},
+                                       {'networkId': 'network-id-4',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 504,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-504'}],
+                           'switch': u'switch01'}]}]),
             ('region/RegionOne/port/port-id-2-1/binding',
-             'POST', [{'portId': 'port-id-2-1', 'switchBinding': [
-                      {'interface': u'Ethernet1', 'host': 'host_2',
-                       'segment': [], 'switch': u'switch01'}]}]),
+             'POST', [{'portId': 'port-id-2-1',
+                       'switchBinding': [
+                           {'interface': u'Ethernet1',
+                            'host': 'host_2',
+                            'segment': [{'networkId': 'network-id-5',
+                                         'segment_type': 'static',
+                                         'segmentationId': 5005,
+                                         'type': 'vxlan',
+                                         'id': 'segment-id-5005'},
+                                        {'networkId': 'network-id-5',
+                                         'segment_type': 'dynamic',
+                                         'segmentationId': 505,
+                                         'type': 'vlan',
+                                         'id': 'segment-id-505'}],
+                            'switch': u'switch01'}]}]),
 
             ('region/RegionOne/port/port-id-3-0/binding',
-             'POST', [{'portId': 'port-id-3-0', 'hostBinding': [
-                      {'segment': [], 'host': 'host_3'}]}]),
+             'POST', [{'portId': 'port-id-3-0',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-6',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5006,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5006'},
+                                       {'networkId': 'network-id-6',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 506,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-506'}],
+                           'host': 'host_3'}]}]),
             ('region/RegionOne/port/port-id-3-1/binding',
-             'POST', [{'portId': 'port-id-3-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_3'}]}]),
+             'POST', [{'portId': 'port-id-3-1',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-7',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5007,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5007'},
+                                       {'networkId': 'network-id-7',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 507,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-507'}],
+                           'host': 'host_3'}]}]),
 
             ('region/RegionOne/port/port-id-4-0/binding',
-             'POST', [{'portId': 'port-id-4-0', 'hostBinding': [
-                      {'segment': [], 'host': 'host_4'}]}]),
+             'POST', [{'portId': 'port-id-4-0',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-8',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5008,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5008'},
+                                       {'networkId': 'network-id-8',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 508,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-508'}],
+                           'host': 'host_4'}]}]),
             ('region/RegionOne/port/port-id-4-1/binding',
-             'POST', [{'portId': 'port-id-4-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_4'}]}]),
+             'POST', [{'portId': 'port-id-4-1',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-9',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5009,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5009'},
+                                       {'networkId': 'network-id-9',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 509,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-509'}],
+                           'host': 'host_4'}]}]),
 
             ('region/RegionOne/port/port-id-5-0/binding',
-             'POST', [{'portId': 'port-id-5-0', 'hostBinding': [
-                      {'segment': [], 'host': 'host_5'}]}]),
+             'POST', [{'portId': 'port-id-5-0',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-10',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5010,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5010'},
+                                       {'networkId': 'network-id-10',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 510,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-510'}],
+                           'host': 'host_5'}]}]),
             ('region/RegionOne/port/port-id-5-1/binding',
-             'POST', [{'portId': 'port-id-5-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_5'}]}]),
+             'POST', [{'portId': 'port-id-5-1',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-11',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5011,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5011'},
+                                       {'networkId': 'network-id-11',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 511,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-511'}],
+                           'host': 'host_5'}]}]),
 
             ('region/RegionOne/port/port-id-6-0/binding',
-             'POST', [{'portId': 'port-id-6-0', 'switchBinding': [
-                      {'interface': u'Ethernet1', 'host': 'host_6',
-                       'segment': [], 'switch': u'switch01'}]}]),
+             'POST', [{'portId': 'port-id-6-0',
+                       'switchBinding': [{
+                           'interface': u'Ethernet1',
+                           'host': 'host_6',
+                           'segment': [{'networkId': 'network-id-12',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5012,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5012'},
+                                       {'networkId': 'network-id-12',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 512,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-512'}],
+                           'switch': u'switch01'}]}]),
             ('region/RegionOne/port/port-id-6-1/binding',
-             'POST', [{'portId': 'port-id-6-1', 'switchBinding': [
-                      {'interface': u'Ethernet1', 'host': 'host_6',
-                       'segment': [], 'switch': u'switch01'}]}]),
+             'POST', [{'portId': 'port-id-6-1',
+                       'switchBinding': [{
+                           'interface': u'Ethernet1',
+                           'host': 'host_6',
+                           'segment': [{'networkId': 'network-id-13',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5013,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5013'},
+                                       {'networkId': 'network-id-13',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 513,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-513'}],
+                           'switch': u'switch01'}]}]),
 
             ('region/RegionOne/port/port-id-7-0/binding',
-             'POST', [{'portId': 'port-id-7-0', 'hostBinding': [
-                      {'segment': [], 'host': 'host_7'}]}]),
+             'POST', [{'portId': 'port-id-7-0',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-14',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5014,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5014'},
+                                       {'networkId': 'network-id-14',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 514,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-514'}],
+                           'host': 'host_7'}]}]),
             ('region/RegionOne/port/port-id-7-1/binding',
-             'POST', [{'portId': 'port-id-7-1', 'hostBinding': [
-                      {'segment': [], 'host': 'host_7'}]}]),
+             'POST', [{'portId': 'port-id-7-1',
+                       'hostBinding': [{
+                           'segment': [{'networkId': 'network-id-15',
+                                        'segment_type': 'static',
+                                        'segmentationId': 5015,
+                                        'type': 'vxlan',
+                                        'id': 'segment-id-5015'},
+                                       {'networkId': 'network-id-15',
+                                        'segment_type': 'dynamic',
+                                        'segmentationId': 515,
+                                        'type': 'vlan',
+                                        'id': 'segment-id-515'}],
+                           'host': 'host_7'}]}]),
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls, True)
 
@@ -720,10 +922,11 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
         self.drv = arista_json.AristaRPCWrapperJSON(ndb)
         self.drv._server_ip = "10.11.12.13"
         self.region = 'RegionOne'
-        arista_json.db_lib = mock.MagicMock()
 
     @patch(JSON_SEND_FUNC)
-    def test_plug_virtual_trunk_port_into_network(self, mock_send_api_req):
+    @patch(DB_LIB_MODULE)
+    def test_plug_virtual_trunk_port_into_network(self, mock_db_lib,
+                                                  mock_send_api_req):
         # vm
         tenant_id = 'ten-1'
         network_id = 'net-id-1'
@@ -750,8 +953,8 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
                                         'segmentation_type': 'vlan'}],
                          'trunk_id': 'trunk_id'}
         self.drv._ndb.get_network_id_from_port_id.return_value = subport_net_id
-        arista_json.db_lib.get_network_segments_by_port_id.return_value = \
-            subport_segments
+        mock_db_lib.get_network_segments_by_port_id.return_value = (
+            subport_segments)
 
         self.drv.plug_port_into_network(vm_id, host, port_id, network_id,
                                         tenant_id, port_name,
@@ -783,7 +986,9 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
-    def test_plug_baremetal_trunk_port_into_network(self, mock_send_api_req):
+    @patch(DB_LIB_MODULE)
+    def test_plug_baremetal_trunk_port_into_network(self, mock_db_lib,
+                                                    mock_send_api_req):
         # baremetal
         tenant_id = 'ten-2'
         network_id = 'net-id-1'
@@ -813,8 +1018,8 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
              'switch_info': 'switch-1'}]}
         bindings = switch_bindings['local_link_information']
         self.drv._ndb.get_network_id_from_port_id.return_value = subport_net_id
-        arista_json.db_lib.get_network_segments_by_port_id.return_value = \
-            subport_segments
+        mock_db_lib.get_network_segments_by_port_id.return_value = (
+            subport_segments)
 
         self.drv.plug_port_into_network(bm_id, host, port_id, network_id,
                                         tenant_id, port_name,
