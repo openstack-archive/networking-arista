@@ -25,10 +25,6 @@ from networking_arista.ml2.rpc import arista_eapi
 from networking_arista.tests.unit import utils
 
 
-EAPI_SEND_FUNC = ('networking_arista.ml2.rpc.arista_eapi.AristaRPCWrapperEapi'
-                  '._send_eapi_req')
-
-
 def setup_valid_config():
     utils.setup_arista_wrapper_config(cfg)
 
