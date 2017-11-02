@@ -459,10 +459,9 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                     continue
 
                 network_id = neutron_port['network_id']
-                if network_id not in networkSegments:
-                    networkSegments[
-                        network_id] = self._ndb.get_all_network_segments(
-                            network_id)
+                if port_id not in networkSegments:
+                    networkSegments[port_id] = (
+                        db_lib.get_network_segments_by_port_id(port_id))
 
                 port = self._create_port_data(port_id, tenant_id,
                                               network_id, inst_id,
@@ -474,7 +473,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 if instance_type in const.InstanceType.VIRTUAL_INSTANCE_TYPES:
                     portBinding = self._get_host_bindings(
                         port_id, inst_host, network_id,
-                        networkSegments[network_id])
+                        networkSegments[port_id])
                 elif (instance_type in
                       const.InstanceType.BAREMETAL_INSTANCE_TYPES):
                     switch_profile = json.loads(port_profiles[
@@ -482,7 +481,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                     portBinding = self._get_switch_bindings(
                         port_id, inst_host, network_id,
                         switch_profile['local_link_information'],
-                        networkSegments[network_id])
+                        networkSegments[port_id])
                 if port_id not in portBindings:
                     portBindings[port_id] = portBinding
                 else:

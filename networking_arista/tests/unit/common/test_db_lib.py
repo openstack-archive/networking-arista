@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from neutron_lib import context
 from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
 from oslo_utils import importutils
 
+from neutron.db import segments_db
 from neutron.tests.unit import testlib_api
 
 from networking_arista.common import db_lib
@@ -31,6 +33,65 @@ class DbLibTest(testlib_api.SqlTestCase):
         plugin_klass = importutils.import_class(
             "neutron.db.db_base_plugin_v2.NeutronDbPluginV2")
         directory.add_plugin(plugin_constants.CORE, plugin_klass())
+        self.context = context.get_admin_context()
+
+    def test_binding_level_and_network_segments(self):
+        """Test get_port_binding_level and get_network_segments_by_port_id"""
+
+        tenant_id = 't1'
+        network_id = '11111111-2222-3333-4444-555555555555'
+        network_ctx = utils.create_network(tenant_id,
+                                           network_id,
+                                           5000,
+                                           network_type='vxlan',
+                                           physical_network=None)
+        segments = [{'id': network_id,
+                     'segmentation_id': 5000,
+                     'physical_network': None,
+                     'network_type': 'vxlan',
+                     'is_dynamic': False},
+                    {'id': None,
+                     'segmentation_id': 500,
+                     'physical_network': 'physnet1',
+                     'network_type': 'vlan',
+                     'is_dynamic': True}]
+
+        for segment in segments:
+            is_dynamic = segment['is_dynamic']
+            if is_dynamic:
+                segments_db.add_network_segment(self.context, network_id,
+                                                segment, is_dynamic=is_dynamic)
+
+        # create port
+        device_id = 'dev1'
+        port_id = 'p1'
+        host = 'h1'
+        utils.create_port(tenant_id, network_id, device_id,
+                          port_id, network_ctx, host=host,
+                          dynamic_segment=segments[1])
+
+        # Verify get_port_binding_level result
+        filters = {'port_id': port_id,
+                   'host': host}
+        res_binding_level = db_lib.get_port_binding_level(filters)
+        self.assertTrue(len(res_binding_level) == 2)
+        expected_ctxt = utils.get_port_context(
+            tenant_id, network_id, device_id, network_ctx, port_id, host=host,
+            dynamic_segment=segments[1])
+        for i in range(0, len(res_binding_level)):
+            self.assertEqual(dict(res_binding_level[i]),
+                             vars(expected_ctxt._binding_levels[i]))
+
+        # Verify get_network_segments_by_port_id result
+        res_segs = db_lib.get_network_segments_by_port_id(port_id)
+        self.assertTrue(len(res_segs) == 2)
+        for i in range(0, len(res_segs)):
+            seg = dict(id=res_segs[i]['id'],
+                       network_type=res_segs[i]['network_type'],
+                       physical_network=res_segs[i]['physical_network'],
+                       segmentation_id=res_segs[i]['segmentation_id'],
+                       is_dynamic=res_segs[i]['is_dynamic'])
+            self.assertTrue(segments[i] == seg)
 
     def test_get_tenants_empty(self):
         tenants = db_lib.get_tenants()
