@@ -36,6 +36,7 @@ import networking_arista.tests.unit.ml2.utils as utils
 BASE_RPC = "networking_arista.ml2.rpc.arista_json.AristaRPCWrapperJSON."
 JSON_SEND_FUNC = BASE_RPC + "_send_api_request"
 RAND_FUNC = BASE_RPC + "_get_random_name"
+DB_LIB_MODULE = 'networking_arista.ml2.rpc.arista_json.db_lib'
 
 
 def setup_valid_config():
@@ -262,7 +263,8 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
-    def test_create_instance_bulk(self, mock_send_api_req):
+    @patch(DB_LIB_MODULE)
+    def test_create_instance_bulk(self, mock_db_lib, mock_send_api_req):
         tenant_id = 'ten-3'
         num_devices = 8
         num_ports_per_device = 2
@@ -317,6 +319,7 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
                     'vnic_type': 'baremetal',
                     'profile': '{"local_link_information":'
                     '[{"switch_id": "switch01", "port_id": "Ethernet1"}]}'}
+        mock_db_lib.get_network_segments_by_port_id.return_value = []
         self.drv.create_instance_bulk(tenant_id, create_ports, devices,
                                       profiles)
         calls = [
@@ -720,10 +723,11 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
         self.drv = arista_json.AristaRPCWrapperJSON(ndb)
         self.drv._server_ip = "10.11.12.13"
         self.region = 'RegionOne'
-        arista_json.db_lib = mock.MagicMock()
 
     @patch(JSON_SEND_FUNC)
-    def test_plug_virtual_trunk_port_into_network(self, mock_send_api_req):
+    @patch(DB_LIB_MODULE)
+    def test_plug_virtual_trunk_port_into_network(self, mock_db_lib,
+                                                  mock_send_api_req):
         # vm
         tenant_id = 'ten-1'
         network_id = 'net-id-1'
@@ -750,8 +754,8 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
                                         'segmentation_type': 'vlan'}],
                          'trunk_id': 'trunk_id'}
         self.drv._ndb.get_network_id_from_port_id.return_value = subport_net_id
-        arista_json.db_lib.get_network_segments_by_port_id.return_value = \
-            subport_segments
+        mock_db_lib.get_network_segments_by_port_id.return_value = (
+            subport_segments)
 
         self.drv.plug_port_into_network(vm_id, host, port_id, network_id,
                                         tenant_id, port_name,
@@ -783,7 +787,9 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
     @patch(JSON_SEND_FUNC)
-    def test_plug_baremetal_trunk_port_into_network(self, mock_send_api_req):
+    @patch(DB_LIB_MODULE)
+    def test_plug_baremetal_trunk_port_into_network(self, mock_db_lib,
+                                                    mock_send_api_req):
         # baremetal
         tenant_id = 'ten-2'
         network_id = 'net-id-1'
@@ -813,8 +819,8 @@ class RPCWrapperJSONValidConfigTrunkTestCase(testlib_api.SqlTestCase):
              'switch_info': 'switch-1'}]}
         bindings = switch_bindings['local_link_information']
         self.drv._ndb.get_network_id_from_port_id.return_value = subport_net_id
-        arista_json.db_lib.get_network_segments_by_port_id.return_value = \
-            subport_segments
+        mock_db_lib.get_network_segments_by_port_id.return_value = (
+            subport_segments)
 
         self.drv.plug_port_into_network(bm_id, host, port_id, network_id,
                                         tenant_id, port_name,
