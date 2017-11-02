@@ -33,6 +33,7 @@ import networking_arista.tests.unit.ml2.utils as utils
 
 EAPI_SEND_FUNC = ('networking_arista.ml2.rpc.arista_eapi.AristaRPCWrapperEapi'
                   '._send_eapi_req')
+EAPI_DB_LIB_MODULE = 'networking_arista.ml2.rpc.arista_eapi.db_lib'
 
 
 def setup_valid_config():
@@ -376,6 +377,87 @@ class PositiveRPCWrapperValidConfigTestCase(testlib_api.SqlTestCase):
 
         for vm_id in range(1, num_vms):
             cmd2.append('no vm id vm-id-%d' % vm_id)
+        self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
+
+    @patch(EAPI_SEND_FUNC)
+    @patch(EAPI_DB_LIB_MODULE)
+    def test_hpb_create_port_bulk(self, mock_db_lib, mock_send_eapi_req):
+        tenant_id = 'ten-3'
+        num_devices = 10
+        num_ports_per_device = 2
+        device_owners = [n_const.DEVICE_OWNER_DHCP, 'compute',
+                         n_const.DEVICE_OWNER_DVR_INTERFACE]
+        port_list = []
+        devices = {}
+        for device_id in range(1, num_devices):
+            dev_id = 'dev-id-%d' % device_id
+            devices[dev_id] = {'vmId': dev_id,
+                               'baremetal_instance': False,
+                               'ports': []}
+            for port_id in range(1, num_ports_per_device):
+                pid = 'port-id-%d-%d' % (device_id, port_id)
+                port = {
+                    'device_id': 'dev-id-%d' % device_id,
+                    'hosts': ['host_%d' % device_id],
+                    'portId': pid,
+                    'device_owner': device_owners[(device_id + port_id) % 3],
+                    'network_id': 'network-id-%d' % port_id,
+                    'name': 'port-%d-%d' % (device_id, port_id),
+                    'tenant_id': tenant_id,
+                    'segments': [FakePortBindingLevel(pid, 0, 'vendor-0',
+                                                      5000 + port_id),
+                                 FakePortBindingLevel(pid, 1, 'vendor-1',
+                                                      500 + port_id)]
+                }
+                port_list.append(port)
+                devices[dev_id]['ports'].append(port)
+
+        create_ports = {}
+        port_profiles = {}
+        for port in port_list:
+            create_ports.update(utils.port_dict_representation(port))
+            port_profiles[port['portId']] = {'vnic_type': 'normal'}
+
+        self.drv.cli_commands[constants.CMD_INSTANCE] = 'instance'
+        self.drv.cli_commands['features'] = {'hierarchical-port-binding': 1}
+        mock_db_lib.get_port_binding_level.side_effect = (
+            lambda x: create_ports.get(x['port_id']).get('segments'))
+        self.drv.create_instance_bulk(tenant_id, create_ports, devices,
+                                      port_profiles=port_profiles)
+        cmd1 = ['show openstack agent uuid']
+        cmd2 = ['enable',
+                'configure',
+                'cvx',
+                'service openstack',
+                'region RegionOne',
+                'tenant ten-3']
+
+        for device in devices.values():
+            for v_port in device['ports']:
+                port_id = v_port['portId']
+                port = create_ports[port_id]
+                host = v_port['hosts'][0]
+                device_owner = port['device_owner']
+                port_name = port['name']
+                network_id = port['network_id']
+                device_id = port['device_id']
+                if device_owner == 'network:dhcp':
+                    cmd2.append('network id %s' % network_id)
+                    cmd2.append('dhcp id %s hostid %s port-id %s name "%s"' % (
+                                device_id, host, port_id, port_name))
+                elif device_owner == 'compute':
+                    cmd2.append('vm id %s hostid %s' % (device_id, host))
+                    cmd2.append('port id %s name "%s" network-id %s' % (
+                                port_id, port_name, network_id))
+                elif device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+                    cmd2.append('instance id %s type router' % device_id)
+                    cmd2.append('port id %s network-id %s hostid %s' % (
+                                port_id, network_id, host))
+                if self.drv.hpb_supported():
+                    cmd2.extend('segment level %d id %s' % (
+                        segment.level, segment.segment_id)
+                        for segment in v_port.get('segments'))
+
         self._verify_send_eapi_request_calls(mock_send_eapi_req, [cmd1, cmd2])
 
     @patch(EAPI_SEND_FUNC)

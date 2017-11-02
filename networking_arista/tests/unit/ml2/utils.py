@@ -29,4 +29,5 @@ def port_dict_representation(port):
                              'name': port['name'],
                              'id': port['portId'],
                              'tenant_id': port['tenant_id'],
-                             'network_id': port['network_id']}}
+                             'network_id': port['network_id'],
+                             'segments': port.get('segments') or []}}
