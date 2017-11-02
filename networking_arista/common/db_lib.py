@@ -462,6 +462,7 @@ def get_network_segments_by_port_id(port_id):
         segments = (session.query(segment_models.NetworkSegment,
                                   ml2_models.PortBindingLevel).
                     join(ml2_models.PortBindingLevel).
+                    order_by(ml2_models.PortBindingLevel.level).
                     filter_by(port_id=port_id).all())
         return [segment[0] for segment in segments]
 
