@@ -123,6 +123,9 @@ class AristaRPCWrapperBase(object):
                 return True
         except Exception as exc:
             LOG.warning(_LW('%s when getting CVX master'), exc)
+            LOG.warning("Failed to initialize connection with CVX. Please "
+                        "ensure CVX is reachable and running EOS 4.18.1 "
+                        "or greater.")
 
         self.set_cvx_unavailable()
         return False
@@ -133,11 +136,6 @@ class AristaRPCWrapperBase(object):
         :param tenant_id: globally unique neutron tenant identifier
         """
         self.delete_tenant_bulk([tenant_id])
-
-    def clear_region_updated_time(self):
-        # TODO(shashank): Remove this once the call is removed from the ML2
-        # driver.
-        pass
 
     def create_network(self, tenant_id, network):
         """Creates a single network on Arista hardware
@@ -160,50 +158,6 @@ class AristaRPCWrapperBase(object):
                              for segment in network_segments)
         self.delete_network_segments(tenant_id, segments_info)
         self.delete_network_bulk(tenant_id, [network_id])
-
-    def delete_vm(self, tenant_id, vm_id):
-        """Deletes a VM from EOS for a given tenant
-
-        :param tenant_id : globally unique neutron tenant identifier
-        :param vm_id : id of a VM that needs to be deleted.
-        """
-        self.delete_vm_bulk(tenant_id, [vm_id])
-
-    @abc.abstractmethod
-    def plug_port_into_network(self, device_id, host_id, port_id,
-                               net_id, tenant_id, port_name, device_owner,
-                               sg, orig_sg, vnic_type, segments=None,
-                               switch_bindings=None, trunk_details=None):
-        """Generic routine plug a port of a VM instace into network.
-
-        :param device_id: globally unique identifier for the device
-        :param host: ID of the host where the port is placed
-        :param port_id: globally unique port ID that connects port to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param port_name: Name of the port - for display purposes
-        :param device_owner: Device owner - e.g. compute or network:dhcp
-        :param sg: current security group for the port
-        :param orig_sg: original security group for the port
-        :param vnic_type: VNIC type for the port
-        :param segments: list of network segments the port is bound to
-        :param switch_bindings: List of switch_bindings
-        :param trunk_details: List of subports of a trunk port
-        """
-
-    @abc.abstractmethod
-    def unplug_port_from_network(self, device_id, device_owner, hostname,
-                                 port_id, network_id, tenant_id, sg, vnic_type,
-                                 switch_bindings=None, trunk_details=None):
-        """Removes a port from the device
-
-        :param device_id: globally unique identifier for the device
-        :param host: ID of the host where the device is placed
-        :param port_id: globally unique port ID that connects device to network
-        :param network_id: globally unique neutron network identifier
-        :param tenant_id: globally unique neutron tenant identifier
-        :param trunk_details: List of subports of a trunk port
-        """
 
     def _clean_acls(self, sg, failed_switch, switches_to_clean):
         """This is a helper function to clean up ACLs on switches.
@@ -273,155 +227,6 @@ class AristaRPCWrapperBase(object):
         or neutron reboot
         """
         self.security_group_driver.perform_sync_of_sg()
-
-    @abc.abstractmethod
-    def sync_supported(self):
-        """Whether the EOS version supports sync.
-
-        Returns True if sync is supported, false otherwise.
-        """
-
-    @abc.abstractmethod
-    def bm_and_dvr_supported(self):
-        """Whether EOS supports Ironic and DVR.
-
-        Returns True if supported, false otherwise.
-        """
-
-    @abc.abstractmethod
-    def register_with_eos(self, sync=False):
-        """This is the registration request with EOS.
-
-        This the initial handshake between Neutron and EOS.
-        critical end-point information is registered with EOS.
-
-        :param sync: This flags indicates that the region is being synced.
-        """
-
-    @abc.abstractmethod
-    def check_supported_features(self):
-        """Checks whether the CLI commands are valid.
-
-           This method tries to execute the commands on EOS and if it succeedes
-           the command is stored.
-        """
-
-    @abc.abstractmethod
-    def get_region_updated_time(self):
-        """Return the timestamp of the last update.
-
-           This method returns the time at which any entities in the region
-           were updated.
-        """
-
-    @abc.abstractmethod
-    def delete_this_region(self):
-        """Deleted the region data from EOS."""
-
-    @abc.abstractmethod
-    def sync_start(self):
-        """Let EOS know that a sync in being initiated."""
-
-    @abc.abstractmethod
-    def sync_end(self):
-        """Let EOS know that sync is complete."""
-
-    @abc.abstractmethod
-    def get_tenants(self):
-        """Returns dict of all tenants known by EOS.
-
-        :returns: dictionary containing the networks per tenant
-                  and VMs allocated per tenant
-        """
-
-    @abc.abstractmethod
-    def delete_tenant_bulk(self, tenant_list, sync=False):
-        """Sends a bulk request to delete the tenants.
-
-        :param tenant_list: list of globaly unique neutron tenant ids which
-                            need to be deleted.
-        :param sync: This flags indicates that the region is being synced.
-        """
-
-    @abc.abstractmethod
-    def create_network_bulk(self, tenant_id, network_list, sync=False):
-        """Creates a network on Arista Hardware
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network_list: list of dicts containing network_id, network_name
-                             and segmentation_id
-        :param sync: This flags indicates that the region is being synced.
-        """
-
-    @abc.abstractmethod
-    def create_network_segments(self, tenant_id, network_id,
-                                network_name, segments):
-        """Creates a network on Arista Hardware
-
-        Note: This method is not used at the moment. create_network()
-        is used instead. This will be used once the support for
-        multiple segments is added in Neutron.
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network_id: globally unique neutron network identifier
-        :param network_name: Network name - for display purposes
-        :param segments: List of segments in a given network
-        """
-
-    @abc.abstractmethod
-    def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
-        """Deletes the network ids specified for a tenant
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network_id_list: list of globally unique neutron network
-                                identifiers
-        :param sync: This flags indicates that the region is being synced.
-        """
-
-    @abc.abstractmethod
-    def delete_network_segments(self, tenant_id, network_segments):
-        """Deletes the network segments
-
-        :param network_segments: List of network segments to be delted.
-        """
-
-    @abc.abstractmethod
-    def create_instance_bulk(self, tenant_id, neutron_ports, vms,
-                             port_profiles, sync=False):
-        """Sends a bulk request to create ports.
-
-        :param tenant_id: globaly unique neutron tenant identifier
-        :param neutron_ports: list of ports that need to be created.
-        :param vms: list of vms to which the ports will be attached to.
-        :param sync: This flags indicates that the region is being synced.
-        """
-
-    @abc.abstractmethod
-    def delete_instance_bulk(self, tenant_id, instance_id_list, instance_type,
-                             sync=False):
-        """Deletes instances from EOS for a given tenant
-
-        :param tenant_id : globally unique neutron tenant identifier
-        :param instance_id_list : ids of instances that needs to be deleted.
-        :param instance_type: The type of the instance which is being deleted.
-        :param sync: This flags indicates that the region is being synced.
-        """
-
-    @abc.abstractmethod
-    def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
-        """Deletes VMs from EOS for a given tenant
-
-        :param tenant_id : globally unique neutron tenant identifier
-        :param vm_id_list : ids of VMs that needs to be deleted.
-        :param sync: This flags indicates that the region is being synced.
-        """
-
-    @abc.abstractmethod
-    def hpb_supported(self):
-        """Whether hierarchical port binding (HPB) is supported by CVX.
-
-        Returns True if HPB is supported, False otherwise.
-        """
 
     def apply_security_group(self, security_group, switch_bindings):
         """Applies ACLs on switch interface.
