@@ -17,18 +17,26 @@ from neutron_lib import constants as n_const
 from oslo_log import log as logging
 
 
+SUPPORTED_DEVICE_OWNERS = [
+    n_const.DEVICE_OWNER_COMPUTE_PREFIX,
+    n_const.DEVICE_OWNER_BAREMETAL_PREFIX,
+    n_const.DEVICE_OWNER_DHCP,
+    n_const.DEVICE_OWNER_DVR_INTERFACE,
+    'trunk:']
+
+
+UNSUPPORTED_DEVICE_OWNERS = [
+    n_const.DEVICE_OWNER_COMPUTE_PREFIX + 'probe']
+
 LOG = logging.getLogger(__name__)
 
 
 def supported_device_owner(device_owner):
-    supported_device_owner = [n_const.DEVICE_OWNER_DHCP,
-                              n_const.DEVICE_OWNER_DVR_INTERFACE]
 
-    if any([device_owner in supported_device_owner,
-            device_owner.startswith('compute') and
-            device_owner != 'compute:probe',
-            device_owner.startswith('baremetal'),
-            device_owner.startswith('trunk')]):
+    if (any([device_owner.startswith(supported_owner) for
+             supported_owner in SUPPORTED_DEVICE_OWNERS]) and
+        not any([device_owner.startswith(unsupported_owner) for
+                 unsupported_owner in UNSUPPORTED_DEVICE_OWNERS])):
         return True
 
     LOG.debug('Unsupported device owner: %s', device_owner)
