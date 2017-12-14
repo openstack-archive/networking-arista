@@ -22,8 +22,8 @@ from oslo_service import loopingcall
 
 from networking_arista._i18n import _LI
 from networking_arista.common import constants
-from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
+from networking_arista.ml2 import arista_resources as resources
 
 LOG = logging.getLogger(__name__)
 
@@ -84,6 +84,21 @@ class SyncService(object):
         self._manage_fabric = manage_fabric
         self._managed_physnets = managed_physnets
 
+        # Sync order is important because of entity dependencies:
+        # PortBinding -> Port -> Instance -> Tenant
+        #             -> Segment -> Network -> Tenant
+        self.sync_order = [resources.Tenants(self._rpc),
+                           resources.Networks(self._rpc),
+                           resources.Segments(self._rpc),
+                           resources.Dhcps(self._rpc),
+                           resources.Routers(self._rpc),
+                           resources.Vms(self._rpc),
+                           resources.Baremetals(self._rpc),
+                           resources.DhcpPorts(self._rpc),
+                           resources.VmPorts(self._rpc),
+                           resources.BaremetalPorts(self._rpc),
+                           resources.PortBindings(self._rpc)]
+
     def force_sync(self):
         """Sets the force_sync flag."""
         self._force_sync = True
@@ -95,6 +110,7 @@ class SyncService(object):
            send it down to EOS.
         """
         # Perform sync of Security Groups unconditionally
+        # TODO(mitchell): Move security group sync to a separate worker
         try:
             self._rpc.perform_sync_of_sg()
         except Exception as e:
@@ -113,7 +129,7 @@ class SyncService(object):
         # Send 'sync start' marker.
         if not self._rpc.sync_start():
             LOG.info(_LI('Not starting sync, setting force'))
-            self._force_sync = True
+            self.force_sync()
             return
 
         # Perform the actual synchronization.
@@ -122,149 +138,46 @@ class SyncService(object):
         # Send 'sync end' marker.
         if not self._rpc.sync_end():
             LOG.info(_LI('Sync end failed, setting force'))
-            self._force_sync = True
+            self.force_sync()
             return
 
         self._set_region_updated_time()
 
     def synchronize(self):
-        """Sends data to EOS which differs from neutron DB."""
+        """Sends data to EOS which differs from neutron DB.
+
+        We need to compute resources to sync in reverse sync order
+        in order to avoid missing dependencies on creation
+        Eg. If we query in sync order
+        1. Query Instances -> I1 isn't there
+        2. Query Port table -> Port P1 is there, connected to I1
+        3. We send P1 to CVX without sending I1 -> Error raised
+        But if we query P1 first:
+        1. Query Ports P1 -> P1 is not there
+        2. Query Instances -> find I1
+        3. We create I1, not P1 -> harmless, mech driver creates P1
+        Missing dependencies on deletion will helpfully result in the
+        dependent resource not being created:
+        1. Query Ports -> P1 is found
+        2. Query Instances -> I1 not found
+        3. Creating P1 fails on CVX
+        """
 
         LOG.info(_LI('Syncing Neutron <-> EOS'))
-        try:
-            # Register with EOS to ensure that it has correct credentials
-            self._rpc.register_with_eos(sync=True)
-            eos_tenants = self._rpc.get_tenants()
-        except arista_exc.AristaRpcError:
-            LOG.warning(constants.EOS_UNREACHABLE_MSG)
-            self._force_sync = True
-            return
 
-        db_tenants = db_lib.get_tenants()
+        # Compute resources to sync
+        for resource_type in reversed(self.sync_order):
+            # Clear all resources for now, once resource passing from
+            # mech driver is implemented, we'll be more selective
+            # and do so only when a full sync is required
+            resource_type.clear_all_data()
+            resource_type.get_cvx_ids()
+            resource_type.get_neutron_resources()
 
-        # Delete tenants that are in EOS, but not in the database
-        tenants_to_delete = frozenset(eos_tenants.keys()).difference(
-            db_tenants)
-
-        if tenants_to_delete:
-            try:
-                self._rpc.delete_tenant_bulk(tenants_to_delete, sync=True)
-            except arista_exc.AristaRpcError:
-                LOG.warning(constants.EOS_UNREACHABLE_MSG)
-                self._force_sync = True
-                return
-
-        # None of the commands have failed till now. But if subsequent
-        # operations fail, then force_sync is set to true
-        self._force_sync = False
-
-        # Get Baremetal port switch_bindings, if any
-        port_profiles = db_lib.get_all_portbindings()
-        # To support shared networks, split the sync loop in two parts:
-        # In first loop, delete unwanted VM and networks and update networks
-        # In second loop, update VMs. This is done to ensure that networks for
-        # all tenats are updated before VMs are updated
-        instances_to_update = {}
-        for tenant in db_tenants:
-            db_nets = {n['id']: n
-                       for n in self._ndb.get_all_networks_for_tenant(tenant)}
-            db_instances = db_lib.get_instances(tenant)
-
-            eos_nets = self._get_eos_networks(eos_tenants, tenant)
-            eos_vms, eos_bms, eos_routers = self._get_eos_vms(eos_tenants,
-                                                              tenant)
-
-            db_nets_key_set = frozenset(db_nets.keys())
-            db_instances_key_set = frozenset(db_instances)
-            eos_nets_key_set = frozenset(eos_nets.keys())
-            eos_vms_key_set = frozenset(eos_vms.keys())
-            eos_routers_key_set = frozenset(eos_routers.keys())
-            eos_bms_key_set = frozenset(eos_bms.keys())
-
-            # Create a candidate list by incorporating all instances
-            eos_instances_key_set = (eos_vms_key_set | eos_routers_key_set |
-                                     eos_bms_key_set)
-
-            # Find the networks that are present on EOS, but not in Neutron DB
-            nets_to_delete = eos_nets_key_set.difference(db_nets_key_set)
-
-            # Find the VMs that are present on EOS, but not in Neutron DB
-            instances_to_delete = eos_instances_key_set.difference(
-                db_instances_key_set)
-
-            vms_to_delete = [
-                vm for vm in eos_vms_key_set if vm in instances_to_delete]
-            routers_to_delete = [
-                r for r in eos_routers_key_set if r in instances_to_delete]
-            bms_to_delete = [
-                b for b in eos_bms_key_set if b in instances_to_delete]
-
-            # Find the Networks that are present in Neutron DB, but not on EOS
-            nets_to_update = db_nets_key_set.difference(eos_nets_key_set)
-
-            # Find the VMs that are present in Neutron DB, but not on EOS
-            instances_to_update[tenant] = db_instances_key_set.difference(
-                eos_instances_key_set)
-
-            try:
-                if vms_to_delete:
-                    self._rpc.delete_vm_bulk(tenant, vms_to_delete, sync=True)
-                if routers_to_delete:
-                    self._rpc.delete_instance_bulk(
-                        tenant,
-                        routers_to_delete,
-                        constants.InstanceType.ROUTER,
-                        sync=True)
-                if bms_to_delete:
-                    self._rpc.delete_instance_bulk(
-                        tenant,
-                        bms_to_delete,
-                        constants.InstanceType.BAREMETAL,
-                        sync=True)
-                if nets_to_delete:
-                    self._rpc.delete_network_bulk(tenant, nets_to_delete,
-                                                  sync=True)
-                if nets_to_update:
-                    networks = [{
-                        'network_id': net_id,
-                        'network_name':
-                            db_nets.get(net_id, {'name': ''})['name'],
-                        'shared':
-                            db_nets.get(net_id,
-                                        {'shared': False})['shared'],
-                        'segments': self._ndb.get_all_network_segments(net_id),
-                        }
-                        for net_id in nets_to_update
-                    ]
-                    self._rpc.create_network_bulk(tenant, networks, sync=True)
-            except arista_exc.AristaRpcError:
-                LOG.warning(constants.EOS_UNREACHABLE_MSG)
-                self._force_sync = True
-
-        # Now update the instances
-        for tenant in instances_to_update:
-            if not instances_to_update[tenant]:
-                continue
-            try:
-                # Filter the ports to only the vms that we are interested
-                # in.
-                ports_of_interest = {}
-                for port in self._ndb.get_all_ports_for_tenant(tenant):
-                    ports_of_interest.update(
-                        self._port_dict_representation(port))
-
-                if ports_of_interest:
-                    instance_ports = db_lib.get_instance_ports(
-                        tenant, self._manage_fabric, self._managed_physnets)
-                    if instance_ports:
-                        self._rpc.create_instance_bulk(tenant,
-                                                       ports_of_interest,
-                                                       instance_ports,
-                                                       port_profiles,
-                                                       sync=True)
-            except arista_exc.AristaRpcError:
-                LOG.warning(constants.EOS_UNREACHABLE_MSG)
-                self._force_sync = True
+        # Sync any necessary resources
+        for resource_type in self.sync_order:
+            resource_type.delete_cvx_resources()
+            resource_type.create_cvx_resources()
 
     def _region_in_sync(self):
         """Checks if the region is in sync with EOS.
@@ -302,30 +215,3 @@ class SyncService(object):
         except arista_exc.AristaRpcError:
             # Force an update incase of an error.
             self._force_sync = True
-
-    def _get_eos_networks(self, eos_tenants, tenant):
-        networks = {}
-        if eos_tenants and tenant in eos_tenants:
-            networks = eos_tenants[tenant]['tenantNetworks']
-        return networks
-
-    def _get_eos_vms(self, eos_tenants, tenant):
-        vms = {}
-        bms = {}
-        routers = {}
-        if eos_tenants and tenant in eos_tenants:
-            vms = eos_tenants[tenant]['tenantVmInstances']
-            if 'tenantBaremetalInstances' in eos_tenants[tenant]:
-                # Check if baremetal service is supported
-                bms = eos_tenants[tenant]['tenantBaremetalInstances']
-            if 'tenantRouterInstances' in eos_tenants[tenant]:
-                routers = eos_tenants[tenant]['tenantRouterInstances']
-        return vms, bms, routers
-
-    def _port_dict_representation(self, port):
-        return {port['id']: {'device_owner': port['device_owner'],
-                             'device_id': port['device_id'],
-                             'name': port['name'],
-                             'id': port['id'],
-                             'tenant_id': port['tenant_id'],
-                             'network_id': port['network_id']}}
