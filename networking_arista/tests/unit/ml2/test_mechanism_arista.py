@@ -19,6 +19,7 @@ from neutron_lib import constants as n_const
 from neutron.db import models_v2
 from neutron.plugins.ml2 import models as port_models
 from neutron.services.trunk import callbacks
+from neutron.services.trunk import constants as t_const
 from neutron.services.trunk import models as trunk_models
 from neutron.tests.unit import testlib_api
 
@@ -310,7 +311,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         expected_calls = [
             mock.call.NeutronNets(),
             mock.call.get_physical_network(host_id),
-            mock.call.unplug_port_from_network(device_id, 'compute', host_id,
+            mock.call.unplug_port_from_network(device_id, 'compute:', host_id,
                                                port_id, network_id, tenant_id,
                                                None, vnic_type,
                                                switch_bindings=profile,
@@ -351,7 +352,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls += [
             mock.call.get_physical_network(host_id),
-            mock.call.unplug_port_from_network(device_id, 'compute', host_id,
+            mock.call.unplug_port_from_network(device_id, 'compute:', host_id,
                                                port_id, network_id,
                                                INTERNAL_TENANT_ID, None,
                                                vnic_type,
@@ -406,7 +407,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         expected_calls = [
             mock.call.NeutronNets(),
             mock.call.get_physical_network(host_id),
-            mock.call.unplug_port_from_network(device_id, 'compute', host_id,
+            mock.call.unplug_port_from_network(device_id, 'compute:', host_id,
                                                port_id, network_id, tenant_id,
                                                None, vnic_type,
                                                switch_bindings=profile,
@@ -950,7 +951,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                              n_const.DEVICE_OWNER_DVR_INTERFACE,
                              'compute:*',
                              'baremetal:*',
-                             'trunk:*']
+                             t_const.TRUNK_SUBPORT_OWNER]
         for device_owner in device_owner_list:
             self.assertTrue(mech_utils.supported_device_owner(device_owner),
                             'device_owner:%s should be a '

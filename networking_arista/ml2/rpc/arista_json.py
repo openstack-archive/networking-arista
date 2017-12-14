@@ -123,7 +123,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 return self._server_ip
         return None
 
-    def _send_api_request(self, path, method, data=None, sanitized_data=None):
+    def send_api_request(self, path, method, data=None, sanitized_data=None):
         host = self._get_eos_master()
         if not host:
             msg = six.text_type("Could not find CVX leader")
@@ -139,7 +139,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             'name': self.region,
             'syncInterval': self.sync_interval
         }
-        self._send_api_request(path, 'PUT', [data])
+        self.send_api_request(path, 'PUT', [data])
 
     def register_with_eos(self, sync=False):
         self.create_region(self.region)
@@ -148,7 +148,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def get_region_updated_time(self):
         path = 'agent/'
         try:
-            data = self._send_api_request(path, 'GET')
+            data = self.send_api_request(path, 'GET')
             return {'regionTimestamp': data.get('uuid', '')}
         except arista_exc.AristaRpcError:
             return {'regionTimestamp': ''}
@@ -156,12 +156,12 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def create_region(self, region):
         path = 'region/'
         data = {'name': region}
-        return self._send_api_request(path, 'POST', [data])
+        return self.send_api_request(path, 'POST', [data])
 
     def delete_region(self, region):
         path = 'region/'
         data = {'name': region}
-        return self._send_api_request(path, 'DELETE', [data])
+        return self.send_api_request(path, 'DELETE', [data])
 
     def delete_this_region(self):
         return self.delete_region(self.region)
@@ -169,7 +169,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def get_region(self, name):
         path = 'region/%s' % name
         try:
-            regions = self._send_api_request(path, 'GET')
+            regions = self.send_api_request(path, 'GET')
             for region in regions:
                 if region['name'] == name:
                     return region
@@ -197,7 +197,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 'requestId': req_id
             }
             path = 'region/' + self.region + '/sync'
-            self._send_api_request(path, 'POST', data)
+            self.send_api_request(path, 'POST', data)
             self.current_sync_name = req_id
             return True
         except (KeyError, arista_exc.AristaRpcError):
@@ -210,7 +210,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         LOG.info('Attempting to end sync')
         try:
             path = 'region/' + self.region + '/sync'
-            self._send_api_request(path, 'DELETE')
+            self.send_api_request(path, 'DELETE')
             self.current_sync_name = None
             return True
         except arista_exc.AristaRpcError:
@@ -219,28 +219,28 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def get_vms_for_tenant(self, tenant):
         path = 'region/' + self.region + '/vm?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self.send_api_request(path, 'GET')
 
     def get_dhcps_for_tenant(self, tenant):
         path = 'region/' + self.region + '/dhcp?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self.send_api_request(path, 'GET')
 
     def get_baremetals_for_tenant(self, tenant):
         path = 'region/' + self.region + '/baremetal?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self.send_api_request(path, 'GET')
 
     def get_routers_for_tenant(self, tenant):
         path = 'region/' + self.region + '/router?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self.send_api_request(path, 'GET')
 
     def get_ports_for_tenant(self, tenant, pType):
         path = 'region/%s/port?tenantId=%s&type=%s' % (self.region,
                                                        tenant, pType)
-        return self._send_api_request(path, 'GET')
+        return self.send_api_request(path, 'GET')
 
     def get_tenants(self):
         path = 'region/' + self.region + '/tenant'
-        tenants = self._send_api_request(path, 'GET')
+        tenants = self.send_api_request(path, 'GET')
         d = {}
         for ten in tenants:
             ten['tenantId'] = ten.pop('id')
@@ -276,11 +276,11 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def delete_tenant_bulk(self, tenant_list, sync=False):
         path = 'region/' + self.region + '/tenant'
         data = [{'id': t} for t in tenant_list]
-        return self._send_api_request(path, 'DELETE', data)
+        return self.send_api_request(path, 'DELETE', data)
 
     def get_networks(self, tenant):
         path = 'region/' + self.region + '/network?tenantId=' + tenant
-        return self._send_api_request(path, 'GET')
+        return self.send_api_request(path, 'GET')
 
     def create_network_bulk(self, tenant_id, network_list, sync=False):
         self._create_tenant_if_needed(tenant_id)
@@ -317,11 +317,11 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
         if networks:
             path = 'region/' + self.region + '/network'
-            self._send_api_request(path, 'POST', networks)
+            self.send_api_request(path, 'POST', networks)
 
         if segments:
             path = 'region/' + self.region + '/segment'
-            self._send_api_request(path, 'POST', segments)
+            self.send_api_request(path, 'POST', segments)
 
     def create_network_segments(self, tenant_id, network_id,
                                 network_name, segments):
@@ -340,7 +340,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             })
 
         path = 'region/' + self.region + '/segment'
-        self._send_api_request(path, 'POST', segment_data)
+        self.send_api_request(path, 'POST', segment_data)
 
     def delete_network_segments(self, tenant_id, segments):
         segment_data = []
@@ -349,12 +349,12 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                 'id': segment['id'],
             })
         path = 'region/' + self.region + '/segment'
-        self._send_api_request(path, 'DELETE', segment_data)
+        self.send_api_request(path, 'DELETE', segment_data)
 
     def delete_network_bulk(self, tenant_id, network_id_list, sync=False):
         path = 'region/' + self.region + '/network'
         data = [{'id': n, 'tenantId': tenant_id} for n in network_id_list]
-        return self._send_api_request(path, 'DELETE', data)
+        return self.send_api_request(path, 'DELETE', data)
 
     def _create_instance_data(self, vm_id, host_id):
         return {
@@ -389,7 +389,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def get_tenant(self, tenant_id):
         path = 'region/' + self.region + '/tenant?tenantId=' + tenant_id
-        tenants = self._send_api_request(path, 'GET')
+        tenants = self.send_api_request(path, 'GET')
         if tenants:
             try:
                 return tenants[0]
@@ -400,7 +400,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def create_tenant_bulk(self, tenant_ids):
         path = 'region/' + self.region + '/tenant'
         data = [{'id': tid} for tid in tenant_ids]
-        return self._send_api_request(path, 'POST', data)
+        return self.send_api_request(path, 'POST', data)
 
     def create_instance_bulk(self, tenant_id, neutron_ports, vms,
                              port_profiles, sync=False):
@@ -490,25 +490,25 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         # create instances first
         if vmInst:
             path = 'region/' + self.region + '/vm?tenantId=' + tenant_id
-            self._send_api_request(path, 'POST', list(vmInst.values()))
+            self.send_api_request(path, 'POST', list(vmInst.values()))
         if dhcpInst:
             path = 'region/' + self.region + '/dhcp?tenantId=' + tenant_id
-            self._send_api_request(path, 'POST', list(dhcpInst.values()))
+            self.send_api_request(path, 'POST', list(dhcpInst.values()))
         if baremetalInst:
             path = 'region/' + self.region + '/baremetal?tenantId=' + tenant_id
-            self._send_api_request(path, 'POST', list(baremetalInst.values()))
+            self.send_api_request(path, 'POST', list(baremetalInst.values()))
         if routerInst:
             path = 'region/' + self.region + '/router?tenantId=' + tenant_id
-            self._send_api_request(path, 'POST', list(routerInst.values()))
+            self.send_api_request(path, 'POST', list(routerInst.values()))
 
         # now create ports for the instances
         path = 'region/' + self.region + '/port'
-        self._send_api_request(path, 'POST', portInst)
+        self.send_api_request(path, 'POST', portInst)
 
         # TODO(shashank): Optimize this
         for port_id, bindings in portBindings.items():
             url = 'region/' + self.region + '/port/' + port_id + '/binding'
-            self._send_api_request(url, 'POST', bindings)
+            self.send_api_request(url, 'POST', bindings)
 
     def delete_instance_bulk(self, tenant_id, instance_id_list, instance_type,
                              sync=False):
@@ -517,7 +517,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                'type': instance_type}
 
         data = [{'id': i} for i in instance_id_list]
-        return self._send_api_request(path, 'DELETE', data)
+        return self.send_api_request(path, 'DELETE', data)
 
     def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
         self.delete_instance_bulk(tenant_id, vm_id_list, const.InstanceType.VM)
@@ -533,12 +533,12 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         port = self._create_port_data(port_id, None, None, instance_id,
                                       None, instance_type, None,
                                       device_owner)
-        return self._send_api_request(path, 'DELETE', [port])
+        return self.send_api_request(path, 'DELETE', [port])
 
     def get_instance_ports(self, instance_id, instance_type):
         path = ('region/%s/port?id=%s&type=%s' %
                 (self.region, instance_id, instance_type))
-        return self._send_api_request(path, 'GET')
+        return self.send_api_request(path, 'GET')
 
     def plug_port_into_network(self, device_id, host_id, port_id,
                                net_id, tenant_id, port_name, device_owner,
@@ -570,9 +570,9 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
               'device_type': device_type,
               'tenant_id': tenant_id,
         }
-        self._send_api_request(url, 'POST', [instance])
-        self._send_api_request('region/' + self.region + '/port', 'POST',
-                               [port])
+        self.send_api_request(url, 'POST', [instance])
+        self.send_api_request('region/' + self.region + '/port', 'POST',
+                              [port])
         if trunk_details and trunk_details.get('sub_ports'):
             for subport in trunk_details['sub_ports']:
                 subport_id = subport['port_id']
@@ -585,8 +585,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                                               subport_name, device_type,
                                               [host_id], sub_device_owner)
 
-                self._send_api_request('region/' + self.region + '/port',
-                                       'POST', [port])
+                self.send_api_request('region/' + self.region + '/port',
+                                      'POST', [port])
         if device_type in const.InstanceType.VIRTUAL_INSTANCE_TYPES:
             self.bind_port_to_host(port_id, host_id, net_id, segments)
             if trunk_details and trunk_details.get('sub_ports'):
@@ -694,7 +694,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         url = 'region/' + self.region + '/port/' + port_id + '/binding'
         bindings = self._get_host_bindings(port_id, host, network_id,
                                            segments)
-        self._send_api_request(url, 'POST', bindings)
+        self.send_api_request(url, 'POST', bindings)
 
     def unbind_port_from_host(self, port_id, host):
         url = 'region/' + self.region + '/port/' + port_id + '/binding'
@@ -702,7 +702,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
                    'hostBinding': [{
                        'host': host,
                    }]}
-        self._send_api_request(url, 'DELETE', [binding])
+        self.send_api_request(url, 'DELETE', [binding])
 
     def _get_switch_bindings(self, port_id, host, network_id,
                              switch_bindings, segments):
@@ -733,11 +733,11 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         url = 'region/' + self.region + '/port/' + port_id + '/binding'
         bindings = self._get_switch_bindings(port_id, host, network_id,
                                              switch_bindings, segments)
-        self._send_api_request(url, 'POST', bindings)
+        self.send_api_request(url, 'POST', bindings)
 
     def unbind_port_from_switch_interface(self, port_id, host,
                                           switch_bindings):
         url = 'region/' + self.region + '/port/' + port_id + '/binding'
         bindings = self._get_switch_bindings(port_id, host, None,
                                              switch_bindings, None)
-        self._send_api_request(url, 'DELETE', bindings)
+        self.send_api_request(url, 'DELETE', bindings)
