@@ -13,16 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import uuid
 
 from neutron_lib.api.definitions import portbindings
+from neutron_lib import constants as n_const
 from neutron_lib.db import api as db_api
 from neutron_lib.plugins.ml2 import api as driver_api
 
 from neutron.db.models import segment as segment_models
+from neutron.db import models_v2
 from neutron.plugins.ml2 import models as ml2_models
+from neutron.services.trunk import constants as t_const
 
 from networking_arista.common import db_lib
+from networking_arista.ml2 import arista_resources as resources
 
 
 def setup_arista_wrapper_config(cfg, host='host', user='user'):
@@ -32,6 +37,377 @@ def setup_arista_wrapper_config(cfg, host='host', user='user'):
     cfg.CONF.set_override('conn_timeout', 20, "ml2_arista")
     cfg.CONF.set_override('switch_info', ['switch1:user:pass'], "ml2_arista")
     cfg.CONF.set_override('sec_group_support', False, "ml2_arista")
+
+
+class MockCvx(object):
+
+    def __init__(self, region):
+        whitelist = ['AristaResourcesBase',
+                     'PortResources',
+                     'AttributeFormatter']
+        self.endpoint_data = {}
+        self.endpoint_to_id = {}
+        self.endpoint_to_class = {}
+        self.region = region
+        for cls in resources.__dict__.values():
+            if (isinstance(cls, type) and
+                    cls.__module__ == resources.__name__ and
+                    cls.__name__ not in whitelist):
+                region_endpoint = cls.endpoint % {'region': region}
+                self.endpoint_data[region_endpoint] = {}
+                self.endpoint_to_id[region_endpoint] = cls.id_key
+                self.endpoint_to_class[region_endpoint] = cls
+
+    def send_api_request(self, endpoint, request_type, data=None):
+        if request_type == 'POST':
+            for resource in data:
+                endpoint_class = self.endpoint_to_class[endpoint]
+                for key in endpoint_class.get_resource_ids(resource):
+                    self.endpoint_data[endpoint][key] = resource
+        elif request_type == 'GET':
+            return self.endpoint_data[endpoint].values()
+        elif request_type == 'DELETE':
+            for resource in data:
+                endpoint_class = self.endpoint_to_class[endpoint]
+                for key in endpoint_class.get_resource_ids(resource):
+                    del self.endpoint_data[endpoint][key]
+
+
+# Network utils #
+
+
+def create_networks(networks):
+    session = db_api.get_writer_session()
+    with session.begin():
+        for network in networks:
+            session.add(models_v2.Network(**network))
+
+
+def delete_network(network_id):
+    session = db_api.get_writer_session()
+    with session.begin():
+        network_model = models_v2.Network
+        session.query(network_model).filter(
+            network_model.id == network_id).delete()
+
+
+def delete_networks_for_tenant(tenant_id):
+    session = db_api.get_writer_session()
+    with session.begin():
+        network_model = models_v2.Network
+        networks = session.query(network_model).filter(
+            network_model.project_id == tenant_id).all()
+        for network in networks:
+            delete_ports_on_network(network.id)
+            session.delete(network)
+
+
+# Segment utils #
+
+
+def create_segments(segments):
+    session = db_api.get_writer_session()
+    with session.begin():
+        for segment in segments:
+            session.add(segment_models.NetworkSegment(**segment))
+
+
+def delete_segment(segment_id):
+    session = db_api.get_writer_session()
+    with session.begin():
+        segment_model = segment_models.NetworkSegment
+        session.query(segment_model).filter(
+            segment_model.id == segment_id).delete()
+
+
+def delete_segments_for_network(network_id):
+    session = db_api.get_writer_session()
+    with session.begin():
+        segment_model = segment_models.NetworkSegment
+        session.query(segment_model).filter(
+            segment_model.network_id == network_id).delete()
+
+
+def delete_segments_for_tenant(tenant_id):
+    session = db_api.get_writer_session()
+    network_model = models_v2.Network
+    segment_model = segment_models.NetworkSegment
+    with session.begin():
+        networks = session.query(network_model).filter(
+            network_model.project_id == tenant_id).all()
+        for network in networks:
+            session.query(segment_model).filter(
+                segment_model.network_id == network.id).delete()
+
+
+# Port utils #
+
+
+def create_ports(ports):
+    session = db_api.get_writer_session()
+    with session.begin():
+        for port in ports:
+            binding_levels = port.pop('binding_levels', [])
+            binding = port.pop('binding', {})
+            session.add(models_v2.Port(**port))
+            if binding:
+                binding['port_id'] = port['id']
+                if binding['vif_type'] == 'distributed':
+                    distributed_binding = binding.copy()
+                    distributed_binding['status'] = 'ACTIVE'
+                    for host in binding['host']:
+                        distributed_binding['host'] = host
+                        session.add(
+                            ml2_models.DistributedPortBinding(
+                                **distributed_binding))
+                else:
+                    session.add(ml2_models.PortBinding(**binding))
+            for binding_level in binding_levels:
+                binding_level['port_id'] = port['id']
+                session.add(ml2_models.PortBindingLevel(**binding_level))
+
+
+def delete_port(port_id):
+    session = db_api.get_writer_session()
+    with session.begin():
+        port_model = models_v2.Port
+        session.query(port_model).filter(
+            port_model.id == port_id).delete()
+
+
+def delete_ports_on_network(network_id):
+    session = db_api.get_writer_session()
+    with session.begin():
+        port_model = models_v2.Port
+        session.query(port_model).filter(
+            port_model.network_id == network_id).delete()
+
+
+def delete_ports_for_instance(instance_id):
+    session = db_api.get_writer_session()
+    with session.begin():
+        port_model = models_v2.Port
+        session.query(port_model).filter(
+            port_model.device_id == instance_id).delete()
+
+
+def delete_ports_for_tenant(tenant_id):
+    session = db_api.get_writer_session()
+    with session.begin():
+        port_model = models_v2.Port
+        session.query(port_model).filter(
+            port_model.project_id == tenant_id).delete()
+
+
+# Port binding utils #
+
+
+def delete_port_binding(port_id, host):
+    session = db_api.get_writer_session()
+    with session.begin():
+        # We cannot do any bulk deletes here because every delete bumps the
+        # revision number of the Port
+        pbl_model = ml2_models.PortBindingLevel
+        levels = (session.query(pbl_model)
+                  .filter(pbl_model.port_id == port_id,
+                          pbl_model.host == host))
+        for level in levels:
+            session.delete(level)
+        pb_model = ml2_models.PortBinding
+        bindings = (session.query(pb_model)
+                    .filter(pb_model.port_id == port_id,
+                            pb_model.host == host))
+        for binding in bindings:
+            session.delete(binding)
+        dpb_model = ml2_models.DistributedPortBinding
+        bindings = (session.query(dpb_model)
+                    .filter(dpb_model.port_id == port_id,
+                            dpb_model.host == host))
+        for binding in bindings:
+            session.delete(binding)
+
+
+def remove_switch_binding(port_id, switch_id, intf_id):
+    session = db_api.get_writer_session()
+    with session.begin():
+        pb_model = ml2_models.PortBinding
+        binding = (session.query(pb_model)
+                   .filter(pb_model.port_id == port_id).first())
+        profile = json.loads(binding.profile)
+        lli = profile['local_link_information']
+        for idx, link in enumerate(lli):
+            if link['switch_id'] == switch_id and link['port_id'] == intf_id:
+                lli.pop(idx)
+                break
+        binding.profile = json.dumps(profile)
+    if len(lli) == 0:
+        delete_port_binding(port_id, binding.host)
+
+
+def setup_scenario():
+    # TODO(mitchell) Add a VM & a baremetal trunk port
+    # Create networks
+    regular_network = {'id': 'n1',
+                       'project_id': 't1',
+                       'name': 'regular',
+                       'admin_state_up': True,
+                       'rbac_entries': []}
+    hpb_network = {'id': 'n2',
+                   'project_id': 't2',
+                   'name': 'hpb',
+                   'admin_state_up': True,
+                   'rbac_entries': []}
+
+    # Create segments
+    regular_segment = {'id': 's1',
+                       'network_id': 'n1',
+                       'is_dynamic': False,
+                       'segmentation_id': 11,
+                       'network_type': 'vlan',
+                       'physical_network': 'default'}
+    fabric_segment = {'id': 's2',
+                      'network_id': 'n2',
+                      'is_dynamic': False,
+                      'segmentation_id': 20001,
+                      'network_type': 'vxlan',
+                      'physical_network': None}
+    dynamic_segment1 = {'id': 's3',
+                        'network_id': 'n2',
+                        'is_dynamic': True,
+                        'segmentation_id': 21,
+                        'network_type': 'vlan',
+                        'physical_network': 'switch1'}
+    dynamic_segment2 = {'id': 's4',
+                        'network_id': 'n2',
+                        'is_dynamic': True,
+                        'segmentation_id': 31,
+                        'network_type': 'vlan',
+                        'physical_network': 'switch2'}
+    # Create ports
+    port_ctr = 0
+    ports = list()
+    instance_types = [(n_const.DEVICE_OWNER_DHCP, 'normal'),
+                      (n_const.DEVICE_OWNER_DVR_INTERFACE, 'normal'),
+                      (n_const.DEVICE_OWNER_COMPUTE_PREFIX, 'normal'),
+                      (n_const.DEVICE_OWNER_COMPUTE_PREFIX, 'baremetal'),
+                      (n_const.DEVICE_OWNER_BAREMETAL_PREFIX, 'baremetal')]
+    for device_owner, vnic_type in instance_types:
+        vif_type = 'ovs'
+        regular_host = 'host1'
+        regular_binding_levels = [
+            {'host': 'host1',
+             'segment_id': regular_segment['id'],
+             'level': 0,
+             'driver': 'arista'}]
+        hpb_binding_levels = [
+            {'host': 'host2',
+             'segment_id': fabric_segment['id'],
+             'level': 0,
+             'driver': 'arista'},
+            {'host': 'host2',
+             'segment_id': dynamic_segment1['id'],
+             'level': 1,
+             'driver': 'arista'}]
+        hpb_host = 'host2'
+        binding_profile = ''
+        if vnic_type == 'baremetal':
+            binding_profile = ('{"local_link_information": ' +
+                               '[{"switch_id": "00:11:22:33:44:55", ' +
+                               '"port_id": "Ethernet1"}, ' +
+                               '{"switch_id": "00:11:22:33:44:55", ' +
+                               '"port_id": "Ethernet2"}, ' +
+                               '{"switch_id": "55:44:33:22:11:00", ' +
+                               '"port_id": "Ethernet1/1"}, ' +
+                               '{"switch_id": "55:44:33:22:11:00", ' +
+                               '"port_id": "Ethernet1/2"}]}')
+
+        if device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
+            vif_type = 'distributed'
+            regular_host = ['host1', 'host2']
+            regular_binding_levels = [
+                {'host': 'host1',
+                 'segment_id': regular_segment['id'],
+                 'level': 0,
+                 'driver': 'arista'},
+                {'host': 'host2',
+                 'segment_id': regular_segment['id'],
+                 'level': 0,
+                 'driver': 'arista'}]
+            hpb_binding_levels = [
+                {'host': 'host1',
+                 'segment_id': fabric_segment['id'],
+                 'level': 0,
+                 'driver': 'arista'},
+                {'host': 'host1',
+                 'segment_id': dynamic_segment1['id'],
+                 'level': 1,
+                 'driver': 'arista'},
+                {'host': 'host2',
+                 'segment_id': fabric_segment['id'],
+                 'level': 0,
+                 'driver': 'arista'},
+                {'host': 'host2',
+                 'segment_id': dynamic_segment2['id'],
+                 'level': 1,
+                 'driver': 'arista'}]
+            hpb_host = ['host1', 'host2']
+
+        port_ctr += 1
+        regular_port = {'admin_state_up': True,
+                        'status': 'ACTIVE',
+                        'device_id': '%s%s1' % (device_owner, vnic_type),
+                        'device_owner': device_owner,
+                        'binding': {'host': regular_host,
+                                    'vif_type': vif_type,
+                                    'vnic_type': vnic_type,
+                                    'profile': binding_profile},
+                        'tenant_id': 't1',
+                        'id': 'p%d' % port_ctr,
+                        'network_id': regular_network['id'],
+                        'mac_address': '00:00:00:00:00:%02x' % port_ctr,
+                        'name': 'regular_port',
+                        'binding_levels': regular_binding_levels}
+        port_ctr += 1
+        hpb_port = {'admin_state_up': True,
+                    'status': 'ACTIVE',
+                    'device_id': '%s%s2' % (device_owner, vnic_type),
+                    'device_owner': device_owner,
+                    'binding': {'host': hpb_host,
+                                'vif_type': vif_type,
+                                'vnic_type': vnic_type,
+                                'profile': binding_profile},
+                    'tenant_id': 't2',
+                    'id': 'p%d' % port_ctr,
+                    'network_id': hpb_network['id'],
+                    'mac_address': '00:00:00:00:00:%02x' % port_ctr,
+                    'name': 'hpb_port',
+                    'binding_levels': hpb_binding_levels}
+        ports.extend([regular_port, hpb_port])
+        if device_owner == n_const.DEVICE_OWNER_COMPUTE_PREFIX:
+            port_ctr += 1
+            trunk_subport = {'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': '%s%s1' % (device_owner, vnic_type),
+                             'device_owner': t_const.TRUNK_SUBPORT_OWNER,
+                             'binding': {'host': regular_host,
+                                         'vif_type': vif_type,
+                                         'vnic_type': vnic_type,
+                                         'profile': binding_profile},
+                             'tenant_id': 't1',
+                             'id': 'p%d' % port_ctr,
+                             'network_id': regular_network['id'],
+                             'mac_address': '10:00:00:00:00:%02x' % port_ctr,
+                             'name': 'trunk_subport',
+                             'binding_levels': regular_binding_levels}
+            ports.extend([trunk_subport])
+
+    create_networks([regular_network, hpb_network])
+    create_segments([regular_segment, fabric_segment,
+                     dynamic_segment1, dynamic_segment2])
+    create_ports(ports)
+
+
+# # # BEGIN LEGACY UTILS # # #
 
 
 def port_dict_representation(port):
@@ -60,7 +436,7 @@ def get_network_context(tenant_id, net_id, seg_id, shared=False,
 
 
 def get_port_context(tenant_id, net_id, device_id, network, port_id=101,
-                     device_owner='compute', status='ACTIVE', host='ubuntu1',
+                     device_owner='compute:', status='ACTIVE', host='ubuntu1',
                      session=None, dynamic_segment=None):
     port = {'admin_state_up': True,
             'device_id': device_id,
@@ -103,12 +479,6 @@ def create_network(tenant_id, net_id, seg_id, shared=False,
     return net_ctx
 
 
-def delete_network(context, network_id):
-    ndb = db_lib.NeutronNets()
-    ndb.delete_network(context, network_id)
-    context.session.flush()
-
-
 def create_dynamic_segment(network_id, segmentation_id,
                            network_type, physical_network):
     segment_id = str(uuid.uuid1())
@@ -122,14 +492,6 @@ def create_dynamic_segment(network_id, segmentation_id,
     session.add(segment_models.NetworkSegment(**dynamic_segment))
     session.flush()
     return dynamic_segment
-
-
-def release_dynamic_segment(segment_id):
-    session = db_api.get_writer_session()
-    segment_model = segment_models.NetworkSegment
-    session.query(segment_model).filter(
-        segment_model.id == segment_id).delete()
-    session.flush()
 
 
 def create_port(tenant_id, net_id, device_id, port_id, network_ctx,
@@ -147,35 +509,6 @@ def create_port(tenant_id, net_id, device_id, port_id, network_ctx,
         session.add(ml2_models.PortBindingLevel(**binding_level.__dict__))
     session.flush()
     return port_ctx
-
-
-def delete_port(context, port_id):
-    ndb = db_lib.NeutronNets()
-    ndb.set_ipam_backend()
-    ndb.delete_port(context, port_id)
-    context.session.flush()
-
-
-def bind_port_to_host(port_id, host, network_ctx):
-    session = db_api.get_writer_session()
-    for level, segment in enumerate(network_ctx.network_segments):
-        port_binding = FakePortBindingLevel(port_id,
-                                            level,
-                                            'vendor-1',
-                                            segment['id'],
-                                            host)
-        session.add(ml2_models.PortBindingLevel(**port_binding.__dict__))
-    session.flush()
-
-
-def unbind_port_from_host(port_id, host):
-    session = db_api.get_writer_session()
-    pbl_model = ml2_models.PortBindingLevel
-    bindings = (session.query(pbl_model).filter(pbl_model.port_id == port_id,
-                                                pbl_model.host == host))
-    for binding in bindings:
-        session.delete(binding)
-    session.flush()
 
 
 class FakeNetworkContext(driver_api.NetworkContext):

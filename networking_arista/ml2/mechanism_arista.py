@@ -60,7 +60,6 @@ class AristaDriver(driver_api.MechanismDriver):
         self.ndb = db_lib.NeutronNets()
 
         confg = cfg.CONF.ml2_arista
-        self.segmentation_type = db_lib.VLAN_SEGMENTATION
         self.timer = None
         self.managed_physnets = confg['managed_physnets']
         self.manage_fabric = confg['manage_fabric']
