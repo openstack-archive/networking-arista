@@ -34,7 +34,7 @@ from networking_arista.tests.unit import utils
 
 
 BASE_RPC = "networking_arista.ml2.rpc.arista_json.AristaRPCWrapperJSON."
-JSON_SEND_FUNC = BASE_RPC + "_send_api_request"
+JSON_SEND_FUNC = BASE_RPC + "send_api_request"
 RAND_FUNC = BASE_RPC + "_get_random_name"
 DB_LIB_MODULE = 'networking_arista.ml2.rpc.arista_json.db_lib'
 

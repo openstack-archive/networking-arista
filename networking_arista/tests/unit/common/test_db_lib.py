@@ -102,103 +102,98 @@ class DbLibTest(testlib_api.SqlTestCase):
 
     def test_get_tenants_empty(self):
         tenants = db_lib.get_tenants()
-        self.assertEqual(tenants, set())
+        self.assertEqual(tenants, [])
 
     def test_get_tenants_from_networks(self):
         tenant_1_id = 't1'
-        network_1_id = 'n1'
-        seg_1_id = 11
-        utils.create_network(tenant_1_id,
-                             network_1_id,
-                             seg_1_id)
         tenant_2_id = 't2'
-        network_2_id = 'n2'
-        seg_2_id = 21
-        utils.create_network(tenant_2_id,
-                             network_2_id,
-                             seg_2_id)
-
+        utils.create_networks([{'id': 'n1',
+                                'project_id': tenant_1_id},
+                               {'id': 'n2',
+                                'project_id': tenant_2_id}])
         tenants = db_lib.get_tenants()
-        self.assertEqual(tenants, set([tenant_1_id, tenant_2_id]))
+        expected_tenants = [{'project_id': tenant_1_id},
+                            {'project_id': tenant_2_id}]
+        self.assertItemsEqual(tenants, expected_tenants)
 
     def test_get_tenants_with_shared_network_ports(self):
         tenant_1_id = 't1'
-        port_1_id = 'p1'
-        device_1_id = 'v1'
-
         tenant_2_id = 't2'
-        port_2_id = 'p2'
-        device_2_id = 'v2'
-
-        network_id = 'n1'
-        seg_id = 11
-        network_ctx = utils.create_network(tenant_1_id,
-                                           network_id,
-                                           seg_id,
-                                           shared=True)
-
-        utils.create_port(tenant_1_id, network_id, device_1_id,
-                          port_1_id, network_ctx)
-        utils.create_port(tenant_2_id, network_id, device_2_id,
-                          port_2_id, network_ctx)
-
+        utils.create_networks([{'id': 'n1',
+                                'project_id': tenant_1_id}])
+        utils.create_ports([{'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': 'vm1',
+                             'device_owner': 'compute:None',
+                             'tenant_id': tenant_2_id,
+                             'id': 'p1',
+                             'network_id': 'n1',
+                             'mac_address': '00:00:00:00:00:01'}])
         tenants = db_lib.get_tenants()
-        self.assertEqual(tenants, set([tenant_1_id, tenant_2_id]))
+        expected_tenants = [{'project_id': tenant_1_id},
+                            {'project_id': tenant_2_id}]
+        self.assertItemsEqual(tenants, expected_tenants)
 
     def test_get_tenants_uniqueness(self):
         tenant_1_id = 't1'
-        network_1_id = 'n1'
-        seg_1_id = 11
-        network_1_ctx = utils.create_network(tenant_1_id,
-                                             network_1_id,
-                                             seg_1_id)
         tenant_2_id = 't2'
-        network_2_id = 'n2'
-        seg_2_id = 21
-        network_2_ctx = utils.create_network(tenant_2_id,
-                                             network_2_id,
-                                             seg_2_id)
-        device_1_id = 'v1'
-        port_1_id = 'p1'
-        device_2_id = 'v2'
-        port_2_id = 'p2'
-        utils.create_port(tenant_1_id, network_1_id, device_1_id,
-                          port_1_id, network_1_ctx)
-        utils.create_port(tenant_2_id, network_2_id, device_2_id,
-                          port_2_id, network_2_ctx)
-
+        utils.create_networks([{'id': 'n1',
+                                'project_id': tenant_1_id},
+                               {'id': 'n2',
+                                'project_id': tenant_2_id}])
+        utils.create_ports([{'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': 'vm1',
+                             'device_owner': 'compute:None',
+                             'tenant_id': tenant_1_id,
+                             'id': 'p1',
+                             'network_id': 'n1',
+                             'mac_address': '00:00:00:00:00:01'},
+                            {'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': 'vm2',
+                             'device_owner': 'compute:None',
+                             'tenant_id': tenant_2_id,
+                             'id': 'p2',
+                             'network_id': 'n2',
+                             'mac_address': '00:00:00:00:00:02'}])
         tenants = db_lib.get_tenants()
-        self.assertEqual(tenants, set([tenant_1_id, tenant_2_id]))
+        expected_tenants = [{'project_id': tenant_1_id},
+                            {'project_id': tenant_2_id}]
+        self.assertItemsEqual(tenants, expected_tenants)
 
     def test_get_tenants_port_network_union(self):
         tenant_1_id = 't1'
-        network_1_id = 'n1'
-        seg_1_id = 11
-        network_1_ctx = utils.create_network(tenant_1_id,
-                                             network_1_id,
-                                             seg_1_id,
-                                             shared=True)
         tenant_2_id = 't2'
-        network_2_id = 'n2'
-        seg_2_id = 21
-        network_2_ctx = utils.create_network(tenant_2_id,
-                                             network_2_id,
-                                             seg_2_id,
-                                             shared=True)
         tenant_3_id = 't3'
-        port_1_id = 'p1'
-        device_1_id = 'v1'
-        utils.create_port(tenant_3_id, network_1_id, device_1_id, port_1_id,
-                          network_1_ctx)
         tenant_4_id = 't4'
-        port_2_id = 'p2'
-        device_2_id = 'v2'
-        utils.create_port(tenant_4_id, network_2_id, device_2_id, port_2_id,
-                          network_2_ctx)
+        utils.create_networks([{'id': 'n1',
+                                'project_id': tenant_1_id},
+                               {'id': 'n2',
+                                'project_id': tenant_2_id}])
+        utils.create_ports([{'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': 'vm1',
+                             'device_owner': 'compute:None',
+                             'tenant_id': tenant_3_id,
+                             'id': 'p1',
+                             'network_id': 'n1',
+                             'mac_address': '00:00:00:00:00:01'},
+                            {'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': 'vm2',
+                             'device_owner': 'compute:None',
+                             'tenant_id': tenant_4_id,
+                             'id': 'p2',
+                             'network_id': 'n2',
+                             'mac_address': '00:00:00:00:00:02'}])
 
         tenants = db_lib.get_tenants()
-        self.assertEqual(tenants, set([tenant_1_id, tenant_2_id,
-                                       tenant_3_id, tenant_4_id]))
+        expected_tenants = [{'project_id': tenant_1_id},
+                            {'project_id': tenant_2_id},
+                            {'project_id': tenant_3_id},
+                            {'project_id': tenant_4_id}]
+        self.assertItemsEqual(tenants, expected_tenants)
 
     def test_tenant_provisioned(self):
         tenant_1_id = 't1'
@@ -211,323 +206,14 @@ class DbLibTest(testlib_api.SqlTestCase):
         n_ctx = utils.create_network(tenant_1_id, network_id, 11, shared=True)
         self.assertTrue(db_lib.tenant_provisioned(tenant_1_id))
         self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
-        p1_ctx = utils.create_port(tenant_1_id, network_id, 'vm1',
-                                   port_1_id, n_ctx)
+        utils.create_port(tenant_1_id, network_id, 'vm1', port_1_id, n_ctx)
         self.assertTrue(db_lib.tenant_provisioned(tenant_1_id))
         self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
-        p2_ctx = utils.create_port(tenant_2_id, network_id, 'vm2',
-                                   port_2_id, n_ctx)
+        utils.create_port(tenant_2_id, network_id, 'vm2', port_2_id, n_ctx)
         self.assertTrue(db_lib.tenant_provisioned(tenant_1_id))
         self.assertTrue(db_lib.tenant_provisioned(tenant_2_id))
-        utils.delete_port(p1_ctx, port_1_id)
-        utils.delete_port(p2_ctx, port_2_id)
-        utils.delete_network(n_ctx, network_id)
+        utils.delete_port(port_1_id)
+        utils.delete_port(port_2_id)
+        utils.delete_network(network_id)
         self.assertFalse(db_lib.tenant_provisioned(tenant_1_id))
         self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
-
-    def test_get_instances(self):
-        # First check that get_instances initially returns an empty set
-        tenant_1_id = 't1'
-        self.assertEqual(db_lib.get_instances(tenant_1_id), set())
-
-        # Create two ports for two instances and check that both are returned
-        port_1_id = 'p1'
-        network_1_id = 'n1'
-        device_1_id = 'vm1'
-        port_2_id = 'p2'
-        network_2_id = 'n2'
-        device_2_id = 'vm2'
-        n1_ctx = utils.create_network(tenant_1_id, network_1_id, 11,
-                                      shared=True)
-        p1_ctx = utils.create_port(tenant_1_id, network_1_id, device_1_id,
-                                   port_1_id, n1_ctx)
-        n2_ctx = utils.create_network(tenant_1_id, network_2_id, 21)
-        p2_ctx = utils.create_port(tenant_1_id, network_2_id, device_2_id,
-                                   port_2_id, n2_ctx)
-        self.assertEqual(db_lib.get_instances(tenant_1_id),
-                         set([device_1_id, device_2_id]))
-
-        # Add another port on an existing instance, instance set should not
-        # change
-        port_3_id = 'p3'
-        p3_ctx = utils.create_port(tenant_1_id, network_1_id, device_2_id,
-                                   port_3_id, n1_ctx)
-        self.assertEqual(db_lib.get_instances(tenant_1_id),
-                         set([device_1_id, device_2_id]))
-
-        # Add ports under another tenant, the first tenants instances should
-        # remain the same
-        tenant_2_id = 't2'
-        port_4_id = 'p4'
-        device_3_id = 'vm3'
-        p4_ctx = utils.create_port(tenant_2_id, network_1_id, device_3_id,
-                                   port_4_id, n1_ctx)
-        self.assertEqual(db_lib.get_instances(tenant_1_id),
-                         set([device_1_id, device_2_id]))
-        self.assertEqual(db_lib.get_instances(tenant_2_id),
-                         set([device_3_id]))
-
-        # Delete all ports and check that an empty set is once again returned
-        utils.delete_port(p1_ctx, port_1_id)
-        utils.delete_port(p2_ctx, port_2_id)
-        utils.delete_port(p3_ctx, port_3_id)
-        utils.delete_port(p4_ctx, port_4_id)
-        self.assertEqual(db_lib.get_instances(tenant_1_id), set())
-        self.assertEqual(db_lib.get_instances(tenant_2_id), set())
-
-    def test_get_instance_ports(self):
-        # Create 3 ports on two VMs, validate the dict returned
-        host = 'ubuntu1'
-        tenant_1_id = 't1'
-        port_1_id = 'p1'
-        network_1_id = 'n1'
-        device_1_id = 'vm1'
-        port_2_id = 'p2'
-        network_2_id = 'n2'
-        device_2_id = 'vm2'
-        port_3_id = 'p3'
-        n1_ctx = utils.create_network(tenant_1_id, network_1_id, 11,
-                                      shared=True)
-        n2_ctx = utils.create_network(tenant_1_id, network_2_id, 21)
-        p1_ctx = utils.create_port(tenant_1_id, network_1_id, device_1_id,
-                                   port_1_id, n1_ctx)
-        p2_ctx = utils.create_port(tenant_1_id, network_2_id, device_2_id,
-                                   port_2_id, n2_ctx)
-        p3_ctx = utils.create_port(tenant_1_id, network_1_id, device_2_id,
-                                   port_3_id, n1_ctx)
-        instance_ports = db_lib.get_instance_ports(tenant_1_id)
-        expected_instance_ports = {
-            device_1_id: {'vmId': device_1_id,
-                          'baremetal_instance': False,
-                          'ports': {port_1_id: {'portId': port_1_id,
-                                                'deviceId': device_1_id,
-                                                'hosts': set([host]),
-                                                'networkId': network_1_id}}},
-            device_2_id: {'vmId': device_2_id,
-                          'baremetal_instance': False,
-                          'ports': {port_2_id: {'portId': port_2_id,
-                                                'deviceId': device_2_id,
-                                                'hosts': set([host]),
-                                                'networkId': network_2_id},
-                                    port_3_id: {'portId': port_3_id,
-                                                'deviceId': device_2_id,
-                                                'hosts': set([host]),
-                                                'networkId': network_1_id}}}}
-        self.assertEqual(instance_ports, expected_instance_ports)
-
-        # Add ports under another tenant, the first tenant's instances should
-        # remain the same
-        tenant_2_id = 't2'
-        port_4_id = 'p4'
-        device_3_id = 'vm3'
-        p4_ctx = utils.create_port(tenant_2_id, network_1_id, device_3_id,
-                                   port_4_id, n1_ctx)
-        instance_ports = db_lib.get_instance_ports(tenant_1_id)
-        expected_instance_ports = {
-            device_1_id: {'vmId': device_1_id,
-                          'baremetal_instance': False,
-                          'ports': {port_1_id: {'portId': port_1_id,
-                                                'deviceId': device_1_id,
-                                                'hosts': set([host]),
-                                                'networkId': network_1_id}}},
-            device_2_id: {'vmId': device_2_id,
-                          'baremetal_instance': False,
-                          'ports': {port_2_id: {'portId': port_2_id,
-                                                'deviceId': device_2_id,
-                                                'hosts': set([host]),
-                                                'networkId': network_2_id},
-                                    port_3_id: {'portId': port_3_id,
-                                                'deviceId': device_2_id,
-                                                'hosts': set([host]),
-                                                'networkId': network_1_id}}}}
-        self.assertEqual(instance_ports, expected_instance_ports)
-        instance_ports = db_lib.get_instance_ports(tenant_2_id)
-        expected_instance_ports = {
-            device_3_id: {'vmId': device_3_id,
-                          'baremetal_instance': False,
-                          'ports': {port_4_id: {'portId': port_4_id,
-                                                'deviceId': device_3_id,
-                                                'hosts': set([host]),
-                                                'networkId': network_1_id}}}}
-        self.assertEqual(instance_ports, expected_instance_ports)
-
-        # Delete all ports and check that an empty set is once again returned
-        utils.delete_port(p1_ctx, port_1_id)
-        utils.delete_port(p2_ctx, port_2_id)
-        utils.delete_port(p3_ctx, port_3_id)
-        utils.delete_port(p4_ctx, port_4_id)
-        self.assertEqual(db_lib.get_instance_ports(tenant_1_id), dict())
-        self.assertEqual(db_lib.get_instance_ports(tenant_2_id), dict())
-
-    def test_get_instance_ports_device_owner(self):
-        # Create a port with an unsupported device owner, check that no ports
-        # are returned
-        tenant_id = 'tid'
-        network_id = 'nid'
-        device_id = 'vm'
-        port_id = 'pid'
-        n_ctx = utils.create_network(tenant_id, network_id, 11)
-        utils.create_port(tenant_id, network_id, device_id,
-                          port_id, n_ctx, device_owner='compute:probe')
-        self.assertEqual(db_lib.get_instance_ports(tenant_id), dict())
-
-    def test_get_instance_ports_dvr(self):
-        # Create a port bound to 3 hosts, ensure that all 3 hosts are in
-        # the dict returned
-        tenant_id = 'tid'
-        network_id = 'nid'
-        device_id = 'rtr'
-        port_id = 'pid'
-        host_1 = 'h1'
-        host_2 = 'h2'
-        host_3 = 'h3'
-        n_ctx = utils.create_network(tenant_id, network_id, 11)
-        p_ctx = utils.create_port(tenant_id, network_id, device_id,
-                                  port_id, n_ctx, host=host_1)
-        utils.bind_port_to_host(port_id, host_2, n_ctx)
-        utils.bind_port_to_host(port_id, host_3, n_ctx)
-        instance_ports = db_lib.get_instance_ports(tenant_id)
-        expected_instance_ports = {
-            device_id: {'vmId': device_id,
-                        'baremetal_instance': False,
-                        'ports': {port_id: {'portId': port_id,
-                                            'deviceId': device_id,
-                                            'hosts': set([host_1, host_2,
-                                                          host_3]),
-                                            'networkId': network_id}}}}
-        self.assertEqual(instance_ports, expected_instance_ports)
-
-        # Unbind a host from the port, check that the host is not returned
-        utils.unbind_port_from_host(port_id, host_1)
-        instance_ports = db_lib.get_instance_ports(tenant_id)
-        expected_instance_ports = {
-            device_id: {'vmId': device_id,
-                        'baremetal_instance': False,
-                        'ports': {port_id: {'portId': port_id,
-                                            'deviceId': device_id,
-                                            'hosts': set([host_2, host_3]),
-                                            'networkId': network_id}}}}
-        self.assertEqual(instance_ports, expected_instance_ports)
-
-        # Delete the port, check that an empty dict is returned
-        utils.delete_port(p_ctx, port_id)
-        self.assertEqual(db_lib.get_instance_ports(tenant_id), dict())
-
-    def test_get_instance_ports_hpb(self):
-        # Create network with multiple segments, bind a port to the network
-        # and validate the dictionary
-        host = 'ubuntu1'
-        tenant_id = 'tid'
-        network_id = 'nid'
-        device_id = 'vm'
-        port_id = 'pid'
-        n_ctx = utils.create_network(tenant_id, network_id, 10001,
-                                     network_type='vxlan',
-                                     physical_network=None)
-        dyn_seg = utils.create_dynamic_segment(network_id, 11, 'vlan',
-                                               'default')
-        p_ctx = utils.create_port(tenant_id, network_id, device_id,
-                                  port_id, n_ctx, dynamic_segment=dyn_seg)
-        instance_ports = db_lib.get_instance_ports(tenant_id)
-        expected_instance_ports = {
-            device_id: {'vmId': device_id,
-                        'baremetal_instance': False,
-                        'ports': {port_id: {'portId': port_id,
-                                            'deviceId': device_id,
-                                            'hosts': set([host]),
-                                            'networkId': network_id}}}}
-        self.assertEqual(instance_ports, expected_instance_ports)
-
-        # Delete the port, check that an empty dict is returned
-        utils.delete_port(p_ctx, port_id)
-        self.assertEqual(db_lib.get_instance_ports(tenant_id), dict())
-
-    def test_get_instance_ports_manage_fabric(self):
-        # Create a network with only a fabric segment, check that no ports
-        # are returned
-        host = 'ubuntu1'
-        tenant_id = 'tid'
-        network_id = 'nid'
-        device_id = 'vm'
-        port_id = 'pid'
-        n_ctx = utils.create_network(tenant_id, network_id, 10001,
-                                     network_type='vxlan',
-                                     physical_network=None)
-        p_ctx = utils.create_port(tenant_id, network_id, device_id,
-                                  port_id, n_ctx)
-        instance_ports = db_lib.get_instance_ports(tenant_id,
-                                                   manage_fabric=False)
-        self.assertEqual(instance_ports, dict())
-
-        # Add a VLAN segment, check that the port is now returned
-        utils.delete_port(p_ctx, port_id)
-        dyn_seg = utils.create_dynamic_segment(network_id, 11, 'vlan',
-                                               'default')
-        p_ctx = utils.create_port(tenant_id, network_id, device_id,
-                                  port_id, n_ctx, dynamic_segment=dyn_seg)
-        instance_ports = db_lib.get_instance_ports(tenant_id,
-                                                   manage_fabric=False)
-        expected_instance_ports = {
-            device_id: {'vmId': device_id,
-                        'baremetal_instance': False,
-                        'ports': {port_id: {'portId': port_id,
-                                            'deviceId': device_id,
-                                            'hosts': set([host]),
-                                            'networkId': network_id}}}}
-        self.assertEqual(instance_ports, expected_instance_ports)
-
-        # Delete the port, check that an empty dict is returned
-        utils.delete_port(p_ctx, port_id)
-        self.assertEqual(db_lib.get_instance_ports(tenant_id,
-                                                   manage_fabric=False),
-                         dict())
-
-    def test_get_instance_ports_managed_physnets(self):
-        # Bind a port to an unmananaged physnet, check that no ports are
-        # returned
-        physnet_1 = 'physnet1'
-        physnet_2 = 'physnet2'
-        managed_physnets = [physnet_2]
-        tenant_id = 'tid'
-        network_id = 'nid'
-        host_1 = 'host1'
-        device_1_id = 'vm1'
-        port_1_id = 'p1'
-        n_ctx = utils.create_network(tenant_id, network_id, 10001,
-                                     network_type='vxlan',
-                                     physical_network=None)
-        dyn_seg_1 = utils.create_dynamic_segment(network_id, 11, 'vlan',
-                                                 physnet_1)
-        utils.create_port(tenant_id, network_id, device_1_id,
-                          port_1_id, n_ctx, host=host_1,
-                          dynamic_segment=dyn_seg_1)
-        instance_ports = db_lib.get_instance_ports(
-            tenant_id, manage_fabric=False, managed_physnets=managed_physnets)
-        self.assertEqual(instance_ports, dict())
-
-        # Bind a port to a managed physnet on the same network, check that
-        # only the managed host is returned
-        host_2 = 'host2'
-        device_2_id = 'vm2'
-        port_2_id = 'p2'
-        dyn_seg_2 = utils.create_dynamic_segment(network_id, 21, 'vlan',
-                                                 physnet_2)
-        p2_ctx = utils.create_port(tenant_id, network_id, device_2_id,
-                                   port_2_id, n_ctx, host=host_2,
-                                   dynamic_segment=dyn_seg_2)
-        instance_ports = db_lib.get_instance_ports(
-            tenant_id, manage_fabric=True, managed_physnets=managed_physnets)
-        expected_instance_ports = {
-            device_2_id: {'vmId': device_2_id,
-                          'baremetal_instance': False,
-                          'ports': {port_2_id: {'portId': port_2_id,
-                                                'deviceId': device_2_id,
-                                                'hosts': set([host_2]),
-                                                'networkId': network_id}}}}
-        self.assertEqual(instance_ports, expected_instance_ports)
-
-        # Delete the port, check that an empty dict is returned
-        utils.delete_port(p2_ctx, port_2_id)
-        self.assertEqual(db_lib.get_instance_ports(
-            tenant_id, manage_fabric=False,
-            managed_physnets=managed_physnets), dict())

@@ -56,7 +56,7 @@ class NegativeRPCWrapperTestCase(testlib_api.SqlTestCase):
         ndb = db_lib.NeutronNets()
         drv = arista_eapi.AristaRPCWrapperEapi(ndb)
 
-        drv._send_api_request = mock.MagicMock(
+        drv.send_api_request = mock.MagicMock(
             side_effect=Exception('server error')
         )
         with mock.patch.object(arista_eapi.LOG, 'error') as log_err:

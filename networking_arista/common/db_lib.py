@@ -13,6 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from oslo_config import cfg
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import Query, aliased
+
+from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from neutron_lib import context as nctx
 from neutron_lib.plugins.ml2 import api as driver_api
@@ -28,71 +33,319 @@ from neutron.services.trunk import models as trunk_models
 
 from networking_arista.common import utils
 
-VLAN_SEGMENTATION = 'vlan'
+
+def join_if_necessary(query, *args, **kwargs):
+    table = args[0]
+    if table in [t.entity for t in query._join_entities]:
+        return query
+    elif table in query._primary_entity.entities:
+        return query
+    return query.join(*args, **kwargs)
 
 
-def get_instance_ports(tenant_id, manage_fabric=True, managed_physnets=None):
-    """Returns all instance ports for a given tenant."""
+def outerjoin_if_necessary(query, *args, **kwargs):
+    table = args[0]
+    if table in [t.entity for t in query._join_entities]:
+        return query
+    elif table in query._primary_entity.entities:
+        return query
+    return query.outerjoin(*args, **kwargs)
+
+
+def filter_network_type(query):
+    """Filter unsupported segment types"""
+    segment_model = segment_models.NetworkSegment
+    query = (query
+             .filter(
+                 segment_model.network_type.in_(
+                     utils.SUPPORTED_NETWORK_TYPES)))
+    return query
+
+
+def filter_unbound_ports(query):
+    """Filter ports not bound to a host or network"""
+    # hack for pep8 E711: comparison to None should be
+    # 'if cond is not None'
+    none = None
+    port_model = models_v2.Port
+    binding_level_model = ml2_models.PortBindingLevel
+    query = (query
+             .join_if_necessary(port_model)
+             .join_if_necessary(binding_level_model)
+             .filter(
+                 binding_level_model.host != '',
+                 port_model.device_id != none,
+                 port_model.network_id != none))
+    return query
+
+
+def filter_by_device_owner(query, device_owners=None):
+    """Filter ports by device_owner
+
+    Either filter using specified device_owner or using the list of all
+    device_owners supported and unsupported by the arista ML2 plugin
+    """
+    port_model = models_v2.Port
+    if not device_owners:
+        device_owners = utils.SUPPORTED_DEVICE_OWNERS
+    supported_device_owner_filter = [
+        port_model.device_owner.ilike('%s%%' % owner)
+        for owner in device_owners]
+    unsupported_device_owner_filter = [
+        port_model.device_owner.notilike('%s%%' % owner)
+        for owner in utils.UNSUPPORTED_DEVICE_OWNERS]
+    query = (query
+             .filter(
+                 and_(*unsupported_device_owner_filter),
+                 or_(*supported_device_owner_filter)))
+    return query
+
+
+def filter_by_device_id(query):
+    """Filter ports attached to devices we don't care about
+
+    Currently used to filter DHCP_RESERVED ports
+    """
+    port_model = models_v2.Port
+    unsupported_device_id_filter = [
+        port_model.device_id.notilike('%s%%' % id)
+        for id in utils.UNSUPPORTED_DEVICE_IDS]
+    query = (query
+             .filter(and_(*unsupported_device_id_filter)))
+    return query
+
+
+def filter_by_vnic_type(query, vnic_type):
+    """Filter ports by vnic_type (currently only used for baremetals)"""
+    port_model = models_v2.Port
+    binding_model = ml2_models.PortBinding
+    dst_binding_model = ml2_models.DistributedPortBinding
+    query = (query
+             .outerjoin_if_necessary(
+                 binding_model,
+                 port_model.id == binding_model.port_id)
+             .outerjoin_if_necessary(
+                 dst_binding_model,
+                 port_model.id == dst_binding_model.port_id)
+             .filter(
+                 (binding_model.vnic_type == vnic_type) |
+                 (dst_binding_model.vnic_type == vnic_type)))
+    return query
+
+
+def filter_unmanaged_physnets(query):
+    """Filter ports managed by other ML2 plugins """
+    config = cfg.CONF.ml2_arista
+    managed_physnets = config['managed_physnets']
+
+    # Filter out ports bound to segments on physnets that we're not
+    # managing
+    segment_model = segment_models.NetworkSegment
+    if managed_physnets:
+        query = (query
+                 .join_if_necessary(segment_model)
+                 .filter(segment_model.physical_network.in_(
+                     managed_physnets)))
+    return query
+
+
+def filter_inactive_ports(query):
+    """Filter ports that aren't in active status """
+    port_model = models_v2.Port
+    query = (query
+             .filter(port_model.status == n_const.PORT_STATUS_ACTIVE))
+    return query
+
+
+def filter_unnecessary_ports(query, device_owners=None, vnic_type=None,
+                             active=True):
+    """Filter out all ports are not needed on CVX """
+    query = (query
+             .filter_unbound_ports()
+             .filter_by_device_owner(device_owners)
+             .filter_by_device_id()
+             .filter_unmanaged_physnets())
+    if active:
+        query = query.filter_inactive_ports()
+    if vnic_type:
+        query = query.filter_by_vnic_type(vnic_type)
+    return query
+
+
+Query.join_if_necessary = join_if_necessary
+Query.outerjoin_if_necessary = outerjoin_if_necessary
+Query.filter_network_type = filter_network_type
+Query.filter_unbound_ports = filter_unbound_ports
+Query.filter_by_device_owner = filter_by_device_owner
+Query.filter_by_device_id = filter_by_device_id
+Query.filter_by_vnic_type = filter_by_vnic_type
+Query.filter_unmanaged_physnets = filter_unmanaged_physnets
+Query.filter_inactive_ports = filter_inactive_ports
+Query.filter_unnecessary_ports = filter_unnecessary_ports
+
+
+def get_tenants():
+    """Returns list of all project/tenant ids that may be relevant on CVX"""
+    session = db.get_reader_session()
+    project_ids = set()
+    with session.begin():
+        network_model = models_v2.Network
+        project_ids |= set(pid[0] for pid in
+                           session.query(network_model.project_id).distinct())
+        port_model = models_v2.Port
+        project_ids |= set(pid[0] for pid in
+                           session.query(port_model.project_id).distinct())
+    return [{'project_id': project_id} for project_id in project_ids]
+
+
+def get_networks():
+    """Returns list of all networks that may be relevant on CVX"""
     session = db.get_reader_session()
     with session.begin():
-        # hack for pep8 E711: comparison to None should be
-        # 'if cond is not None'
-        none = None
+        model = models_v2.Network
+        networks = (session.query(model)).all()
+    return networks
+
+
+def get_segments():
+    """Returns list of all network segments that may be relevant on CVX"""
+    session = db.get_reader_session()
+    with session.begin():
+        model = segment_models.NetworkSegment
+        segments = session.query(model).filter_network_type()
+    return segments
+
+
+def get_instances(device_owners=None, vnic_type=None):
+    """Returns filtered list of all instances in the neutron db"""
+    session = db.get_reader_session()
+    with session.begin():
         port_model = models_v2.Port
+        binding_model = ml2_models.PortBinding
+        instances = (session
+                     .query(port_model,
+                            binding_model)
+                     .outerjoin(
+                         binding_model,
+                         port_model.id == binding_model.port_id)
+                     .distinct(port_model.device_id)
+                     .group_by(port_model.device_id)
+                     .filter_unnecessary_ports(device_owners, vnic_type))
+    return instances.all()
+
+
+def get_dhcp_instances():
+    """Returns filtered list of DHCP instances that may be relevant on CVX"""
+    return get_instances(device_owners=[n_const.DEVICE_OWNER_DHCP])
+
+
+def get_router_instances():
+    """Returns filtered list of routers that may be relevant on CVX"""
+    return get_instances(device_owners=[n_const.DEVICE_OWNER_DVR_INTERFACE])
+
+
+def get_vm_instances():
+    """Returns filtered list of vms that may be relevant on CVX"""
+    return get_instances(device_owners=[n_const.DEVICE_OWNER_COMPUTE_PREFIX],
+                         vnic_type=portbindings.VNIC_NORMAL)
+
+
+def get_baremetal_instances():
+    """Returns filtered list of baremetals that may be relevant on CVX"""
+    return get_instances(vnic_type=portbindings.VNIC_BAREMETAL)
+
+
+def get_ports(device_owners=None, vnic_type=None, active=True):
+    """Returns list of all ports in neutron the db"""
+    session = db.get_reader_session()
+    with session.begin():
+        port_model = models_v2.Port
+        ports = (session
+                 .query(port_model)
+                 .filter_unnecessary_ports(device_owners, vnic_type, active))
+    return ports.all()
+
+
+def get_dhcp_ports():
+    """Returns filtered list of DHCP instances that may be relevant on CVX"""
+    return get_ports(device_owners=[n_const.DEVICE_OWNER_DHCP])
+
+
+def get_router_ports():
+    """Returns filtered list of routers that may be relevant on CVX"""
+    return get_ports(device_owners=[n_const.DEVICE_OWNER_DVR_INTERFACE])
+
+
+def get_vm_ports():
+    """Returns filtered list of vms that may be relevant on CVX"""
+    return get_ports(device_owners=[n_const.DEVICE_OWNER_COMPUTE_PREFIX],
+                     vnic_type=portbindings.VNIC_NORMAL)
+
+
+def get_baremetal_ports():
+    """Returns filtered list of baremetals that may be relevant on CVX"""
+    return get_ports(vnic_type=portbindings.VNIC_BAREMETAL)
+
+
+def get_port_bindings():
+    """Returns filtered list of port bindings that may be relevant on CVX
+
+    This query is a little complex as we need all binding levels for any
+    binding that has a single managed physnet, but we need to filter bindings
+    that have no managed physnets. In order to achieve this, we join to the
+    binding_level_model once to filter bindings with no managed levels,
+    then a second time to get all levels for the remaining bindings.
+
+    The loop at the end is a convenience to associate levels with bindings
+    as a list. This would ideally be done through the use of an orm.relation,
+    but due to some sqlalchemy limitations imposed to make OVO work, we can't
+    add relations to existing models.
+    """
+    session = db.get_reader_session()
+    with session.begin():
         binding_level_model = ml2_models.PortBindingLevel
-        segment_model = segment_models.NetworkSegment
-        all_ports = (session
-                     .query(port_model, binding_level_model, segment_model)
-                     .join(binding_level_model)
-                     .join(segment_model)
-                     .filter(port_model.tenant_id == tenant_id,
-                             binding_level_model.host != none,
-                             port_model.device_id != none,
-                             port_model.network_id != none))
-        if not manage_fabric:
-            all_ports = all_ports.filter(
-                segment_model.physical_network != none)
-        if managed_physnets is not None:
-            managed_physnets.append(None)
-            all_ports = all_ports.filter(segment_model.physical_network.in_(
-                managed_physnets))
-
-        def eos_port_representation(port):
-            return {u'portId': port.id,
-                    u'deviceId': port.device_id,
-                    u'hosts': set([bl.host for bl in port.binding_levels]),
-                    u'networkId': port.network_id}
-
-        ports = {}
-        for port in all_ports:
-            if not utils.supported_device_owner(port.Port.device_owner):
-                continue
-            ports[port.Port.id] = eos_port_representation(port.Port)
-
-        vm_dict = dict()
-
-        def eos_vm_representation(port):
-            return {u'vmId': port['deviceId'],
-                    u'baremetal_instance': False,
-                    u'ports': {port['portId']: port}}
-
-        for port in ports.values():
-            deviceId = port['deviceId']
-            if deviceId in vm_dict:
-                vm_dict[deviceId]['ports'][port['portId']] = port
-            else:
-                vm_dict[deviceId] = eos_vm_representation(port)
-        return vm_dict
+        aliased_blm = aliased(ml2_models.PortBindingLevel)
+        port_binding_model = ml2_models.PortBinding
+        dist_binding_model = ml2_models.DistributedPortBinding
+        bindings = (session.query(port_binding_model, aliased_blm)
+                    .join(binding_level_model,
+                          and_(
+                              port_binding_model.port_id ==
+                              binding_level_model.port_id,
+                              port_binding_model.host ==
+                              binding_level_model.host))
+                    .filter_unnecessary_ports()
+                    .join(aliased_blm,
+                          and_(port_binding_model.port_id ==
+                               aliased_blm.port_id,
+                               port_binding_model.host ==
+                               aliased_blm.host)))
+        dist_bindings = (session.query(dist_binding_model, aliased_blm)
+                         .join(
+                             binding_level_model,
+                             and_(dist_binding_model.port_id ==
+                                  binding_level_model.port_id,
+                                  dist_binding_model.host ==
+                                  binding_level_model.host))
+                         .filter_unnecessary_ports()
+                         .join(aliased_blm,
+                               and_(dist_binding_model.port_id ==
+                                    aliased_blm.port_id,
+                                    dist_binding_model.host ==
+                                    aliased_blm.host)))
+    binding_levels = dict()
+    for binding, level in bindings.all() + dist_bindings.all():
+        if binding not in binding_levels:
+            binding_levels[binding] = list()
+        binding_levels[binding].append(level)
+    bindings_with_levels = list()
+    for binding, levels in binding_levels.items():
+        binding.levels = levels
+        bindings_with_levels.append(binding)
+    return bindings_with_levels
 
 
-def get_instances(tenant):
-    """Returns set of all instance ids that may be relevant on CVX."""
-    session = db.get_reader_session()
-    with session.begin():
-        port_model = models_v2.Port
-        return set(device_id[0] for device_id in
-                   session.query(port_model.device_id).
-                   filter(port_model.tenant_id == tenant).distinct())
+# # # BEGIN LEGACY DB LIBS # # #
 
 
 def tenant_provisioned(tid):
@@ -106,50 +359,6 @@ def tenant_provisioned(tid):
             session.query(port_model).filter_by(tenant_id=tid).count()
         )
     return res
-
-
-def get_tenants():
-    """Returns list of all project/tenant ids that may be relevant on CVX."""
-    session = db.get_reader_session()
-    project_ids = set()
-    with session.begin():
-        network_model = models_v2.Network
-        project_ids |= set(pid[0] for pid in
-                           session.query(network_model.project_id).distinct())
-        port_model = models_v2.Port
-        project_ids |= set(pid[0] for pid in
-                           session.query(port_model.project_id).distinct())
-    return project_ids
-
-
-def _make_port_dict(record):
-    """Make a dict from the BM profile DB record."""
-    return {'port_id': record.port_id,
-            'host_id': record.host,
-            'vnic_type': record.vnic_type,
-            'profile': record.profile}
-
-
-def get_all_baremetal_ports():
-    """Returns a list of all ports that belong to baremetal hosts."""
-    session = db.get_reader_session()
-    with session.begin():
-        querry = session.query(ml2_models.PortBinding)
-        bm_ports = querry.filter_by(vnic_type='baremetal').all()
-
-        return {bm_port.port_id: _make_port_dict(bm_port)
-                for bm_port in bm_ports}
-
-
-def get_all_portbindings():
-    """Returns a list of all ports bindings."""
-    session = db.get_reader_session()
-    with session.begin():
-        query = session.query(ml2_models.PortBinding)
-        ports = query.all()
-
-        return {port.port_id: _make_port_dict(port)
-                for port in ports}
 
 
 def get_port_binding_level(filters):

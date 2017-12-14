@@ -13,23 +13,47 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from neutron.services.trunk import constants as t_const
 from neutron_lib import constants as n_const
+from oslo_config import cfg
 from oslo_log import log as logging
+
+SUPPORTED_NETWORK_TYPES = [
+    n_const.TYPE_VLAN,
+    n_const.TYPE_VXLAN]
+
+
+SUPPORTED_DEVICE_OWNERS = [
+    n_const.DEVICE_OWNER_COMPUTE_PREFIX,
+    n_const.DEVICE_OWNER_BAREMETAL_PREFIX,
+    n_const.DEVICE_OWNER_DHCP,
+    n_const.DEVICE_OWNER_DVR_INTERFACE,
+    t_const.TRUNK_SUBPORT_OWNER]
+
+
+UNSUPPORTED_DEVICE_OWNERS = [
+    n_const.DEVICE_OWNER_COMPUTE_PREFIX + 'probe']
+
+
+UNSUPPORTED_DEVICE_IDS = [
+    n_const.DEVICE_ID_RESERVED_DHCP_PORT]
 
 
 LOG = logging.getLogger(__name__)
 
 
 def supported_device_owner(device_owner):
-    supported_device_owner = [n_const.DEVICE_OWNER_DHCP,
-                              n_const.DEVICE_OWNER_DVR_INTERFACE]
 
-    if any([device_owner in supported_device_owner,
-            device_owner.startswith('compute') and
-            device_owner != 'compute:probe',
-            device_owner.startswith('baremetal'),
-            device_owner.startswith('trunk')]):
+    if (any([device_owner.startswith(supported_owner) for
+             supported_owner in SUPPORTED_DEVICE_OWNERS]) and
+        not any([device_owner.startswith(unsupported_owner) for
+                 unsupported_owner in UNSUPPORTED_DEVICE_OWNERS])):
         return True
 
     LOG.debug('Unsupported device owner: %s', device_owner)
     return False
+
+
+def hostname(hostname):
+    fqdns_used = cfg.CONF.ml2_arista['use_fqdn']
+    return hostname if fqdns_used else hostname.split('.')[0]
