@@ -439,7 +439,7 @@ def get_all_baremetal_ports():
 
 def get_all_portbindings():
     """Returns a list of all ports bindings."""
-    session = db.get_session()
+    session = db.get_reader_session()
     with session.begin():
         query = session.query(ml2_models.PortBinding)
         ports = query.all()
@@ -453,7 +453,9 @@ def get_port_binding_level(filters):
     session = db.get_reader_session()
     with session.begin():
         return (session.query(ml2_models.PortBindingLevel).
-                filter_by(**filters).all())
+                filter_by(**filters).
+                order_by(ml2_models.PortBindingLevel.level).
+                all())
 
 
 def get_network_segments_by_port_id(port_id):
@@ -462,7 +464,9 @@ def get_network_segments_by_port_id(port_id):
         segments = (session.query(segment_models.NetworkSegment,
                                   ml2_models.PortBindingLevel).
                     join(ml2_models.PortBindingLevel).
-                    filter_by(port_id=port_id).all())
+                    filter_by(port_id=port_id).
+                    order_by(ml2_models.PortBindingLevel.level).
+                    all())
         return [segment[0] for segment in segments]
 
 
