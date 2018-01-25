@@ -524,6 +524,9 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
         return super(NeutronNets,
                      self).get_ports(self.admin_ctx, filters=filters) or []
 
+    def get_all_ports(self):
+        return super(NeutronNets, self).get_ports(self.admin_ctx) or []
+
     def get_shared_network_owner_id(self, network_id):
         filters = {'id': [network_id]}
         nets = self.get_networks(self.admin_ctx, filters=filters) or []
