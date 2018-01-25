@@ -2497,3 +2497,89 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         db_lib.forget_network_segment(tenant_2_id, tenant_2_net_1_id)
         db_lib.forget_tenant(tenant_1_id)
         db_lib.forget_tenant(tenant_2_id)
+
+    def test_synchronize_shared_network_ports(self):
+        """Test to ensure that shared network ports are synchronized.
+
+        This is to ensure that ports whose tenant id does not match the
+        network tenant id are still sync'd. The test stores a network and
+        2 ports in the neutron db. The sync should send details of the ports
+        to EOS.
+        """
+        host_id = 'host1'
+        network_id = 'net-1'
+        network_seg_id = 11
+        tenant_1_id = 'tenant-1'
+        db_lib.remember_tenant(tenant_1_id)
+        db_lib.remember_network_segment(tenant_1_id, network_id,
+                                        network_seg_id, 'segment_id_11')
+
+        port_1_id = 'port-1'
+        device_1_id = 'vm-1'
+        db_lib.remember_vm(device_1_id, host_id, port_1_id, network_id,
+                           tenant_1_id)
+
+        port_2_id = 'port-2'
+        device_2_id = 'vm-2'
+        # Shared network ports are stored under the network owner tenant
+        db_lib.remember_vm(device_2_id, host_id, port_2_id, network_id,
+                           tenant_1_id)
+
+        self.rpc.get_tenants.return_value = {
+            tenant_1_id: {
+                'tenantVmInstances': {},
+                'tenantBaremetalInstances': {},
+                'tenantNetworks': {
+                    network_id: {
+                        'networkId': network_id,
+                        'shared': True,
+                        'networkName': '',
+                        'segmenationType': 'vlan',
+                        'segmentationTypeId': network_seg_id,
+                    }
+                }
+            }
+        }
+
+        self.rpc.sync_start.return_value = True
+        self.rpc.sync_end.return_value = True
+        self.rpc.check_cvx_availability.return_value = True
+        self.rpc.get_region_updated_time.return_value = {'regionTimestamp': 1}
+
+        self.rpc._baremetal_supported.return_value = False
+        self.rpc.get_all_baremetal_hosts.return_value = {}
+
+        self.sync_service.do_synchronize()
+
+        expected_calls = [
+            mock.call.perform_sync_of_sg(),
+            mock.call.check_cvx_availability(),
+            mock.call.get_region_updated_time(),
+            mock.call.sync_start(),
+            mock.call.register_with_eos(sync=True),
+            mock.call.check_supported_features(),
+            mock.call.get_tenants(),
+            mock.call.create_instance_bulk(
+                tenant_1_id,
+                {},
+                {'vm-1':
+                 {'ports': [{'deviceId': 'vm-1',
+                             'portId': 'port-1',
+                             'networkId': 'net-1',
+                             'hosts': ['host1']}],
+                  'vmId': 'vm-1',
+                  'baremetal_instance': False},
+                 'vm-2':
+                 {'ports': [{'deviceId': 'vm-2',
+                             'portId': 'port-2',
+                             'networkId': 'net-1',
+                             'hosts': ['host1']}],
+                  'vmId': 'vm-2',
+                  'baremetal_instance': False}},
+                {},
+                sync=True),
+            mock.call.sync_end(),
+            mock.call.get_region_updated_time()
+        ]
+
+        self.rpc.assert_has_calls(expected_calls)

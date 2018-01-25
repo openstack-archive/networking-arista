@@ -2243,26 +2243,23 @@ class SyncService(object):
                 LOG.warning(EOS_UNREACHABLE_MSG)
                 self._force_sync = True
 
+        ports_of_interest = {}
+        for port in self._ndb.get_all_ports():
+            ports_of_interest.update(
+                self._port_dict_representation(port))
+
         # Now update the VMs
         for tenant in instances_to_update:
             if not instances_to_update[tenant]:
                 continue
             try:
-                # Filter the ports to only the vms that we are interested
-                # in.
-                ports_of_interest = {}
-                for port in self._ndb.get_all_ports_for_tenant(tenant):
-                    ports_of_interest.update(
-                        self._port_dict_representation(port))
-
-                if ports_of_interest:
-                    db_vms = db_lib.get_vms(tenant)
-                    if db_vms:
-                        self._rpc.create_instance_bulk(tenant,
-                                                       ports_of_interest,
-                                                       db_vms,
-                                                       port_profiles,
-                                                       sync=True)
+                db_vms = db_lib.get_vms(tenant)
+                if db_vms:
+                    self._rpc.create_instance_bulk(tenant,
+                                                   ports_of_interest,
+                                                   db_vms,
+                                                   port_profiles,
+                                                   sync=True)
             except arista_exc.AristaRpcError:
                 LOG.warning(EOS_UNREACHABLE_MSG)
                 self._force_sync = True
