@@ -16,13 +16,14 @@
 import json
 import socket
 
-from neutron_lib import constants as n_const
 from oslo_log import log as logging
 from oslo_utils import excutils
 import requests
 import six
 
-from networking_arista._i18n import _, _LI, _LW, _LE
+from neutron_lib import constants as n_const
+
+from networking_arista._i18n import _, _LE, _LI, _LW
 from networking_arista.common import constants as const
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
@@ -32,7 +33,7 @@ LOG = logging.getLogger(__name__)
 
 
 class AristaRPCWrapperJSON(AristaRPCWrapperBase):
-    def __init__(self, ndb):
+    def __init__(self, ndb=None):
         super(AristaRPCWrapperJSON, self).__init__(ndb)
         self.current_sync_name = None
 
@@ -145,26 +146,18 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         self.create_region(self.region)
         self._set_region_update_interval()
 
-    def get_region_updated_time(self):
+    def get_cvx_uuid(self):
         path = 'agent/'
         try:
             data = self.send_api_request(path, 'GET')
-            return {'regionTimestamp': data.get('uuid', '')}
+            return data.get('uuid', None)
         except arista_exc.AristaRpcError:
-            return {'regionTimestamp': ''}
+            return None
 
     def create_region(self, region):
         path = 'region/'
         data = {'name': region}
         return self.send_api_request(path, 'POST', [data])
-
-    def delete_region(self, region):
-        path = 'region/'
-        data = {'name': region}
-        return self.send_api_request(path, 'DELETE', [data])
-
-    def delete_this_region(self):
-        return self.delete_region(self.region)
 
     def get_region(self, name):
         path = 'region/%s' % name
