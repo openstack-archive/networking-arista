@@ -96,7 +96,7 @@ class AristaResourcesBaseTest(base.BaseTestCase):
         # Setup
         ar = resources.AristaResourcesBase(self.rpc)
         # Check that the resource is added to neutron_resources
-        ar.add_neutron_resource({'id': 1})
+        ar._add_neutron_resource({'id': 1})
         self.assertEqual(ar.neutron_resources, {1: {'id': 1}})
 
     def test_delete_neutron_resource(self):
@@ -181,6 +181,8 @@ class AristaResourcesBaseTest(base.BaseTestCase):
         cvx_resource_ids = set(range(0, 20, 2))
         neutron_resource_ids = set(range(10))
         ar = resources.AristaResourcesBase(self.rpc)
+        ar.cvx_data_stale = False
+        ar.neutron_data_stale = False
         ar.cvx_ids = cvx_resource_ids
         ar.neutron_resources = {i: {'id': i} for i in neutron_resource_ids}
         # Ensure that resource ids to create returns the set of ids present in

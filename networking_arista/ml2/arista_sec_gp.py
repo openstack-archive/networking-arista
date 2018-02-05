@@ -80,8 +80,8 @@ class AristaSecGroupSwitchDriver(object):
     EOS - operating system used on Arista hardware
     Command API - JSON RPC API provided by Arista EOS
     """
-    def __init__(self, neutron_db):
-        self._ndb = neutron_db
+    def __init__(self):
+        self._ndb = db_lib.NeutronNets()
         self._servers = []
         self._hosts = {}
         self.sg_enabled = cfg.CONF.ml2_arista.get('sec_group_support')
