@@ -26,7 +26,6 @@ from neutron.db.models.plugins.ml2 import vlanallocation
 
 from networking_arista._i18n import _, _LW
 from networking_arista.common import exceptions as arista_exc
-from networking_arista.ml2 import arista_sec_gp
 
 LOG = logging.getLogger(__name__)
 
@@ -39,16 +38,13 @@ class AristaRPCWrapperBase(object):
     EOS - operating system used on Arista hardware
     Command API - JSON RPC API provided by Arista EOS
     """
-    def __init__(self, neutron_db):
-        self._ndb = neutron_db
+    def __init__(self):
         self._validate_config()
         self._server_ip = None
         self.region = cfg.CONF.ml2_arista.region_name
         self.sync_interval = cfg.CONF.ml2_arista.sync_interval
         self.conn_timeout = cfg.CONF.ml2_arista.conn_timeout
         self.eapi_hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
-        self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
-            self._ndb)
 
         # We denote mlag_pair physnets as peer1_peer2 in the physnet name, the
         # following builds a mapping of peer name to physnet name for use
@@ -129,35 +125,6 @@ class AristaRPCWrapperBase(object):
 
         self.set_cvx_unavailable()
         return False
-
-    def delete_tenant(self, tenant_id):
-        """Deletes a given tenant and all its networks and VMs from EOS.
-
-        :param tenant_id: globally unique neutron tenant identifier
-        """
-        self.delete_tenant_bulk([tenant_id])
-
-    def create_network(self, tenant_id, network):
-        """Creates a single network on Arista hardware
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network: dict containing network_id, network_name and
-                        segmentation_id
-        """
-        self.create_network_bulk(tenant_id, [network])
-
-    def delete_network(self, tenant_id, network_id, network_segments):
-        """Deletes a specified network for a given tenant
-
-        :param tenant_id: globally unique neutron tenant identifier
-        :param network_id: globally unique neutron network identifier
-        :param network_segments: segments associated with the network
-        """
-        segments_info = []
-        segments_info.extend({'id': segment['id'], 'network_id': network_id}
-                             for segment in network_segments)
-        self.delete_network_segments(tenant_id, segments_info)
-        self.delete_network_bulk(tenant_id, [network_id])
 
     def _clean_acls(self, sg, failed_switch, switches_to_clean):
         """This is a helper function to clean up ACLs on switches.

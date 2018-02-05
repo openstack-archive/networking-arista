@@ -14,137 +14,137 @@
 # limitations under the License.
 
 import threading
+import time
+
+from eventlet import event
+from eventlet import greenthread
+from six.moves.queue import Empty
 
 from neutron_lib import worker
 from oslo_config import cfg
 from oslo_log import log as logging
-from oslo_service import loopingcall
 
-from networking_arista._i18n import _LI
-from networking_arista.common import constants
+from networking_arista.common import constants as a_const
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_resources as resources
+from networking_arista.ml2.rpc.arista_json import AristaRPCWrapperJSON
 
 LOG = logging.getLogger(__name__)
 
 
 class AristaSyncWorker(worker.BaseWorker):
-    def __init__(self, rpc, ndb, manage_fabric, managed_physnets):
+    def __init__(self, provision_queue):
         super(AristaSyncWorker, self).__init__(worker_process_count=0)
-        self.ndb = ndb
-        self.rpc = rpc
-        self.sync_service = SyncService(rpc, ndb, manage_fabric,
-                                        managed_physnets)
-        rpc.sync_service = self.sync_service
-        self._loop = None
+        self._rpc = AristaRPCWrapperJSON()
+        self.provision_queue = provision_queue
+        self._thread = None
+        self._running = False
+        self.done = None
+        self._sync_interval = cfg.CONF.ml2_arista.sync_interval
+
+    def initialize(self):
+        self._last_sec_gp_sync = 0
+        self._last_sync_time = 0
+        self._cvx_uuid = None
+
+        self.tenants = resources.Tenants(self._rpc)
+        self.networks = resources.Networks(self._rpc)
+        self.segments = resources.Segments(self._rpc)
+        self.dhcps = resources.Dhcps(self._rpc)
+        self.routers = resources.Routers(self._rpc)
+        self.vms = resources.Vms(self._rpc)
+        self.baremetals = resources.Baremetals(self._rpc)
+        self.dhcp_ports = resources.DhcpPorts(self._rpc)
+        self.router_ports = resources.RouterPorts(self._rpc)
+        self.vm_ports = resources.VmPorts(self._rpc)
+        self.baremetal_ports = resources.BaremetalPorts(self._rpc)
+        self.port_bindings = resources.PortBindings(self._rpc)
+
+        # Sync order is important because of entity dependencies:
+        # PortBinding -> Port -> Instance -> Tenant
+        #             -> Segment -> Network -> Tenant
+        self.sync_order = [self.tenants,
+                           self.networks,
+                           self.segments,
+                           self.dhcps,
+                           self.routers,
+                           self.vms,
+                           self.baremetals,
+                           self.dhcp_ports,
+                           self.router_ports,
+                           self.vm_ports,
+                           self.baremetal_ports,
+                           self.port_bindings]
+
+    def _on_done(self, gt, *args, **kwargs):
+        self._thread = None
+        self._running = False
 
     def start(self):
+        if self._thread is not None:
+            LOG.warning('Arista sync loop has already been started')
+            return
+
+        LOG.info("Arista sync worker started")
         super(AristaSyncWorker, self).start()
+        self.initialize()
+        self.done = event.Event()
+        self._running = True
+        self._thread = greenthread.spawn(self.sync_loop)
+        self._thread.link(self._on_done)
 
-        self._sync_running = True
-        self._sync_event = threading.Event()
-
-        # Registering with EOS updates self.rpc.region_updated_time. Clear it
-        # to force an initial sync
-        self.rpc.clear_region_updated_time()
-
-        if self._loop is None:
-            self._loop = loopingcall.FixedIntervalLoopingCall(
-                self.sync_service.do_synchronize
-            )
-        self._loop.start(interval=cfg.CONF.ml2_arista.sync_interval)
-
-    def stop(self, graceful=False):
-        if self._loop is not None:
-            self._loop.stop()
+    def stop(self, graceful=True):
+        if graceful:
+            self._running = False
+        else:
+            self._thread.kill()
 
     def wait(self):
-        if self._loop is not None:
-            self._loop.wait()
+        return self.done.wait()
 
     def reset(self):
         self.stop()
         self.wait()
         self.start()
 
+    def get_resource_class(self, resource_type):
+        class_map = {a_const.TENANT_RESOURCE: self.tenants,
+                     a_const.NETWORK_RESOURCE: self.networks,
+                     a_const.SEGMENT_RESOURCE: self.segments,
+                     a_const.DHCP_RESOURCE: self.dhcps,
+                     a_const.ROUTER_RESOURCE: self.routers,
+                     a_const.VM_RESOURCE: self.vms,
+                     a_const.BAREMETAL_RESOURCE: self.baremetals,
+                     a_const.DHCP_PORT_RESOURCE: self.dhcp_ports,
+                     a_const.ROUTER_PORT_RESOURCE: self.router_ports,
+                     a_const.VM_PORT_RESOURCE: self.vm_ports,
+                     a_const.BAREMETAL_PORT_RESOURCE: self.baremetal_ports,
+                     a_const.PORT_BINDING_RESOURCE: self.port_bindings}
+        return class_map[resource_type]
 
-class SyncService(object):
-    """Synchronization of information between Neutron and EOS
+    def add_neutron_resource(self, resource):
+        resource_class = self.get_resource_class(resource.resource_type)
+        resource_class.add_neutron_resource(resource.id)
 
-    Periodically (through configuration option), this service
-    ensures that Networks and VMs configured on EOS/Arista HW
-    are always in sync with Neutron DB.
-    """
-    def __init__(self, rpc_wrapper, neutron_db, manage_fabric=True,
-                 managed_physnets=None):
-        self._rpc = rpc_wrapper
-        self._ndb = neutron_db
-        self._force_sync = True
-        self._region_updated_time = None
-        self._manage_fabric = manage_fabric
-        self._managed_physnets = managed_physnets
+    def delete_neutron_resource(self, resource):
+        resource_class = self.get_resource_class(resource.resource_type)
+        resource_class.delete_neutron_resource(resource.id)
 
-        # Sync order is important because of entity dependencies:
-        # PortBinding -> Port -> Instance -> Tenant
-        #             -> Segment -> Network -> Tenant
-        self.sync_order = [resources.Tenants(self._rpc),
-                           resources.Networks(self._rpc),
-                           resources.Segments(self._rpc),
-                           resources.Dhcps(self._rpc),
-                           resources.Routers(self._rpc),
-                           resources.Vms(self._rpc),
-                           resources.Baremetals(self._rpc),
-                           resources.DhcpPorts(self._rpc),
-                           resources.VmPorts(self._rpc),
-                           resources.BaremetalPorts(self._rpc),
-                           resources.PortBindings(self._rpc)]
+    def process_mech_update(self, resource):
+        LOG.info("%(tid)s %(action)s %(rtype)s with id %(id)s",
+                 {'action': resource.action,
+                  'rtype': resource.resource_type,
+                  'id': resource.id,
+                  'tid': threading.current_thread().ident})
+        if resource.action == a_const.CREATE:
+            self.add_neutron_resource(resource)
+        elif resource.action == a_const.DELETE:
+            self.delete_neutron_resource(resource)
+        else:
+            raise arista_exc.UnknownActionException(resource.action)
 
-    def force_sync(self):
-        """Sets the force_sync flag."""
-        self._force_sync = True
-
-    def do_synchronize(self):
-        """Periodically check whether EOS is in sync with ML2 driver.
-
-           If ML2 database is not in sync with EOS, then compute the diff and
-           send it down to EOS.
-        """
-        # Perform sync of Security Groups unconditionally
-        # TODO(mitchell): Move security group sync to a separate worker
-        try:
-            self._rpc.perform_sync_of_sg()
-        except Exception as e:
-            LOG.warning(e)
-
-        # Check whether CVX is available before starting the sync.
-        if not self._rpc.check_cvx_availability():
-            LOG.warning("Not syncing as CVX is unreachable")
-            self.force_sync()
-            return
-
-        if not self._sync_required():
-            return
-
-        LOG.info('Attempting to sync')
-        # Send 'sync start' marker.
-        if not self._rpc.sync_start():
-            LOG.info(_LI('Not starting sync, setting force'))
-            self.force_sync()
-            return
-
-        # Perform the actual synchronization.
-        self.synchronize()
-
-        # Send 'sync end' marker.
-        if not self._rpc.sync_end():
-            LOG.info(_LI('Sync end failed, setting force'))
-            self.force_sync()
-            return
-
-        self._set_region_updated_time()
-
-    def synchronize(self):
-        """Sends data to EOS which differs from neutron DB.
+    def force_full_sync(self):
+        """Recompute resources to sync
 
         We need to compute resources to sync in reverse sync order
         in order to avoid missing dependencies on creation
@@ -162,56 +162,88 @@ class SyncService(object):
         2. Query Instances -> I1 not found
         3. Creating P1 fails on CVX
         """
-
-        LOG.info(_LI('Syncing Neutron <-> EOS'))
-
-        # Compute resources to sync
         for resource_type in reversed(self.sync_order):
-            # Clear all resources for now, once resource passing from
-            # mech driver is implemented, we'll be more selective
-            # and do so only when a full sync is required
             resource_type.clear_all_data()
             resource_type.get_cvx_ids()
             resource_type.get_neutron_resources()
+
+    def check_if_out_of_sync(self):
+        cvx_uuid = self._rpc.get_cvx_uuid()
+        out_of_sync = False
+        if self._cvx_uuid != cvx_uuid:
+            LOG.info("Initiating full sync - local uuid %(l_uuid)s"
+                     " - cvx uuid %(c_uuid)s",
+                     {'l_uuid': self._cvx_uuid,
+                      'c_uuid': cvx_uuid})
+            self.force_full_sync()
+            self._cvx_uuid = cvx_uuid
+            out_of_sync = True
+        self._last_sync_time = time.time()
+        return out_of_sync
+
+    def wait_for_mech_driver_update(self, timeout):
+        try:
+            resource = self.provision_queue.get(block=True,
+                                                timeout=timeout)
+            LOG.info("Processing %(res)s", {'res': resource})
+            self.process_mech_update(resource)
+            return True
+        except Empty:
+            return False
+
+    def wait_for_sync_required(self):
+        timeout = (self._sync_interval -
+                   (time.time() - self._last_sync_time))
+        LOG.info("Arista Sync time %(time)s last sync %(last_sync)s "
+                 "timeout %(timeout)s", {'time': time.time(),
+                                         'last_sync': self._last_sync_time,
+                                         'timeout': timeout})
+        if timeout < 0:
+            return self.check_if_out_of_sync()
+        else:
+            return self.wait_for_mech_driver_update(timeout)
+
+    def synchronize_security_groups(self):
+        # Perform sync of Security Groups every sync interval
+        if time.time() - self._last_sec_gp_sync > self._sync_interval:
+            try:
+                self._rpc.perform_sync_of_sg()
+                self._last_sec_gp_sync = time.time()
+            except Exception as e:
+                LOG.warning(e)
+
+    def synchronize_resources(self):
+        # Grab the sync lock
+        if not self._rpc.sync_start():
+            LOG.info("Failed to grab the sync lock")
+            self._last_sync_time = 0
+            greenthread.sleep(1)
+            return
 
         # Sync any necessary resources
         for resource_type in self.sync_order:
             resource_type.delete_cvx_resources()
             resource_type.create_cvx_resources()
 
-    def _region_in_sync(self):
-        """Checks if the region is in sync with EOS.
+        # Release the sync lock
+        self._rpc.sync_end()
 
-           Checks whether the timestamp stored in EOS is the same as the
-           timestamp stored locally.
-        """
-        eos_region_updated_times = self._rpc.get_region_updated_time()
-        if eos_region_updated_times:
-            return (self._region_updated_time and
-                    (self._region_updated_time['regionTimestamp'] ==
-                     eos_region_updated_times['regionTimestamp']))
-        else:
-            return False
+    def sync_loop(self):
+        while self._running:
+            try:
+                # TODO(mitchell): Move security group sync to a separate worker
+                # self.synchronize_security_groups()
 
-    def _sync_required(self):
-        """"Check whether the sync is required."""
-        try:
-            # Get the time at which entities in the region were updated.
-            # If the times match, then ML2 is in sync with EOS. Otherwise
-            # perform a complete sync.
-            if not self._force_sync and self._region_in_sync():
-                LOG.info(_LI('OpenStack and EOS are in sync!'))
-                return False
-        except arista_exc.AristaRpcError:
-            LOG.warning(constants.EOS_UNREACHABLE_MSG)
-            # Force an update incase of an error.
-            self._force_sync = True
-        return True
+                sync_required = self.wait_for_sync_required()
 
-    def _set_region_updated_time(self):
-        """Get the region updated time from EOS and store it locally."""
-        try:
-            self._region_updated_time = self._rpc.get_region_updated_time()
-        except arista_exc.AristaRpcError:
-            # Force an update incase of an error.
-            self._force_sync = True
+                if sync_required:
+                    self.synchronize_resources()
+            except Exception:
+                LOG.error("Arista Sync failed", exc_info=True)
+                self._last_sec_gp_sync = 0
+                self._last_sync_time = 0
+
+            # Yield to avoid starvation
+            greenthread.sleep(0)
+
+        self.done.send(True)

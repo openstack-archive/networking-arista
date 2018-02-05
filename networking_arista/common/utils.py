@@ -15,7 +15,12 @@
 
 from neutron.services.trunk import constants as t_const
 from neutron_lib import constants as n_const
+from oslo_config import cfg
 from oslo_log import log as logging
+
+SUPPORTED_NETWORK_TYPES = [
+    n_const.TYPE_VLAN,
+    n_const.TYPE_VXLAN]
 
 
 SUPPORTED_DEVICE_OWNERS = [
@@ -28,6 +33,10 @@ SUPPORTED_DEVICE_OWNERS = [
 
 UNSUPPORTED_DEVICE_OWNERS = [
     n_const.DEVICE_OWNER_COMPUTE_PREFIX + 'probe']
+
+
+UNSUPPORTED_DEVICE_IDS = [
+    n_const.DEVICE_ID_RESERVED_DHCP_PORT]
 
 LOG = logging.getLogger(__name__)
 
@@ -42,3 +51,8 @@ def supported_device_owner(device_owner):
 
     LOG.debug('Unsupported device owner: %s', device_owner)
     return False
+
+
+def hostname(hostname):
+    fqdns_used = cfg.CONF.ml2_arista['use_fqdn']
+    return hostname if fqdns_used else hostname.split('.')[0]

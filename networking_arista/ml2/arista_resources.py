@@ -14,9 +14,17 @@
 # limitations under the License.
 
 import json
+import threading
+
+from oslo_log import log as logging
 
 from networking_arista.common import db_lib
+from networking_arista.common import utils
+from neutron.services.trunk import constants as t_const
 from neutron_lib import constants as n_const
+
+
+LOG = logging.getLogger(__name__)
 
 
 class AttributeFormatter(object):
@@ -69,25 +77,53 @@ class AristaResourcesBase(object):
     def __init__(self, rpc):
         self.region = rpc.region
         self.rpc = rpc
+        self.cvx_data_stale = True
+        self.neutron_data_stale = True
         self.cvx_ids = set()
         self.neutron_resources = dict()
 
     def clear_cvx_data(self):
+        self.cvx_data_stale = True
         self.cvx_ids = set()
 
     def clear_neutron_data(self):
+        self.neutron_data_stale = True
         self.neutron_resources = dict()
 
     def clear_all_data(self):
         self.clear_cvx_data()
         self.clear_neutron_data()
 
-    def add_neutron_resource(self, resource):
+    def add_neutron_resource(self, id):
+        resource = self.get_db_resources(id)
+        assert(len(resource) <= 1)
+        if resource:
+            self._add_neutron_resource(resource[0])
+        else:
+            LOG.info("%(tid)s %(class)s resource %(id)s filtered",
+                     {'class': self.__class__.__name__, 'id': id,
+                      'tid': threading.current_thread().ident})
+
+    def _add_neutron_resource(self, resource):
         formatted_resource = self.format_for_create(resource)
+        LOG.info("%(tid)s %(class)s resource %(id)s added locally",
+                 {'class': self.__class__.__name__,
+                  'id': formatted_resource.keys()[0],
+                  'tid': threading.current_thread().ident})
         self.neutron_resources.update(formatted_resource)
 
     def delete_neutron_resource(self, id):
-        del self.neutron_resources[id]
+        # Until we start using etcd, we need to unconditionally send the
+        # delete request because it might have been created by another worker.
+        # We force this by adding the resource to our 'view' of cvx resources
+        self.cvx_ids.add(id)
+        try:
+            del self.neutron_resources[id]
+            LOG.info("%(tid)s %(class)s resource %(id)s removed locally",
+                     {'class': self.__class__.__name__, 'id': id,
+                      'tid': threading.current_thread().ident})
+        except KeyError:
+            LOG.debug("Resource ID %(id)s already deleted locally", {'id': id})
 
     def get_endpoint(self):
         return self.endpoint % {'region': self.region}
@@ -97,25 +133,33 @@ class AristaResourcesBase(object):
         return set([resource[cls.id_key]])
 
     def get_cvx_ids(self):
-        if not self.cvx_ids:
+        LOG.info("%(tid)s Getting %(class)s from CVX",
+                 {'class': self.__class__.__name__,
+                  'tid': threading.current_thread().ident})
+        if self.cvx_data_stale:
             cvx_data = self.rpc.send_api_request(self.get_endpoint(), 'GET')
             for resource in cvx_data:
                 self.cvx_ids |= self.get_resource_ids(resource)
+            self.cvx_data_stale = False
         return self.cvx_ids
 
     @staticmethod
-    def get_db_resources():
+    def get_db_resources(key=None):
         raise NotImplementedError
 
     def get_neutron_ids(self):
-        if not self.neutron_resources:
+        if self.neutron_data_stale:
             self.get_neutron_resources()
         return set(self.neutron_resources.keys())
 
     def get_neutron_resources(self):
-        if not self.neutron_resources:
+        LOG.info("%(tid)s Getting %(class)s from neutron",
+                 {'class': self.__class__.__name__,
+                  'tid': threading.current_thread().ident})
+        if self.neutron_data_stale:
             for resource in self.get_db_resources():
-                self.add_neutron_resource(resource)
+                self._add_neutron_resource(resource)
+            self.neutron_data_stale = False
         return self.neutron_resources
 
     def resource_ids_to_delete(self):
@@ -148,6 +192,10 @@ class AristaResourcesBase(object):
             self.rpc.send_api_request(self.get_endpoint(), 'POST',
                                       resources_to_create)
         for id in resource_ids_to_create:
+            LOG.info("%(tid)s %(class)s resource with id %(id)s created "
+                     "on CVX",
+                     {'class': self.__class__.__name__, 'id': id,
+                      'tid': threading.current_thread().ident})
             self.cvx_ids.add(id)
         return resources_to_create
 
@@ -159,6 +207,10 @@ class AristaResourcesBase(object):
             self.rpc.send_api_request(self.get_endpoint(), 'DELETE',
                                       resources_to_delete)
         for id in resource_ids_to_delete:
+            LOG.info("%(tid)s %(class)s resource with id %(id)s deleted "
+                     "from CVX",
+                     {'class': self.__class__.__name__, 'id': id,
+                      'tid': threading.current_thread().ident})
             self.cvx_ids.remove(id)
         return resources_to_delete
 
@@ -204,6 +256,7 @@ class Dhcps(AristaResourcesBase):
     formatter = [AttributeFormatter('device_id', 'dhcpInstanceId',
                                     submodel='Port'),
                  AttributeFormatter('host', 'dhcpHostId',
+                                    utils.hostname,
                                     submodel='PortBinding'),
                  AttributeFormatter('project_id', 'tenantId',
                                     submodel='Port')]
@@ -216,9 +269,9 @@ class Routers(AristaResourcesBase):
 
     formatter = [AttributeFormatter('device_id', 'routerInstanceId',
                                     submodel='Port'),
-                 AttributeFormatter('host', 'routerHostId',
+                 AttributeFormatter('device_owner', 'routerHostId',
                                     lambda *args: 'distributed',
-                                    submodel='DistributedPortBinding'),
+                                    submodel='Port'),
                  AttributeFormatter('project_id', 'tenantId',
                                     submodel='Port')]
     id_key = 'routerInstanceId'
@@ -231,6 +284,7 @@ class Vms(AristaResourcesBase):
     formatter = [AttributeFormatter('device_id', 'vmInstanceId',
                                     submodel='Port'),
                  AttributeFormatter('host', 'vmHostId',
+                                    utils.hostname,
                                     submodel='PortBinding'),
                  AttributeFormatter('project_id', 'tenantId',
                                     submodel='Port')]
@@ -254,12 +308,12 @@ class Baremetals(AristaResourcesBase):
 
 class PortResourcesBase(AristaResourcesBase):
 
-    endpoint = 'region/%(region)s/port'
     id_key = 'id'
 
 
 class DhcpPorts(PortResourcesBase):
 
+    endpoint = 'region/%(region)s/port?type=dhcp'
     formatter = [AttributeFormatter('id', 'id'),
                  AttributeFormatter('name', 'portName'),
                  AttributeFormatter('device_owner', 'vlanType',
@@ -274,6 +328,7 @@ class DhcpPorts(PortResourcesBase):
 
 class RouterPorts(PortResourcesBase):
 
+    endpoint = 'region/%(region)s/port?type=router'
     formatter = [AttributeFormatter('id', 'id'),
                  AttributeFormatter('name', 'portName'),
                  AttributeFormatter('device_owner', 'vlanType',
@@ -288,6 +343,7 @@ class RouterPorts(PortResourcesBase):
 
 class VmPorts(PortResourcesBase):
 
+    endpoint = 'region/%(region)s/port?type=vm'
     formatter = [AttributeFormatter('id', 'id'),
                  AttributeFormatter('name', 'portName'),
                  AttributeFormatter('device_owner', 'vlanType',
@@ -299,6 +355,15 @@ class VmPorts(PortResourcesBase):
                  AttributeFormatter('project_id', 'tenantId')]
     get_db_resources = db_lib.get_vm_ports
 
+    @classmethod
+    def format_for_create(cls, port):
+        # This is needed until we can update the upstream trunk port
+        # handling to add device_id to subports
+        if port['device_owner'] == t_const.TRUNK_SUBPORT_OWNER:
+            parent_port = db_lib.get_parent(port['id'])
+            port['device_id'] = parent_port.get('device_id')
+        return super(VmPorts, cls).format_for_create(port)
+
 
 class BaremetalPorts(PortResourcesBase):
 
@@ -309,6 +374,7 @@ class BaremetalPorts(PortResourcesBase):
         else:
             return 'allowed'
 
+    endpoint = 'region/%(region)s/port?type=baremetal'
     formatter = [AttributeFormatter('id', 'id'),
                  AttributeFormatter('name', 'portName'),
                  AttributeFormatter('device_owner', 'vlanType',
@@ -366,7 +432,7 @@ class PortBindings(AristaResourcesBase):
 
         # Determine if this is a switch or host bindings and populate
         # the appropriate model attribute accordingly
-        host = binding['host']
+        host = utils.hostname(binding['host'])
         port_id = binding['port_id']
         # If the binding profile isn't valid json, this is a host binding
         try:

@@ -13,15 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from eventlet import greenthread
 import mock
+from multiprocessing import Queue
+
 from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
+from oslo_config import cfg
 from oslo_utils import importutils
 
 from neutron.tests.unit import testlib_api
 
-from networking_arista.common import db_lib
+from networking_arista.common import constants as a_const
 from networking_arista.ml2 import arista_sync
+from networking_arista.ml2.mechanism_arista import MechResource
 from networking_arista.tests.unit import utils
 
 
@@ -30,123 +35,145 @@ class SyncServiceTest(testlib_api.SqlTestCase):
 
     def setUp(self):
         super(SyncServiceTest, self).setUp()
-        plugin_klass = importutils.import_class(
-            "neutron.db.db_base_plugin_v2.NeutronDbPluginV2")
-        directory.add_plugin(plugin_constants.CORE, plugin_klass())
-        self.rpc = mock.MagicMock()
-        ndb = db_lib.NeutronNets()
-        self.sync_service = arista_sync.SyncService(self.rpc, ndb)
-        self.sync_service._force_sync = False
-
-    def test_region_in_sync(self):
-        """Tests whether the region_in_sync() behaves as expected."""
-        region_updated_time = {
-            'regionName': 'RegionOne',
-            'regionTimestamp': '12345'
-        }
-        self.rpc.get_region_updated_time.return_value = region_updated_time
-        self.sync_service._region_updated_time = None
-        assert not self.sync_service._region_in_sync()
-        self.sync_service._region_updated_time = region_updated_time
-        assert self.sync_service._region_in_sync()
-
-    def test_synchronize_required(self):
-        """Tests whether synchronize() sends the right commands.
-
-           This test verifies a scenario when the sync is required.
-        """
-        region_updated_time = {
-            'regionName': 'RegionOne',
-            'regionTimestamp': '12345'
-        }
-        self.rpc.get_region_updated_time.return_value = region_updated_time
-        self.sync_service._region_updated_time = {
-            'regionName': 'RegionOne',
-            'regionTimestamp': '0',
-        }
-
-        self.rpc.sync_start.return_value = True
-        self.rpc.sync_end.return_value = True
-        self.rpc.check_cvx_availability.return_value = True
-        self.sync_service.synchronize = mock.MagicMock()
-        self.sync_service.do_synchronize()
-        self.sync_service.synchronize.assert_called_once()
-
-    def test_sync_start_failure(self):
-        """Tests that we force another sync when sync_start fails.
-
-           The failure could be because a region does not exist or
-           because another controller has the sync lock.
-        """
-        self.sync_service.synchronize = mock.MagicMock()
-        region_updated_time = {
-            'regionName': 'RegionOne',
-            'regionTimestamp': '424242'
-        }
-        self.rpc.get_region_updated_time.return_value = region_updated_time
-        self.rpc.check_cvx_availability.return_value = True
-        self.rpc.sync_start.return_value = False
-        self.sync_service.do_synchronize()
-        self.assertFalse(self.sync_service.synchronize.called)
-        self.assertTrue(self.sync_service._force_sync)
-
-    def test_synchronize_not_required(self):
-        """Tests whether synchronize() sends the right commands.
-
-           This test verifies a scenario when the sync is not required.
-        """
-        region_updated_time = {
-            'regionName': 'RegionOne',
-            'regionTimestamp': '424242'
-        }
-        self.rpc.get_region_updated_time.return_value = region_updated_time
-        self.rpc.check_cvx_availability.return_value = True
-        self.sync_service._region_updated_time = {
-            'regionName': 'RegionOne',
-            'regionTimestamp': '424242',
-        }
-
-        self.rpc.sync_start.return_value = True
-        self.rpc.sync_end.return_value = True
-
-        self.sync_service.do_synchronize()
-
-        # If the timestamps do match, then the sync should not be executed.
-        expected_calls = [
-            mock.call.perform_sync_of_sg(),
-            mock.call.check_cvx_availability(),
-            mock.call.get_region_updated_time(),
-        ]
-        self.assertTrue(self.rpc.mock_calls[:4] == expected_calls,
-                        "Seen: %s\nExpected: %s" % (
-                            self.rpc.mock_calls,
-                            expected_calls,
-                            )
-                        )
-
-
-class SynchronizeTest(testlib_api.SqlTestCase):
-
-    def setUp(self):
-        super(SynchronizeTest, self).setUp()
+        utils.setup_arista_wrapper_config(cfg)
         plugin_klass = importutils.import_class(
             "neutron.db.db_base_plugin_v2.NeutronDbPluginV2")
         directory.add_plugin(plugin_constants.CORE, plugin_klass())
         utils.setup_scenario()
-        self.rpc = utils.MockCvx('region')
-        ndb = db_lib.NeutronNets()
-        self.sync_service = arista_sync.SyncService(self.rpc, ndb)
+        self.mech_queue = Queue()
+        self.sync_service = arista_sync.AristaSyncWorker(self.mech_queue)
+        self.sync_service._rpc = utils.MockCvx('region')
 
-    def test_full_sync_api_calls(self):
+    def tearDown(self):
+        if self.sync_service._running:
+            self.sync_service.stop()
+            self.sync_service.wait()
+        super(SyncServiceTest, self).tearDown()
+
+    def test_start(self):
+        self.sync_service.start()
+        self.assertTrue(self.sync_service._running)
+        self.assertIsNotNone(self.sync_service._thread)
+        self.assertIsNotNone(self.sync_service.sync_order)
+        self.assertIsNotNone(self.sync_service.done)
+
+    def test_start_twice(self):
+        self.sync_service.start()
+        current_thread = self.sync_service._thread
+        self.sync_service.start()
+        self.assertEqual(self.sync_service._thread, current_thread)
+
+    def test_stop_graceful(self):
+        self.test_start()
+        running_thread = self.sync_service._thread
+        self.sync_service.stop()
+        self.sync_service.wait()
+        self.assertFalse(self.sync_service._running)
+        self.assertTrue(running_thread.dead)
+        self.assertIsNone(self.sync_service._thread)
+
+    def test_stop_ungraceful(self):
+        self.test_start()
+        running_thread = self.sync_service._thread
+        self.sync_service.stop(graceful=False)
+        self.assertTrue(running_thread.dead)
+        self.assertIsNone(self.sync_service._thread)
+
+    def test_reset(self):
+        self.test_start()
+        old_thread = self.sync_service._thread
+        self.sync_service.reset()
+        self.assertNotEqual(self.sync_service._thread, old_thread)
+
+    def test_resource_class_full_coverage(self):
+        self.sync_service.initialize()
         for i in range(len(self.sync_service.sync_order)):
             self.sync_service.sync_order[i] = mock.MagicMock()
-        self.sync_service.synchronize()
+        self.sync_service.synchronize_resources()
         for resource_type in self.sync_service.sync_order:
-            resource_type.clear_all_data.assert_called_once()
             resource_type.delete_cvx_resources.assert_called_once()
             resource_type.create_cvx_resources.assert_called_once()
 
     def test_full_sync_cvx_populated(self):
-        self.sync_service.synchronize()
-        for endpoint, data in self.rpc.endpoint_data.items():
+        self.sync_service.initialize()
+        self.sync_service.synchronize_resources()
+        for endpoint, data in self.sync_service._rpc.endpoint_data.items():
             self.assertNotEqual(data, {})
+
+    def test_process_mech_update(self):
+        self.sync_service.initialize()
+        for resource_type in a_const.ALL_RESOURCE_TYPES:
+            res_cls = mock.MagicMock()
+            with mock.patch.object(self.sync_service,
+                                   'get_resource_class') as get:
+                get.return_value = res_cls
+                res = MechResource('id', resource_type, a_const.CREATE)
+                self.sync_service.process_mech_update(res)
+                get.assert_called_once_with(resource_type)
+                res_cls.add_neutron_resource.assert_called_once_with('id')
+                get.reset_mock()
+                get.return_value = res_cls
+                res = MechResource('id', resource_type, a_const.DELETE)
+                self.sync_service.process_mech_update(res)
+                get.assert_called_once_with(resource_type)
+                res_cls.delete_neutron_resource.assert_called_once_with('id')
+
+    def test_force_full_sync(self):
+        self.sync_service.initialize()
+        for i in range(len(self.sync_service.sync_order)):
+            self.sync_service.sync_order[i] = mock.MagicMock()
+        self.sync_service.force_full_sync()
+        for resource_type in self.sync_service.sync_order:
+            resource_type.clear_all_data.assert_called_once()
+            resource_type.get_cvx_ids.assert_called_once()
+            resource_type.get_neutron_resources.assert_called_once()
+
+    def test_sync_timeout(self):
+        self.sync_service.initialize()
+        with mock.patch.object(
+                self.sync_service, 'check_if_out_of_sync') as oos:
+            self.sync_service.wait_for_sync_required()
+            oos.assert_called_once()
+
+    def test_full_sync_required(self):
+        self.sync_service.initialize()
+        self.sync_service.cvx_uuid = 'old-id'
+        self.sync_service._rpc = mock.MagicMock()
+        self.sync_service._rpc.get_cvx_uuid.return_value = 'new-id'
+        with mock.patch.object(self.sync_service, 'force_full_sync') as ffs:
+            self.assertTrue(self.sync_service.check_if_out_of_sync())
+            ffs.assert_called_once()
+            self.assertEqual(self.sync_service._cvx_uuid, 'new-id')
+            self.assertNotEqual(self.sync_service._last_sync_time, 0)
+
+    def test_mech_queue_timeout(self):
+        self.sync_service.initialize()
+        self.assertFalse(self.sync_service.wait_for_mech_driver_update(1))
+
+    def test_mech_queue_updated(self):
+        resource = MechResource('tid', a_const.TENANT_RESOURCE, a_const.CREATE)
+        self.mech_queue.put(resource)
+        # Must yield to allow resource to be available on the queue
+        greenthread.sleep(0)
+        with mock.patch.object(self.sync_service, 'process_mech_update') as up:
+            self.assertTrue(self.sync_service.wait_for_mech_driver_update(1))
+            up.assert_called_once()
+            # We can't compare the objects directly because queue does some
+            # copying under the hood, so instead compare the attributes
+            args_res = up.call_args[0][0]
+            self.assertEqual(resource.id, args_res.id)
+            self.assertEqual(resource.resource_type, args_res.resource_type)
+            self.assertEqual(resource.action, args_res.action)
+
+    def test_sync_start_fail(self):
+        self.sync_service.initialize()
+        self.sync_service._rpc = mock.MagicMock()
+        self.sync_service._rpc.sync_start.return_value = False
+        self.assertEqual(self.sync_service._last_sync_time, 0)
+        for i in range(len(self.sync_service.sync_order)):
+            self.sync_service.sync_order[i] = mock.MagicMock()
+        self.sync_service.synchronize_resources()
+        for resource_type in self.sync_service.sync_order:
+            resource_type.delete_cvx_resources.assert_not_called()
+            resource_type.create_cvx_resources.assert_not_called()
+        self.sync_service._rpc.sync_end.assert_not_called()
