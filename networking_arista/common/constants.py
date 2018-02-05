@@ -15,16 +15,47 @@
 
 from networking_arista._i18n import _
 
-EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
-UNABLE_TO_DELETE_PORT_MSG = _('Unable to delete port from EOS')
-UNABLE_TO_DELETE_DEVICE_MSG = _('Unable to delete device')
+# Resource actions
+CREATE = 'create'
+UPDATE = 'update'
+DELETE = 'delete'
+
+# Resource types
+TENANT_RESOURCE = 'tenant'
+NETWORK_RESOURCE = 'network'
+SEGMENT_RESOURCE = 'segment'
+DHCP_RESOURCE = 'dhcp'
+ROUTER_RESOURCE = 'router'
+VM_RESOURCE = 'vm'
+BAREMETAL_RESOURCE = 'baremetal'
+PORT_SUFFIX = '_port'
+DHCP_PORT_RESOURCE = DHCP_RESOURCE + PORT_SUFFIX
+ROUTER_PORT_RESOURCE = ROUTER_RESOURCE + PORT_SUFFIX
+VM_PORT_RESOURCE = VM_RESOURCE + PORT_SUFFIX
+BAREMETAL_PORT_RESOURCE = BAREMETAL_RESOURCE + PORT_SUFFIX
+PORT_BINDING_RESOURCE = 'port_binding'
+
+ALL_RESOURCE_TYPES = [TENANT_RESOURCE,
+                      NETWORK_RESOURCE,
+                      SEGMENT_RESOURCE,
+                      DHCP_RESOURCE,
+                      ROUTER_RESOURCE,
+                      VM_RESOURCE,
+                      BAREMETAL_RESOURCE,
+                      DHCP_PORT_RESOURCE,
+                      VM_PORT_RESOURCE,
+                      BAREMETAL_PORT_RESOURCE,
+                      PORT_BINDING_RESOURCE]
 
 # Constants
 INTERNAL_TENANT_ID = 'INTERNAL-TENANT-ID'
 MECHANISM_DRV_NAME = 'arista'
 
 # EAPI error messages of interest
-ERR_CVX_NOT_LEADER = 'only available on cluster leader'
+EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
+UNABLE_TO_DELETE_PORT_MSG = _('Unable to delete port from EOS')
+UNABLE_TO_DELETE_DEVICE_MSG = _('Unable to delete device')
+ERR_CVX_NOT_LEADER = _('Only available on cluster leader')
 
 # Flat network constant
 NETWORK_TYPE_FLAT = 'flat'

@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import json
+from multiprocessing import Queue
 import threading
 
 from neutron_lib.api.definitions import portbindings
@@ -48,6 +49,18 @@ def pretty_log(tag, obj):
     LOG.debug(log_data)
 
 
+class MechResource(object):
+    """Container class for passing data to sync worker"""
+
+    def __init__(self, id, resource_type, action):
+        self.id = id
+        self.resource_type = resource_type
+        self.action = action
+
+    def __str__(self):
+        return "%s %s ID: %s" % (self.action, self.resource_type, self.id)
+
+
 class AristaDriver(driver_api.MechanismDriver):
     """Ml2 Mechanism driver for Arista networking hardware.
 
@@ -75,6 +88,8 @@ class AristaDriver(driver_api.MechanismDriver):
             self.eapi = AristaRPCWrapperEapi(self.ndb)
             self.rpc = AristaRPCWrapperJSON(self.ndb)
 
+        self.provision_queue = Queue()
+
     def initialize(self):
         if self.rpc.check_cvx_availability():
             self.rpc.register_with_eos()
@@ -86,9 +101,7 @@ class AristaDriver(driver_api.MechanismDriver):
                            trunk_consts.SUBPORTS, events.AFTER_DELETE)
 
     def get_workers(self):
-        return [arista_sync.AristaSyncWorker(self.rpc, self.ndb,
-                                             self.manage_fabric,
-                                             self.managed_physnets)]
+        return [arista_sync.AristaSyncWorker(self.provision_queue)]
 
     def create_network_postcommit(self, context):
         """Provision the network on the Arista Hardware."""

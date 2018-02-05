@@ -203,13 +203,28 @@ class DbLibTest(testlib_api.SqlTestCase):
         network_id = 'network-id'
         self.assertFalse(db_lib.tenant_provisioned(tenant_1_id))
         self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
-        n_ctx = utils.create_network(tenant_1_id, network_id, 11, shared=True)
+        utils.create_networks([{'id': network_id,
+                                'project_id': tenant_1_id}])
         self.assertTrue(db_lib.tenant_provisioned(tenant_1_id))
         self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
-        utils.create_port(tenant_1_id, network_id, 'vm1', port_1_id, n_ctx)
+        utils.create_ports([{'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': 'vm1',
+                             'device_owner': 'compute:None',
+                             'tenant_id': tenant_1_id,
+                             'id': port_1_id,
+                             'network_id': network_id,
+                             'mac_address': '00:00:00:00:00:01'}])
         self.assertTrue(db_lib.tenant_provisioned(tenant_1_id))
         self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
-        utils.create_port(tenant_2_id, network_id, 'vm2', port_2_id, n_ctx)
+        utils.create_ports([{'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': 'vm2',
+                             'device_owner': 'compute:None',
+                             'tenant_id': tenant_2_id,
+                             'id': port_2_id,
+                             'network_id': network_id,
+                             'mac_address': '00:00:00:00:00:02'}])
         self.assertTrue(db_lib.tenant_provisioned(tenant_1_id))
         self.assertTrue(db_lib.tenant_provisioned(tenant_2_id))
         utils.delete_port(port_1_id)
