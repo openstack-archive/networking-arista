@@ -18,6 +18,9 @@ from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
 
+LOG = logging.getLogger(__name__)
+
+
 SUPPORTED_NETWORK_TYPES = [
     n_const.TYPE_VLAN,
     n_const.TYPE_VXLAN]
@@ -37,9 +40,6 @@ UNSUPPORTED_DEVICE_OWNERS = [
 
 UNSUPPORTED_DEVICE_IDS = [
     n_const.DEVICE_ID_RESERVED_DHCP_PORT]
-
-
-LOG = logging.getLogger(__name__)
 
 
 def supported_device_owner(device_owner):

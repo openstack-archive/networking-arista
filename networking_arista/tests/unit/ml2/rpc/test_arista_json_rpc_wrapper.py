@@ -152,17 +152,10 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         mock_response.ok.return_value = False
         self.assertIsNone(self.drv.get_region('foo'))
 
-    @patch(JSON_SEND_FUNC)
-    def test_delete_region(self, mock_send_api_req):
-        self.drv.delete_region('foo')
-        calls = [('region/', 'DELETE', [{'name': 'foo'}])]
-        self._verify_send_api_request_call(mock_send_api_req, calls)
-
     @patch('requests.Response')
-    def test_get_region__updated_exception(self, mock_response):
+    def test_get_cvx_uuid_exception(self, mock_response):
         mock_response.ok.return_value = False
-        self.assertEqual(self.drv.get_region_updated_time(),
-                         {'regionTimestamp': ''})
+        self.assertIsNone(self.drv.get_cvx_uuid())
 
     @patch(JSON_SEND_FUNC)
     def test_get_tenants(self, mock_send_api_req):
