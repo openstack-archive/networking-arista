@@ -70,7 +70,7 @@ ARISTA_DRIVER_OPTS = [
                       'OpenStack/Neutron controllers are managing the same '
                       'Arista HW clusters. Note that this name must match '
                       'with the region name registered (or known) to keystone '
-                      'service. Authentication with Keysotne is performed by '
+                      'service. Authentication with Keystone is performed by '
                       'EOS. This is optional. If not set, a value of '
                       '"RegionOne" is assumed.')),
     cfg.BoolOpt('sec_group_support',
