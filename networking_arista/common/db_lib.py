@@ -506,10 +506,10 @@ class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
         return super(NeutronNets,
                      self).get_ports(self.admin_ctx, filters=filters) or []
 
-    def get_shared_network_owner_id(self, network_id):
+    def get_shared_network_owner_id(self, context, network_id):
         filters = {'id': [network_id]}
-        nets = self.get_networks(self.admin_ctx, filters=filters) or []
-        segments = segments_db.get_network_segments(self.admin_ctx,
+        nets = self.get_networks(context, filters=filters) or []
+        segments = segments_db.get_network_segments(context,
                                                     network_id)
         if not nets or not segments:
             return
