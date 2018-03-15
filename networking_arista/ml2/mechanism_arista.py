@@ -486,11 +486,18 @@ class AristaDriver(driver_api.MechanismDriver):
                                                    tenant_id)
             for binding_level in context._original_binding_levels or []:
                 if self._network_provisioned(
-                    tenant_id, network_id,
+                        context,
+                        tenant_id,
+                        network_id,
                         segment_id=binding_level.segment_id):
                     with self.eos_sync_lock:
                         # Removing the port form original host
-                        self._delete_port(orig_port, orig_host, tenant_id)
+                        self._delete_port(
+                            context,
+                            orig_port,
+                            orig_host,
+                            tenant_id
+                        )
 
                         # If segment id is not bound to any port, then
                         # remove it from EOS
@@ -557,7 +564,7 @@ class AristaDriver(driver_api.MechanismDriver):
         tenant_id = self._network_owner_tenant(context, network_id, tenant_id)
 
         for seg in seg_info:
-            if not self._network_provisioned(tenant_id, network_id,
+            if not self._network_provisioned(context, tenant_id, network_id,
                                              seg[driver_api.SEGMENTATION_ID],
                                              seg[driver_api.ID]):
                 LOG.info(
@@ -688,10 +695,15 @@ class AristaDriver(driver_api.MechanismDriver):
             # If network does not exist under this tenant,
             # it may be a shared network. Get shared network owner Id
             net_provisioned = self._network_provisioned(
-                tenant_id, network_id)
+                context,
+                tenant_id,
+                network_id
+            )
             for seg in seg_info:
                 if not self._network_provisioned(
-                    tenant_id, network_id,
+                    context,
+                    tenant_id,
+                    network_id,
                     segmentation_id=seg[driver_api.SEGMENTATION_ID]):
                     net_provisioned = False
             segments = []
@@ -722,7 +734,7 @@ class AristaDriver(driver_api.MechanismDriver):
                     # The port moved to a different host or the VM
                     # connected to the port was deleted or its in DOWN
                     # state. So delete the old port on the old host.
-                    self._delete_port(orig_port, orig_host, tenant_id)
+                    self._delete_port(context, orig_port, orig_host, tenant_id)
 
                 if(port_provisioned and net_provisioned and hostname and
                    is_vm_boot and not port_down and
@@ -786,14 +798,14 @@ class AristaDriver(driver_api.MechanismDriver):
 
         with self.eos_sync_lock:
             try:
-                self._delete_port(port, host, tenant_id)
+                self._delete_port(context, port, host, tenant_id)
                 self._delete_segment(context, tenant_id)
             except arista_exc.AristaRpcError:
                 # Can't do much if deleting a port failed.
                 # Log a warning and continue.
                 LOG.warning(constants.UNABLE_TO_DELETE_PORT_MSG)
 
-    def _delete_port(self, port, host, tenant_id):
+    def _delete_port(self, context, port, host, tenant_id):
         """Deletes the port from EOS.
 
         param port: Port which is to be deleted
@@ -822,7 +834,7 @@ class AristaDriver(driver_api.MechanismDriver):
             return
 
         try:
-            if not self._network_provisioned(tenant_id, network_id):
+            if not self._network_provisioned(context, tenant_id, network_id):
                 # If we do not have network associated with this, ignore it
                 return
             hostname = self._host_name(host)
@@ -857,7 +869,7 @@ class AristaDriver(driver_api.MechanismDriver):
             return
         for binding_level in context._binding_levels:
             LOG.debug("deleting segment %s", binding_level.segment_id)
-            if self._network_provisioned(tenant_id, network_id,
+            if self._network_provisioned(context, tenant_id, network_id,
                                          segment_id=binding_level.segment_id):
                 segment = self.ndb.get_segment_by_id(
                     context._plugin_context, binding_level.segment_id)
@@ -953,7 +965,7 @@ class AristaDriver(driver_api.MechanismDriver):
         fqdns_used = cfg.CONF.ml2_arista['use_fqdn']
         return hostname if fqdns_used else hostname.split('.')[0]
 
-    def _network_provisioned(self, tenant_id, network_id,
+    def _network_provisioned(self, context, tenant_id, network_id,
                              segmentation_id=None, segment_id=None):
         # If network does not exist under this tenant,
         # it may be a shared network.
@@ -961,7 +973,10 @@ class AristaDriver(driver_api.MechanismDriver):
         return (
             db_lib.is_network_provisioned(tenant_id, network_id,
                                           segmentation_id, segment_id) or
-            self.ndb.get_shared_network_owner_id(network_id)
+            self.ndb.get_shared_network_owner_id(
+                context._plugin_context,
+                network_id
+            )
         )
 
     def create_security_group(self, sg):
@@ -1030,7 +1045,12 @@ class AristaDriver(driver_api.MechanismDriver):
                 subport_current['binding:profile'] = profile
                 subport_current['device_owner'] = 'trunk:subport'
 
-                self._delete_port(subport_current, host, tenant_id)
+                self._delete_port(
+                    payload.context,
+                    subport_current,
+                    host,
+                    tenant_id
+                )
         else:
             LOG.warning('Unable to unset the subport, no trunk port found')
 
