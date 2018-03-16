@@ -237,7 +237,7 @@ class AristaDriver(driver_api.MechanismDriver):
             with self.eos_sync_lock:
                 # If network does not exist under this tenant,
                 # it may be a shared network. Get shared network owner Id
-                if not self._network_provisioned(tenant_id, network_id):
+                if not self._network_provisioned(context, tenant_id, network_id):
                     # Ignore this request if network is not provisioned
                     return
                 db_lib.remember_tenant(tenant_id)
@@ -272,7 +272,8 @@ class AristaDriver(driver_api.MechanismDriver):
                 port_provisioned = db_lib.is_port_provisioned(port_id)
                 # If network does not exist under this tenant,
                 # it may be a shared network. Get shared network owner Id
-                if port_provisioned and self._network_provisioned(tenant_id,
+                if port_provisioned and self._network_provisioned(context,
+                                                                  tenant_id,
                                                                   network_id):
                     try:
                         self.rpc.plug_port_into_network(device_id,
@@ -316,7 +317,7 @@ class AristaDriver(driver_api.MechanismDriver):
         network_id = new_port['network_id']
         tenant_id = new_port['tenant_id'] or INTERNAL_TENANT_ID
 
-        if not self._network_provisioned(tenant_id, network_id):
+        if not self._network_provisioned(context, tenant_id, network_id):
             # If the Arista driver does not know about the network, ignore the
             # port.
             LOG.info(_LI("Ignoring port connected to %s"), network_id)
@@ -413,8 +414,13 @@ class AristaDriver(driver_api.MechanismDriver):
                                                           port_host_filter)
             # If network does not exist under this tenant,
             # it may be a shared network. Get shared network owner Id
-            net_provisioned = self._network_provisioned(tenant_id, network_id,
-                                                        segmentation_id)
+            net_provisioned = self._network_provisioned(
+                context,
+                tenant_id,
+                network_id,
+                segmentation_id
+            )
+
             try:
                 orig_host = context.original_host
                 port_down = False
@@ -429,7 +435,12 @@ class AristaDriver(driver_api.MechanismDriver):
                         # The port moved to a different host or the VM
                         # connected to the port was deleted or its in DOWN
                         # state. So delete the old port on the old host.
-                        self._delete_port(orig_port, orig_host, tenant_id)
+                        self._delete_port(
+                            context,
+                            orig_port,
+                            orig_host,
+                            tenant_id
+                        )
                     except ml2_exc.MechanismDriverError:
                         # If deleting a port fails, then not much can be done
                         # about it. Log a warning and move on.
@@ -479,13 +490,13 @@ class AristaDriver(driver_api.MechanismDriver):
 
         with self.eos_sync_lock:
             try:
-                self._delete_port(port, host, tenant_id)
+                self._delete_port(context, port, host, tenant_id)
             except ml2_exc.MechanismDriverError:
                 # Can't do much if deleting a port failed.
                 # Log a warning and continue.
                 LOG.warn(UNABLE_TO_DELETE_PORT_MSG)
 
-    def _delete_port(self, port, host, tenant_id):
+    def _delete_port(self, context, port, host, tenant_id):
         """Deletes the port from EOS.
 
         param port: Port which is to be deleted
@@ -507,7 +518,7 @@ class AristaDriver(driver_api.MechanismDriver):
             return
 
         try:
-            if not self._network_provisioned(tenant_id, network_id):
+            if not self._network_provisioned(context, tenant_id, network_id):
                 # If we do not have network associated with this, ignore it
                 return
             hostname = self._host_name(host)
@@ -569,7 +580,7 @@ class AristaDriver(driver_api.MechanismDriver):
             db_lib.forget_network(tenant_network['tenantId'], net_id)
             db_lib.forget_all_ports_for_network(net_id)
 
-    def _network_provisioned(self, tenant_id, network_id,
+    def _network_provisioned(self, context, tenant_id, network_id,
                              segmentation_id=None):
         # If network does not exist under this tenant,
         # it may be a shared network.
@@ -577,5 +588,8 @@ class AristaDriver(driver_api.MechanismDriver):
         return (
             db_lib.is_network_provisioned(tenant_id, network_id,
                                           segmentation_id) or
-            self.ndb.get_shared_network_owner_id(network_id)
+            self.ndb.get_shared_network_owner_id(
+                context._plugin_context,
+                network_id
+            )
         )
