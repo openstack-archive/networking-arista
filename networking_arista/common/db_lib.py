@@ -16,12 +16,15 @@
 from oslo_config import cfg
 from oslo_log import log as logging
 from sqlalchemy import and_, or_
-from sqlalchemy.orm import Query
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload, Query
 
+from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 
 import neutron.db.api as db
 from neutron.db.models.plugins.ml2 import vlanallocation
+from neutron.db.models import securitygroup as sg_models
 from neutron.db.models import segment as segment_models
 from neutron.db import models_v2
 from neutron.plugins.ml2 import models as ml2_models
@@ -263,13 +266,15 @@ def get_router_instances(instance_id=None):
 def get_vm_instances(instance_id=None):
     """Returns filtered list of vms that may be relevant on CVX"""
     return get_instances(device_owners=[n_const.DEVICE_OWNER_COMPUTE_PREFIX],
-                         vnic_type='normal', instance_id=instance_id)
+                         vnic_type=portbindings.VNIC_NORMAL,
+                         instance_id=instance_id)
 
 
 @staticmethod
 def get_baremetal_instances(instance_id=None):
     """Returns filtered list of baremetals that may be relevant on CVX"""
-    return get_instances(vnic_type='baremetal', instance_id=instance_id)
+    return get_instances(vnic_type=portbindings.VNIC_BAREMETAL,
+                         instance_id=instance_id)
 
 
 def get_ports(device_owners=None, vnic_type=None, port_id=None, active=True):
@@ -304,13 +309,13 @@ def get_vm_ports(port_id=None):
     """Returns filtered list of vms that may be relevant on CVX"""
     return get_ports(device_owners=[n_const.DEVICE_OWNER_COMPUTE_PREFIX,
                                     t_const.TRUNK_SUBPORT_OWNER],
-                     vnic_type='normal', port_id=port_id)
+                     vnic_type=portbindings.VNIC_NORMAL, port_id=port_id)
 
 
 @staticmethod
 def get_baremetal_ports(port_id=None):
     """Returns filtered list of baremetals that may be relevant on CVX"""
-    return get_ports(vnic_type='baremetal', port_id=port_id)
+    return get_ports(vnic_type=portbindings.VNIC_BAREMETAL, port_id=port_id)
 
 
 @staticmethod
@@ -425,3 +430,32 @@ def get_mlag_physnets():
                 mlag_pairs[peers[0]] = physnet
                 mlag_pairs[peers[1]] = physnet
     return mlag_pairs
+
+
+def get_security_groups():
+    session = db.get_reader_session()
+    with session.begin():
+        sg_model = sg_models.SecurityGroup
+        # We do a joined load to prevent the need for the sync worker
+        # to issue subqueries
+        security_groups = (session.query(sg_model)
+                           .options(joinedload(sg_model.rules)))
+    return security_groups
+
+
+def get_baremetal_sg_bindings():
+    session = db.get_reader_session()
+    with session.begin():
+        sg_binding_model = sg_models.SecurityGroupPortBinding
+        binding_model = ml2_models.PortBinding
+        sg_bindings = (session
+                       .query(sg_binding_model,
+                              binding_model)
+                       .outerjoin(
+                           binding_model,
+                           sg_binding_model.port_id == binding_model.port_id)
+                       .filter_unnecessary_ports(
+                           vnic_type=portbindings.VNIC_BAREMETAL)
+                       .group_by(sg_binding_model.port_id)
+                       .having(func.count(sg_binding_model.port_id) == 1))
+    return sg_bindings

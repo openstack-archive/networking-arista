@@ -231,9 +231,6 @@ class AristaSyncWorker(worker.BaseWorker):
     def sync_loop(self):
         while self._running:
             try:
-                # TODO(mitchell): Move security group sync to a separate worker
-                # self.synchronize_security_groups()
-
                 sync_required = self.wait_for_sync_required()
 
                 if sync_required:

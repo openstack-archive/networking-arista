@@ -70,9 +70,6 @@ class AristaDriver(driver_api.MechanismDriver):
         self.trunk_driver = None
 
     def initialize(self):
-        # TODO(mitchell) Fix SG loading/handling
-        # self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
-
         # We need to initialize the trunk driver to register the AFTER_INIT
         # callback for the trunk service plugin
         self.trunk_driver = arista_trunk.AristaTrunkDriver.create()

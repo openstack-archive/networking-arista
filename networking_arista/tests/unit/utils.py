@@ -94,6 +94,22 @@ class MockCvx(object):
         pass
 
 
+class MockSwitch(object):
+
+    def __init__(self):
+        self._commands = []
+
+    def execute(self, commands, commands_to_log=None):
+        self._commands.extend(commands)
+
+    @property
+    def received_commands(self):
+        return self._commands
+
+    def clear_received_commands(self):
+        self._commands = []
+
+
 # Network utils #
 
 
