@@ -29,7 +29,6 @@ from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_sync
 from networking_arista.ml2.rpc.arista_eapi import AristaRPCWrapperEapi
-from networking_arista.ml2 import sec_group_callback
 
 LOG = logging.getLogger(__name__)
 cfg.CONF.import_group('ml2_arista', 'networking_arista.common.config')
@@ -61,9 +60,6 @@ class AristaDriver(driver_api.MechanismDriver):
     provisioned before for the given port.
     """
     def __init__(self):
-
-        self.ndb = db_lib.NeutronNets()
-
         confg = cfg.CONF.ml2_arista
         self.managed_physnets = confg['managed_physnets']
         self.manage_fabric = confg['manage_fabric']
@@ -74,7 +70,6 @@ class AristaDriver(driver_api.MechanismDriver):
 
     def initialize(self):
         self.mlag_pairs = db_lib.get_mlag_physnets()
-        self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
 
     def get_workers(self):
         return [arista_sync.AristaSyncWorker(self.provision_queue)]

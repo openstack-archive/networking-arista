@@ -41,6 +41,14 @@ UNSUPPORTED_DEVICE_OWNERS = [
 UNSUPPORTED_DEVICE_IDS = [
     n_const.DEVICE_ID_RESERVED_DHCP_PORT]
 
+SUPPORTED_SG_PROTOCOLS = [
+    None,
+    n_const.PROTO_NAME_TCP,
+    n_const.PROTO_NAME_UDP,
+    n_const.PROTO_NAME_ICMP]
+
+LOG = logging.getLogger(__name__)
+
 
 def supported_device_owner(device_owner):
 
