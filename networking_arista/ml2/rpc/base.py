@@ -26,7 +26,6 @@ from neutron.db.models.plugins.ml2 import vlanallocation
 
 from networking_arista._i18n import _, _LW
 from networking_arista.common import exceptions as arista_exc
-from networking_arista.ml2 import arista_sec_gp
 
 LOG = logging.getLogger(__name__)
 
@@ -46,7 +45,6 @@ class AristaRPCWrapperBase(object):
         self.sync_interval = cfg.CONF.ml2_arista.sync_interval
         self.conn_timeout = cfg.CONF.ml2_arista.conn_timeout
         self.eapi_hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
-        self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver()
 
         # We denote mlag_pair physnets as peer1_peer2 in the physnet name, the
         # following builds a mapping of peer name to physnet name for use
@@ -127,116 +125,3 @@ class AristaRPCWrapperBase(object):
 
         self.set_cvx_unavailable()
         return False
-
-    def _clean_acls(self, sg, failed_switch, switches_to_clean):
-        """This is a helper function to clean up ACLs on switches.
-
-        This called from within an exception - when apply_acl fails.
-        Therefore, ensure that exception is raised after the cleanup
-        is done.
-        :param sg: Security Group to be removed
-        :param failed_switch: IP of the switch where ACL failed
-        :param switches_to_clean: List of switches containing link info
-        """
-        if not switches_to_clean:
-            # This means the no switch needs cleaning - so, simply raise the
-            # the exception and bail out
-            msg = (_("Failed to apply ACL %(sg)s on switch %(switch)s") %
-                   {'sg': sg, 'switch': failed_switch})
-            LOG.error(msg)
-
-        for s in switches_to_clean:
-            try:
-                # Port is being updated to remove security groups
-                self.security_group_driver.remove_acl(sg,
-                                                      s['switch_id'],
-                                                      s['port_id'],
-                                                      s['switch_info'])
-            except Exception:
-                msg = (_("Failed to remove ACL %(sg)s on switch %(switch)%") %
-                       {'sg': sg, 'switch': s['switch_info']})
-                LOG.warning(msg)
-        raise arista_exc.AristaSecurityGroupError(msg=msg)
-
-    def create_acl(self, sg):
-        """Creates an ACL on Arista Switch.
-
-        Deals with multiple configurations - such as multiple switches
-        """
-        self.security_group_driver.create_acl(sg)
-
-    def delete_acl(self, sg):
-        """Deletes an ACL from Arista Switch.
-
-        Deals with multiple configurations - such as multiple switches
-        """
-        self.security_group_driver.delete_acl(sg)
-
-    def create_acl_rule(self, sgr):
-        """Creates an ACL on Arista Switch.
-
-        For a given Security Group (ACL), it adds additional rule
-        Deals with multiple configurations - such as multiple switches
-        """
-        self.security_group_driver.create_acl_rule(sgr)
-
-    def delete_acl_rule(self, sgr):
-        """Deletes an ACL rule on Arista Switch.
-
-        For a given Security Group (ACL), it removes a rule
-        Deals with multiple configurations - such as multiple switches
-        """
-        self.security_group_driver.delete_acl_rule(sgr)
-
-    def perform_sync_of_sg(self):
-        """Perform sync of the security groups between ML2 and EOS.
-
-        This is unconditional sync to ensure that all security
-        ACLs are pushed to all the switches, in case of switch
-        or neutron reboot
-        """
-        self.security_group_driver.perform_sync_of_sg()
-
-    def apply_security_group(self, security_group, switch_bindings):
-        """Applies ACLs on switch interface.
-
-        Translates neutron security group to switch ACL and applies the ACLs
-        on all the switch interfaces defined in the switch_bindings.
-
-        :param security_group: Neutron security group
-        :param switch_bindings: Switch link information
-        """
-        switches_with_acl = []
-        for binding in switch_bindings:
-            try:
-                self.security_group_driver.apply_acl(security_group,
-                                                     binding['switch_id'],
-                                                     binding['port_id'],
-                                                     binding['switch_info'])
-                switches_with_acl.append(binding)
-            except Exception:
-                message = _LW('Unable to apply security group on %s') % (
-                    binding['switch_id'])
-                LOG.warning(message)
-                self._clean_acls(security_group, binding['switch_id'],
-                                 switches_with_acl)
-
-    def remove_security_group(self, security_group, switch_bindings):
-        """Removes ACLs from switch interface
-
-        Translates neutron security group to switch ACL and removes the ACLs
-        from all the switch interfaces defined in the switch_bindings.
-
-        :param security_group: Neutron security group
-        :param switch_bindings: Switch link information
-        """
-        for binding in switch_bindings:
-            try:
-                self.security_group_driver.remove_acl(security_group,
-                                                      binding['switch_id'],
-                                                      binding['port_id'],
-                                                      binding['switch_info'])
-            except Exception:
-                message = _LW('Unable to remove security group from %s') % (
-                    binding['switch_id'])
-                LOG.warning(message)
