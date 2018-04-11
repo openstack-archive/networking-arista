@@ -834,9 +834,6 @@ class AristaDriver(driver_api.MechanismDriver):
             return
 
         try:
-            if not self._network_provisioned(context, tenant_id, network_id):
-                # If we do not have network associated with this, ignore it
-                return
             hostname = self._host_name(host)
             trunk_details = port.get('trunk_details')
             self.rpc.unplug_port_from_network(device_id, device_owner,

@@ -527,8 +527,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         expected_calls = [
             mock.call.NeutronNets(),
             mock.call.get_physical_network(host_id),
-            mock.call.is_network_provisioned(tenant_id, network_id, None,
-                                             None),
             mock.call.unplug_port_from_network(device_id, 'compute', host_id,
                                                port_id, network_id, tenant_id,
                                                None, vnic_type,
@@ -577,8 +575,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls += [
             mock.call.get_physical_network(host_id),
-            mock.call.is_network_provisioned(INTERNAL_TENANT_ID, network_id,
-                                             None, None),
             mock.call.unplug_port_from_network(device_id, 'compute', host_id,
                                                port_id, network_id,
                                                INTERNAL_TENANT_ID, None,
@@ -644,8 +640,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         expected_calls = [
             mock.call.NeutronNets(),
             mock.call.get_physical_network(host_id),
-            mock.call.is_network_provisioned(tenant_id, network_id, None,
-                                             None),
             mock.call.unplug_port_from_network(device_id, 'compute', host_id,
                                                port_id, network_id, tenant_id,
                                                None, vnic_type,
@@ -778,8 +772,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         expected_calls = [
             mock.call.NeutronNets(),
             mock.call.get_trunk_port_by_trunk_id(trunk_id),
-            mock.call.is_network_provisioned(tenant_id, network_id, None,
-                                             None),
             mock.call.unplug_port_from_network(vm_id, device_owner,
                                                host_id, port_id, network_id,
                                                tenant_id, [], vnic_type,
@@ -1147,8 +1139,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
             mock.call.create_network_segments(tenant_id, network_id,
                                               network_name,
                                               segments),
-            mock.call.is_network_provisioned(tenant_id, network_id,
-                                             None, None),
             mock.call.unplug_port_from_network(device_id, owner,
                                                orig_host_id,
                                                port_id, network_id,
@@ -1455,8 +1445,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              segmentation_id,
                                              None),
             mock.call.hpb_supported(),
-            mock.call.is_network_provisioned(tenant_id, network_id,
-                                             None, None),
             mock.call.unplug_port_from_network(old_device_id,
                                                n_const.DEVICE_OWNER_DHCP,
                                                old_host,
@@ -1494,8 +1482,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                              binding_level.segment_id)
             for binding_level in context._original_binding_levels)
         expected_calls += [
-            mock.call.is_network_provisioned(tenant_id, network_id,
-                                             None, None),
             mock.call.unplug_port_from_network(reserved_device,
                                                n_const.DEVICE_OWNER_DHCP,
                                                old_host,
