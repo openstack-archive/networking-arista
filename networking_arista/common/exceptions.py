@@ -37,10 +37,6 @@ class AristaServicePluginConfigError(exceptions.NeutronException):
     message = _('%(msg)s')
 
 
-class AristaSecurityGroupError(exceptions.NeutronException):
-    message = _('%(msg)s')
-
-
 class VlanUnavailable(exceptions.NeutronException):
     """An exception indicating VLAN creation failed because it's not available.
 
