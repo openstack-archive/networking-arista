@@ -1,0 +1,8 @@
+Code-Review+2: Nader Lahouti <nader.lahouti@gmail.com>
+Workflow+1: Nader Lahouti <nader.lahouti@gmail.com>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Thu, 19 Apr 2018 23:58:59 +0000
+Reviewed-on: https://review.openstack.org/562427
+Project: openstack/networking-arista
+Branch: refs/heads/stable/ocata
