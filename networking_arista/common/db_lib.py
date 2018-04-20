@@ -24,6 +24,7 @@ from neutron_lib.plugins.ml2 import api as driver_api
 
 import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
+from neutron.db.models.plugins.ml2 import vlanallocation
 from neutron.db.models import segment as segment_models
 from neutron.db import models_v2
 from neutron.db import securitygroups_db as sec_db
@@ -326,6 +327,31 @@ def get_port_bindings():
                                   binding_level_model.host))
                          .filter_unnecessary_ports())
     return bindings.all() + dist_bindings.all()
+
+
+def get_mlag_physnets():
+    mlag_pairs = dict()
+    session = db.get_reader_session()
+    with session.begin():
+        physnets = session.query(
+            vlanallocation.VlanAllocation.physical_network
+        ).distinct().all()
+        for (physnet,) in physnets:
+            if '_' in physnet:
+                peers = physnet.split('_')
+                mlag_pairs[peers[0]] = physnet
+                mlag_pairs[peers[1]] = physnet
+    return mlag_pairs
+
+
+def segment_bound(segment_id):
+    session = db.get_reader_session()
+    with session.begin():
+        binding_level_model = ml2_models.PortBindingLevel
+        res = bool(session
+                   .query(binding_level_model)
+                   .filter_by(segment_id=segment_id).count())
+    return res
 
 
 # # # BEGIN LEGACY DB LIBS # # #

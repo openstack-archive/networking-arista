@@ -15,22 +15,24 @@
 
 import json
 
-from oslo_config import cfg
 from oslo_log import log as logging
 import requests
 import six
 
+from neutron_lib.api.definitions import portbindings
+
 from networking_arista._i18n import _, _LI, _LW, _LE
 from networking_arista.common import constants as const
 from networking_arista.common import exceptions as arista_exc
+from networking_arista.common import utils
 from networking_arista.ml2.rpc.base import AristaRPCWrapperBase
 
 LOG = logging.getLogger(__name__)
 
 
 class AristaRPCWrapperEapi(AristaRPCWrapperBase):
-    def __init__(self, ndb):
-        super(AristaRPCWrapperEapi, self).__init__(ndb)
+    def __init__(self):
+        super(AristaRPCWrapperEapi, self).__init__()
         # The cli_commands dict stores the mapping between the CLI command key
         # and the actual CLI command.
         self.cli_commands = {
@@ -283,47 +285,53 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                  self._api_password(),
                  host))
 
-    def get_physical_network(self, host_id):
-        """Returns dirctionary which contains physical topology information
+    def get_baremetal_physnet(self, context):
+        """Returns dictionary which contains mac to hostname mapping"""
+        port = context.current
+        host_id = context.host
+        cmd = ['show network physical-topology hosts']
+        try:
+            response = self._run_eos_cmds(cmd)
+            binding_profile = port.get(portbindings.PROFILE, {})
+            link_info = binding_profile.get('local_link_information', [])
+            for link in link_info:
+                switch_id = link.get('switch_id')
+                for host in response[0]['hosts'].values():
+                    if switch_id == host['name']:
+                        physnet = host['hostname']
+                        LOG.debug("get_physical_network: Physical Network for "
+                                  "%(host)s is %(physnet)s",
+                                  {'host': host_id, 'physnet': physnet})
+                        return physnet
+            LOG.debug("Physical network not found for %(host)s",
+                      {'host': host_id})
+        except Exception as exc:
+            LOG.error(_LE('command %(cmd)s failed with '
+                      '%(exc)s'), {'cmd': cmd, 'exc': exc})
+        return None
+
+    def get_host_physnet(self, context):
+        """Returns dictionary which contains physical topology information
 
         for a given host_id
         """
-        fqdns_used = cfg.CONF.ml2_arista['use_fqdn']
-        physnet = None
-        switch_id = None
-        mac_to_hostname = {}
-        cmds = ['show network physical-topology neighbors',
-                'show network physical-topology hosts']
+        host_id = utils.hostname(context.host)
+        cmd = ['show network physical-topology neighbors']
         try:
-            response = self._run_eos_cmds(cmds)
+            response = self._run_eos_cmds(cmd)
             # Get response for 'show network physical-topology neighbors'
             # command
             neighbors = response[0]['neighbors']
             for neighbor in neighbors:
                 if host_id in neighbor:
-                    switchname = neighbors[neighbor]['toPort'][0]['hostname']
-                    physnet = switchname if fqdns_used else (
-                        switchname.split('.')[0])
-                    switch_id = neighbors[neighbor]['toPort'][0].get('hostid')
-                    if not switch_id:
-                        switch_id = response[1]['hosts'][switchname]['name']
-                    break
-
-            # Check if the switch is part of an MLAG pair, and lookup the
-            # pair's physnet name if so
-            physnet = self.mlag_pairs.get(physnet, physnet)
-
-            for host in response[1]['hosts'].values():
-                mac_to_hostname[host['name']] = host['hostname']
-
-            res = {'physnet': physnet,
-                   'switch_id': switch_id,
-                   'mac_to_hostname': mac_to_hostname}
-            LOG.debug("get_physical_network: Physical Network info for "
-                      "%(host)s is %(res)s", {'host': host_id,
-                                              'res': res})
-            return res
+                    physnet = neighbors[neighbor]['toPort'][0]['hostname']
+                    LOG.debug("get_physical_network: Physical Network for "
+                              "%(host)s is %(physnet)s", {'host': host_id,
+                                                          'physnet': physnet})
+                    return physnet
+            LOG.debug("Physical network not found for %(host)s",
+                      {'host': host_id})
         except Exception as exc:
-            LOG.error(_LE('command %(cmds)s failed with '
-                      '%(exc)s'), {'cmds': cmds, 'exc': exc})
-            return {}
+            LOG.error(_LE('command %(cmd)s failed with '
+                      '%(exc)s'), {'cmd': cmd, 'exc': exc})
+        return None
