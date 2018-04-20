@@ -217,3 +217,55 @@ class DbLibTest(testlib_api.SqlTestCase):
         utils.delete_network(network_id)
         self.assertFalse(db_lib.tenant_provisioned(tenant_1_id))
         self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
+
+    def test_segment_is_dynamic(self):
+        static_segment_id = 's1'
+        dynamic_segment_id = 's2'
+        utils.create_networks([{'id': 'n1',
+                                'project_id': 't1'}])
+        utils.create_segments([{'id': static_segment_id,
+                                'network_id': 'n1',
+                                'network_type': 'vlan',
+                                'segmentation_id': 100,
+                                'is_dynamic': False},
+                               {'id': dynamic_segment_id,
+                                'network_id': 'n1',
+                                'network_type': 'vlan',
+                                'segmentation_id': 200,
+                                'is_dynamic': True}])
+        self.assertFalse(db_lib.segment_is_dynamic(static_segment_id))
+        self.assertTrue(db_lib.segment_is_dynamic(dynamic_segment_id))
+
+    def test_segment_bound(self):
+        bound_segment_id = 's1'
+        unbound_segment_id = 's2'
+        utils.create_networks([{'id': 'n1',
+                                'project_id': 't1'}])
+        utils.create_segments([{'id': bound_segment_id,
+                                'network_id': 'n1',
+                                'network_type': 'vlan',
+                                'segmentation_id': 100,
+                                'is_dynamic': True},
+                               {'id': unbound_segment_id,
+                                'network_id': 'n1',
+                                'network_type': 'vlan',
+                                'segmentation_id': 200,
+                                'is_dynamic': True}])
+        utils.create_ports([{'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': 'vm1',
+                             'device_owner': 'compute:None',
+                             'binding': {'host': 'host',
+                                         'vif_type': 'ovs',
+                                         'vnic_type': 'normal'},
+                             'tenant_id': 't1',
+                             'id': 'p1',
+                             'network_id': 'n1',
+                             'mac_address': '01:02:03:04:05:06',
+                             'binding_levels': [
+                                 {'host': 'host',
+                                  'segment_id': bound_segment_id,
+                                  'level': 0,
+                                  'driver': 'arista'}]}])
+        self.assertTrue(db_lib.segment_bound(bound_segment_id))
+        self.assertFalse(db_lib.segment_bound(unbound_segment_id))

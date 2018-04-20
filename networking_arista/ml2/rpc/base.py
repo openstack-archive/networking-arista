@@ -17,12 +17,9 @@ import abc
 import base64
 import os
 
-from neutron_lib.db import api as db_api
 from oslo_config import cfg
 from oslo_log import log as logging
 import six
-
-from neutron.db.models.plugins.ml2 import vlanallocation
 
 from networking_arista._i18n import _, _LW
 from networking_arista.common import exceptions as arista_exc
@@ -39,7 +36,7 @@ class AristaRPCWrapperBase(object):
     EOS - operating system used on Arista hardware
     Command API - JSON RPC API provided by Arista EOS
     """
-    def __init__(self, neutron_db):
+    def __init__(self, neutron_db=None):
         self._ndb = neutron_db
         self._validate_config()
         self._server_ip = None
@@ -49,21 +46,6 @@ class AristaRPCWrapperBase(object):
         self.eapi_hosts = cfg.CONF.ml2_arista.eapi_host.split(',')
         self.security_group_driver = arista_sec_gp.AristaSecGroupSwitchDriver(
             self._ndb)
-
-        # We denote mlag_pair physnets as peer1_peer2 in the physnet name, the
-        # following builds a mapping of peer name to physnet name for use
-        # during port binding
-        self.mlag_pairs = {}
-        session = db_api.get_reader_session()
-        with session.begin():
-            physnets = session.query(
-                vlanallocation.VlanAllocation.physical_network
-            ).distinct().all()
-        for (physnet,) in physnets:
-            if '_' in physnet:
-                peers = physnet.split('_')
-                self.mlag_pairs[peers[0]] = physnet
-                self.mlag_pairs[peers[1]] = physnet
 
         # Indication of CVX availabililty in the driver.
         self._cvx_available = True

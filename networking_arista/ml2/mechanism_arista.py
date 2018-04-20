@@ -55,30 +55,23 @@ class AristaDriver(driver_api.MechanismDriver):
     Does not send network provisioning request if the network has already been
     provisioned before for the given port.
     """
-    def __init__(self, rpc=None):
+    def __init__(self):
 
         self.ndb = db_lib.NeutronNets()
 
         confg = cfg.CONF.ml2_arista
-        self.timer = None
         self.managed_physnets = confg['managed_physnets']
         self.manage_fabric = confg['manage_fabric']
         self.eos_sync_lock = threading.Lock()
-
-        self.eapi = None
-
-        if rpc is not None:
-            LOG.info("Using passed in parameter for RPC")
-            self.rpc = rpc
-            self.eapi = rpc
-        else:
-            self.eapi = AristaRPCWrapperEapi(self.ndb)
-            self.rpc = AristaRPCWrapperJSON(self.ndb)
+        self.eapi = AristaRPCWrapperEapi()
+        self.rpc = AristaRPCWrapperJSON(self.ndb)
+        self.mlag_pairs = dict()
 
     def initialize(self):
         if self.rpc.check_cvx_availability():
             self.rpc.register_with_eos()
 
+        self.mlag_pairs = db_lib.get_mlag_physnets()
         self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
         registry.subscribe(self.set_subport,
                            trunk_consts.SUBPORTS, events.AFTER_CREATE)
@@ -172,38 +165,9 @@ class AristaDriver(driver_api.MechanismDriver):
                               'network %(network_id)s. Reason: %(err)s'),
                           {'network_id': network_id, 'err': err})
 
-    def _get_physnet_from_link_info(self, port, physnet_info):
-
-        binding_profile = port.get(portbindings.PROFILE)
-        if not binding_profile:
-            return
-
-        link_info = binding_profile.get('local_link_information')
-        if not link_info:
-            return
-
-        mac_to_hostname = physnet_info.get('mac_to_hostname', {})
-        for link in link_info:
-            if link.get('switch_id') in mac_to_hostname:
-                physnet = mac_to_hostname.get(link.get('switch_id'))
-                return self.rpc.mlag_pairs.get(physnet, physnet)
-
-    def _bind_port_to_baremetal(self, context, segment):
-
+    def _bind_baremetal_port(self, context, segment):
+        """Bind the baremetal port to the segment"""
         port = context.current
-        vnic_type = port.get('binding:vnic_type')
-        if vnic_type != portbindings.VNIC_BAREMETAL:
-            # We are only interested in binding baremetal ports.
-            return
-
-        binding_profile = port.get(portbindings.PROFILE)
-        if not binding_profile:
-            return
-
-        link_info = binding_profile.get('local_link_information')
-        if not link_info:
-            return
-
         vif_details = {
             portbindings.VIF_DETAILS_VLAN: str(
                 segment[driver_api.SEGMENTATION_ID])
@@ -216,6 +180,54 @@ class AristaDriver(driver_api.MechanismDriver):
                   "on network %(network)s",
                   {'id': port['id'],
                    'network': context.network.current['id']})
+        if port.get('trunk_details'):
+            self.trunk_driver.bind_port(port)
+        return True
+
+    def _get_physnet(self, context):
+        """Find the appropriate physnet for the host
+
+        - Baremetal ports' physnet is determined by looking at the
+          local_link_information contained in the binding profile
+        - Other ports' physnet is determined by looking for the host in the
+          topology
+        """
+        port = context.current
+        physnet = None
+        if (port.get(portbindings.VNIC_TYPE) == portbindings.VNIC_BAREMETAL):
+            physnet = self.eapi.get_baremetal_physnet(context)
+        else:
+            physnet = self.eapi.get_host_physnet(context)
+        # If the switch is part of an mlag pair, the physnet is called
+        # peer1_peer2
+        if physnet in self.mlag_pairs:
+            physnet = self.mlag_pairs[physnet]
+        return physnet
+
+    def _bind_fabric(self, context, segment):
+        """Allocate dynamic segments for the port
+
+        Segment physnets are based on the switch to which the host is
+        connected.
+        """
+        port_id = context.current['id']
+        physnet = self._get_physnet(context)
+        if not physnet:
+            LOG.debug("bind_port for port %(port)s: no physical_network "
+                      "found", {'port': port_id})
+            return False
+
+        next_segment = context.allocate_dynamic_segment(
+            {'network_id': context.network.current['id'],
+             'network_type': n_const.TYPE_VLAN,
+             'physical_network': physnet})
+        LOG.debug("bind_port for port %(port)s: "
+                  "current_segment=%(current_seg)s, "
+                  "next_segment=%(next_seg)s",
+                  {'port': port_id, 'current_seg': segment,
+                   'next_seg': next_segment})
+        context.continue_binding(segment['id'], [next_segment])
+        return True
 
     def bind_port(self, context):
         """Bind port to a network segment.
@@ -224,61 +236,24 @@ class AristaDriver(driver_api.MechanismDriver):
         into appropriate network is done when the port is created
         this simply tells the ML2 Plugin that we are binding the port
         """
-        host_id = context.host
         port = context.current
-        physnet_info = {}
         for segment in context.segments_to_bind:
             physnet = segment.get(driver_api.PHYSICAL_NETWORK)
-            if not self._is_in_managed_physnets(physnet):
-                LOG.debug("bind_port for port %(port)s: physical_network "
-                          "%(physnet)s is not managed by Arista "
-                          "mechanism driver", {'port': port.get('id'),
-                                               'physnet': physnet})
-                continue
-            # If physnet is not set, we need to look it up using hostname
-            # and topology info
+            segment_type = segment[driver_api.NETWORK_TYPE]
             if not physnet:
-                if not physnet_info:
-                    # We only need to get physnet_info once
-                    physnet_info = self.eapi.get_physical_network(host_id)
-                if (port.get('binding:vnic_type') ==
-                        portbindings.VNIC_BAREMETAL):
-                    # Find physnet using link_information in baremetal case
-                    physnet = self._get_physnet_from_link_info(port,
-                                                               physnet_info)
-                else:
-                    physnet = physnet_info.get('physnet')
-            # If physnet was not found, we cannot bind this port
-            if not physnet:
-                LOG.debug("bind_port for port %(port)s: no physical_network "
-                          "found", {'port': port.get('id')})
-                continue
-            if segment[driver_api.NETWORK_TYPE] == n_const.TYPE_VXLAN:
-                # The physical network is connected to arista switches,
-                # allocate dynamic segmentation id to bind the port to
-                # the network that the port belongs to.
-                try:
-                    next_segment = context.allocate_dynamic_segment(
-                        {'id': context.network.current['id'],
-                         'network_type': n_const.TYPE_VLAN,
-                         'physical_network': physnet})
-                except Exception as exc:
-                    LOG.error(_LE("bind_port for port %(port)s: Failed to "
-                                  "allocate dynamic segment for physnet "
-                                  "%(physnet)s. %(exc)s"),
-                              {'port': port.get('id'), 'physnet': physnet,
-                               'exc': exc})
-                    return
-
-                LOG.debug("bind_port for port %(port)s: "
-                          "current_segment=%(current_seg)s, "
-                          "next_segment=%(next_seg)s",
-                          {'port': port.get('id'), 'current_seg': segment,
-                           'next_seg': next_segment})
-                context.continue_binding(segment['id'], [next_segment])
-            elif port.get('binding:vnic_type') == portbindings.VNIC_BAREMETAL:
-                # The network_type is vlan, try binding process for baremetal.
-                self._bind_port_to_baremetal(context, segment)
+                if (segment_type == n_const.TYPE_VXLAN and self.manage_fabric):
+                    if self._bind_fabric(context, segment):
+                        continue
+            elif (port.get(portbindings.VNIC_TYPE)
+                    == portbindings.VNIC_BAREMETAL):
+                if (not self.managed_physnets or
+                        physnet in self.managed_physnets):
+                    if self._bind_baremetal_port(context, segment):
+                        continue
+            LOG.debug("Arista mech driver unable to bind port %(port)s to "
+                      "%(seg_type)s segment on physical_network %(physnet)s",
+                      {'port': port.get('id'), 'seg_type': segment_type,
+                       'physnet': physnet})
 
     def _network_owner_tenant(self, context, network_id, tenant_id):
         tid = tenant_id
@@ -579,55 +554,31 @@ class AristaDriver(driver_api.MechanismDriver):
                     LOG.info(constants.EOS_UNREACHABLE_MSG)
 
     def _try_to_release_dynamic_segment(self, context, migration=False):
-        """Release dynamic segment allocated by the driver
+        """Release dynamic segment if necessary
 
-        If this port is the last port using the segmentation id allocated
-        by the driver, it should be released
+        If this port was the last port using a segment and the segment was
+        allocated by this driver, it should be released
         """
-        host = context.original_host if migration else context.host
-
-        physnet_info = self.eapi.get_physical_network(host)
-        physnet = physnet_info.get('physnet')
-        if not physnet:
-            return
-
         binding_levels = context.binding_levels
         LOG.debug("_try_release_dynamic_segment: "
                   "binding_levels=%(bl)s", {'bl': binding_levels})
         if not binding_levels:
             return
 
-        segment_id = None
-        bound_drivers = []
-        for binding_level in binding_levels:
-            bound_segment = binding_level.get(driver_api.BOUND_SEGMENT)
-            driver = binding_level.get(driver_api.BOUND_DRIVER)
-            bound_drivers.append(driver)
-            if (bound_segment and
-                bound_segment.get('physical_network') == physnet and
-                    bound_segment.get('network_type') == n_const.TYPE_VLAN):
-                segment_id = bound_segment.get('id')
-                break
-
-        # If the segment id is found and it is bound by this driver, and also
-        # the segment id is not bound to any other port, release the segment.
-        # When Arista driver participate in port binding by allocating dynamic
-        # segment and then calling continue_binding, the driver should the
-        # second last driver in the bound drivers list.
-        if (segment_id and bound_drivers[-2:-1] ==
-                [constants.MECHANISM_DRV_NAME]):
-            filters = {'segment_id': segment_id}
-            result = db_lib.get_port_binding_level(filters)
-            LOG.debug("Looking for entry with filters=%(filters)s "
-                      "result=%(result)s ", {'filters': filters,
-                                             'result': result})
-            if not result:
-                # The requested segment_id does not exist in the port binding
-                # database. Release the dynamic segment.
+        for prior_level, binding in enumerate(binding_levels[1:]):
+            allocating_driver = binding_levels[prior_level].get(
+                driver_api.BOUND_DRIVER)
+            if allocating_driver != constants.MECHANISM_DRV_NAME:
+                continue
+            bound_segment = binding.get(driver_api.BOUND_SEGMENT, {})
+            segment_id = bound_segment.get('id')
+            if not db_lib.segment_is_dynamic(segment_id):
+                continue
+            if not db_lib.segment_bound(segment_id):
                 context.release_dynamic_segment(segment_id)
                 LOG.debug("Released dynamic segment %(seg)s allocated "
                           "by %(drv)s", {'seg': segment_id,
-                                         'drv': bound_drivers[-2]})
+                                         'drv': allocating_driver})
 
     def delete_tenant(self, tenant_id):
         """delete a tenant from DB.
