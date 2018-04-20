@@ -15,6 +15,7 @@
 
 import mock
 from neutron_lib import constants as n_const
+from oslo_config import cfg
 
 from neutron.db import models_v2
 from neutron.plugins.ml2 import models as port_models
@@ -40,9 +41,13 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
     """
     def setUp(self):
         super(AristaDriverTestCase, self).setUp()
+        utils.setup_arista_wrapper_config(cfg)
+        self.fake_eapi = mock.MagicMock()
         self.fake_rpc = mock.MagicMock()
         mechanism_arista.db_lib = self.fake_rpc
-        self.drv = mechanism_arista.AristaDriver(self.fake_rpc)
+        self.drv = mechanism_arista.AristaDriver()
+        self.drv.rpc = self.fake_rpc
+        self.drv.eapi = self.fake_eapi
         self.drv.ndb = mock.MagicMock()
 
     def tearDown(self):
@@ -305,12 +310,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network = {'tenant_id': tenant_id}
         self.drv.ndb.get_network_from_net_id.return_value = [network]
         physnet = dict(physnet='default')
-        self.fake_rpc.get_physical_network.return_value = physnet
+        self.fake_eapi.get_host_physnet.return_value = physnet
         self.drv.delete_port_postcommit(port_context)
 
         expected_calls = [
             mock.call.NeutronNets(),
-            mock.call.get_physical_network(host_id),
             mock.call.unplug_port_from_network(device_id, 'compute:', host_id,
                                                port_id, network_id, tenant_id,
                                                None, vnic_type,
@@ -346,12 +350,11 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network = {'tenant_id': ''}
         self.drv.ndb.get_network_from_net_id.return_value = [network]
         physnet = dict(physnet='default')
-        self.fake_rpc.get_physical_network.return_value = physnet
+        self.fake_eapi.get_host_physnet.return_value = physnet
 
         self.drv.delete_port_postcommit(port_context)
 
         expected_calls += [
-            mock.call.get_physical_network(host_id),
             mock.call.unplug_port_from_network(device_id, 'compute:', host_id,
                                                port_id, network_id,
                                                INTERNAL_TENANT_ID, None,
@@ -400,13 +403,12 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         network = {'tenant_id': tenant_id}
         self.drv.ndb.get_network_from_net_id.return_value = [network]
         physnet = dict(physnet='default')
-        self.fake_rpc.get_physical_network.return_value = physnet
+        self.fake_eapi.get_host_physnet.return_value = physnet
 
         self.drv.delete_port_postcommit(port_context)
 
         expected_calls = [
             mock.call.NeutronNets(),
-            mock.call.get_physical_network(host_id),
             mock.call.unplug_port_from_network(device_id, 'compute:', host_id,
                                                port_id, network_id, tenant_id,
                                                None, vnic_type,
@@ -855,7 +857,7 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         context.current['status'] = 'DOWN'
 
         physnet = dict(physnet='default')
-        self.fake_rpc.get_physical_network.return_value = physnet
+        self.fake_eapi.get_host_physnet.return_value = physnet
         context._original_binding_levels = context._binding_levels
 
         mechanism_arista.db_lib.reset_mock()

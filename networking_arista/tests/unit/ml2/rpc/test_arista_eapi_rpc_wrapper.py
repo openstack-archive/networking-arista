@@ -19,7 +19,6 @@ from oslo_config import cfg
 from neutron.tests import base
 from neutron.tests.unit import testlib_api
 
-from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2.rpc import arista_eapi
 from networking_arista.tests.unit import utils
@@ -40,9 +39,8 @@ class AristaRPCWrapperInvalidConfigTestCase(base.BaseTestCase):
         utils.setup_arista_wrapper_config(cfg, host='', user='')
 
     def test_raises_exception_on_wrong_configuration(self):
-        ndb = db_lib.NeutronNets()
         self.assertRaises(arista_exc.AristaConfigError,
-                          arista_eapi.AristaRPCWrapperEapi, ndb)
+                          arista_eapi.AristaRPCWrapperEapi)
 
 
 class NegativeRPCWrapperTestCase(testlib_api.SqlTestCase):
@@ -53,8 +51,7 @@ class NegativeRPCWrapperTestCase(testlib_api.SqlTestCase):
         setup_valid_config()
 
     def test_exception_is_raised_on_json_server_error(self):
-        ndb = db_lib.NeutronNets()
-        drv = arista_eapi.AristaRPCWrapperEapi(ndb)
+        drv = arista_eapi.AristaRPCWrapperEapi()
 
         drv.send_api_request = mock.MagicMock(
             side_effect=Exception('server error')
