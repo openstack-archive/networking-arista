@@ -29,8 +29,8 @@ LOG = logging.getLogger(__name__)
 
 
 class AristaRPCWrapperEapi(AristaRPCWrapperBase):
-    def __init__(self, ndb):
-        super(AristaRPCWrapperEapi, self).__init__(ndb)
+    def __init__(self):
+        super(AristaRPCWrapperEapi, self).__init__()
         # The cli_commands dict stores the mapping between the CLI command key
         # and the actual CLI command.
         self.cli_commands = {
