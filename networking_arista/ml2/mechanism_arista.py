@@ -29,6 +29,7 @@ from networking_arista.common import constants as a_const
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_sync
+from networking_arista.ml2 import arista_trunk
 from networking_arista.ml2.rpc.arista_eapi import AristaRPCWrapperEapi
 from networking_arista.ml2 import sec_group_callback
 
@@ -70,9 +71,11 @@ class AristaDriver(driver_api.MechanismDriver):
         self.manage_fabric = confg['manage_fabric']
         self.eapi = AristaRPCWrapperEapi()
         self.provision_queue = Queue()
+        self.trunk_driver = None
 
     def initialize(self):
         self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
+        self.trunk_driver = arista_trunk.AristaTrunkDriver.create()
 
     def get_workers(self):
         return [arista_sync.AristaSyncWorker(self.provision_queue)]
@@ -325,6 +328,8 @@ class AristaDriver(driver_api.MechanismDriver):
                   "on network %(network)s",
                   {'id': port['id'],
                    'network': context.network.current['id']})
+        if port.get('trunk_details'):
+            self.trunk_driver.bind_port(port)
 
     def _is_in_managed_physnets(self, physnet):
         # Check if this is a fabric segment
