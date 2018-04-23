@@ -53,7 +53,7 @@ class NegativeRPCWrapperTestCase(testlib_api.SqlTestCase):
     def test_exception_is_raised_on_json_server_error(self):
         drv = arista_eapi.AristaRPCWrapperEapi()
 
-        drv.send_api_request = mock.MagicMock(
+        drv.api_request = mock.MagicMock(
             side_effect=Exception('server error')
         )
         with mock.patch.object(arista_eapi.LOG, 'error') as log_err:

@@ -33,7 +33,6 @@ from neutron.db import models_v2
 from neutron.db import securitygroups_db as sec_db
 from neutron.db import segments_db
 from neutron.plugins.ml2 import models as ml2_models
-from neutron.services.trunk import models as trunk_models
 
 from networking_arista.common import utils
 
@@ -430,7 +429,24 @@ def tenant_provisioned(tenant_id):
     return res
 
 
-# # # BEGIN LEGACY DB LIBS # # #
+def instance_provisioned(device_id):
+    """Returns true if any ports exist for an instance."""
+    session = db.get_reader_session()
+    with session.begin():
+        port_model = models_v2.Port
+        res = bool(session.query(port_model)
+                   .filter(port_model.device_id == device_id).count())
+    return res
+
+
+def port_provisioned(port_id):
+    """Returns true if port still exists."""
+    session = db.get_reader_session()
+    with session.begin():
+        port_model = models_v2.Port
+        res = bool(session.query(port_model)
+                   .filter(port_model.id == port_id).count())
+    return res
 
 
 def get_port_binding_level(filters):
@@ -441,38 +457,6 @@ def get_port_binding_level(filters):
                 filter_by(**filters).
                 order_by(ml2_models.PortBindingLevel.level).
                 all())
-
-
-def get_network_segments_by_port_id(port_id):
-    session = db.get_reader_session()
-    with session.begin():
-        segments = (session.query(segment_models.NetworkSegment,
-                                  ml2_models.PortBindingLevel).
-                    join(ml2_models.PortBindingLevel).
-                    filter_by(port_id=port_id).
-                    order_by(ml2_models.PortBindingLevel.level).
-                    all())
-        return [segment[0] for segment in segments]
-
-
-def get_trunk_port_by_subport_id(subport_id):
-    """Returns trunk parent port based on sub port id."""
-    session = db.get_reader_session()
-    with session.begin():
-        subport = (session.query(trunk_models.SubPort).
-                   filter_by(port_id=subport_id).first())
-        if subport:
-            trunk_id = subport.trunk_id
-            return get_trunk_port_by_trunk_id(trunk_id)
-
-
-def get_trunk_port_by_trunk_id(trunk_id):
-    session = db.get_reader_session()
-    with session.begin():
-        trunk_port = (session.query(trunk_models.Trunk).
-                      filter_by(id=trunk_id).first())
-        if trunk_port:
-            return trunk_port.port
 
 
 class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2,
