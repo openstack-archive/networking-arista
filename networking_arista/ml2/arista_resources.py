@@ -16,6 +16,7 @@
 import json
 import threading
 
+from neutron.services.trunk import constants as t_const
 from neutron_lib import constants as n_const
 from oslo_log import log as logging
 
@@ -357,6 +358,15 @@ class VmPorts(PortResourcesBase):
                                     lambda *args: 'vm'),
                  AttributeFormatter('project_id', 'tenantId')]
     get_db_resources = staticmethod(db_lib.get_vm_ports)
+
+    @classmethod
+    def format_for_create(cls, port):
+        # This is needed until we can update the upstream trunk port
+        # handling to add device_id to subports
+        if port['device_owner'] == t_const.TRUNK_SUBPORT_OWNER:
+            parent_port = db_lib.get_parent(port['id'])
+            port['device_id'] = parent_port.get('device_id')
+        return super(VmPorts, cls).format_for_create(port)
 
 
 class BaremetalPorts(PortResourcesBase):

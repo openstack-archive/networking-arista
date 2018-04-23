@@ -405,6 +405,385 @@ class BasicMechDriverTestCase(ml2_test_base.MechTestBase):
         self.assertDhcpPortDeleted(port['id'])
         self.assertPortBindingDeleted((port['id'], port_host))
 
+    def test_vm_trunk_port(self):
+        network_tenant = 'net-ten'
+        net_dict = {'network': {'name': 'net1',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network1, _ = self.create_network(net_dict)
+        net_dict = {'network': {'name': 'net2',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network2, _ = self.create_network(net_dict)
+
+        # Create trunk port with subport
+        device_id = 'vm-1'
+        port_tenant = 'port-ten'
+        port_host = self.host1
+        trunkport_dict = {'name': 'port1',
+                          'tenant_id': port_tenant,
+                          'network_id': network1['id'],
+                          'admin_state_up': True,
+                          'fixed_ips': [],
+                          'device_id': '',
+                          'device_owner': ''}
+        trunkport, _ = self.create_port(trunkport_dict)
+        subport_dict = {'name': 'port2',
+                        'tenant_id': port_tenant,
+                        'network_id': network2['id'],
+                        'admin_state_up': True,
+                        'fixed_ips': [],
+                        'device_id': '',
+                        'device_owner': ''}
+        subport, _ = self.create_port(subport_dict)
+        trunk_dict = {'trunk': {'port_id': trunkport['id'],
+                                'tenant_id': port_tenant,
+                                'sub_ports': [{'port_id': subport['id'],
+                                               'segmentation_type': 'vlan',
+                                               'segmentation_id': 123}]}}
+        trunk = self.trunk_plugin.create_trunk(self.context, trunk_dict)
+        self.bind_trunk_to_host(trunkport, device_id, port_host)
+        self.assertTenantCreated(port_tenant)
+        self.assertVmCreated(device_id)
+        self.assertVmPortCreated(trunkport['id'])
+        self.assertPortBindingCreated((trunkport['id'], port_host))
+        self.assertVmPortCreated(subport['id'])
+        self.assertPortBindingCreated((subport['id'], port_host))
+
+        # Delete the trunk and subport
+        self.unbind_port_from_host(trunkport['id'])
+        self.trunk_plugin.delete_trunk(self.context, trunk['id'])
+        self.delete_port(trunkport['id'])
+        self.delete_port(subport['id'])
+        self.assertTenantDeleted(port_tenant)
+        self.assertVmDeleted(device_id)
+        self.assertVmPortDeleted(trunkport['id'])
+        self.assertPortBindingDeleted((trunkport['id'], port_host))
+        self.assertVmPortDeleted(subport['id'])
+        self.assertPortBindingDeleted((subport['id'], port_host))
+
+    def test_trunk_add_remove_subport(self):
+        network_tenant = 'net-ten'
+        net_dict = {'network': {'name': 'net1',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network1, _ = self.create_network(net_dict)
+        net_dict = {'network': {'name': 'net2',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network2, _ = self.create_network(net_dict)
+        net_dict = {'network': {'name': 'net3',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network3, _ = self.create_network(net_dict)
+
+        # Create trunk port with subport, add subport after initial binding
+        device_id = 'vm-1'
+        port_tenant = 'port-ten'
+        port_host = self.host1
+        trunkport_dict = {'name': 'port1',
+                          'tenant_id': port_tenant,
+                          'network_id': network1['id'],
+                          'admin_state_up': True,
+                          'fixed_ips': [],
+                          'device_id': '',
+                          'device_owner': ''}
+        trunkport, _ = self.create_port(trunkport_dict)
+        subport_dict = {'name': 'port2',
+                        'tenant_id': port_tenant,
+                        'network_id': network2['id'],
+                        'admin_state_up': True,
+                        'fixed_ips': [],
+                        'device_id': '',
+                        'device_owner': ''}
+        subport, _ = self.create_port(subport_dict)
+        trunk_dict = {'trunk': {'port_id': trunkport['id'],
+                                'tenant_id': port_tenant,
+                                'sub_ports': [{'port_id': subport['id'],
+                                               'segmentation_type': 'vlan',
+                                               'segmentation_id': 123}]}}
+        subport_dict2 = {'name': 'port3',
+                         'tenant_id': port_tenant,
+                         'network_id': network3['id'],
+                         'admin_state_up': True,
+                         'fixed_ips': [],
+                         'device_id': '',
+                         'device_owner': ''}
+        trunk = self.trunk_plugin.create_trunk(self.context, trunk_dict)
+        self.bind_trunk_to_host(trunkport, device_id, port_host)
+        subport2, _ = self.create_port(subport_dict2)
+        self.trunk_plugin.add_subports(self.context, trunk['id'],
+                                       {'sub_ports':
+                                        [{'port_id': subport2['id'],
+                                          'segmentation_type': 'vlan',
+                                          'segmentation_id': 111}]})
+        self.bind_subport_to_trunk(subport2, trunk)
+        self.assertTenantCreated(port_tenant)
+        self.assertVmCreated(device_id)
+        self.assertVmPortCreated(trunkport['id'])
+        self.assertPortBindingCreated((trunkport['id'], port_host))
+        self.assertVmPortCreated(subport['id'])
+        self.assertPortBindingCreated((subport['id'], port_host))
+        self.assertVmPortCreated(subport2['id'])
+        self.assertPortBindingCreated((subport2['id'], port_host))
+
+        # Remove the trunk subport
+        self.trunk_plugin.remove_subports(self.context, trunk['id'],
+                                          {'sub_ports':
+                                           [{'port_id': subport2['id']}]})
+        self.unbind_port_from_host(subport2['id'])
+        self.assertPortBindingDeleted((subport2['id'], port_host))
+
+        # Delete the trunk and remaining subport
+        self.unbind_port_from_host(trunkport['id'])
+        self.trunk_plugin.delete_trunk(self.context, trunk['id'])
+        self.delete_port(trunkport['id'])
+        self.delete_port(subport['id'])
+        self.delete_port(subport2['id'])
+        self.assertTenantDeleted(port_tenant)
+        self.assertVmDeleted(device_id)
+        self.assertVmPortDeleted(trunkport['id'])
+        self.assertPortBindingDeleted((trunkport['id'], port_host))
+        self.assertVmPortDeleted(subport['id'])
+        self.assertPortBindingDeleted((subport['id'], port_host))
+
+    def test_baremetal_trunk_basic(self):
+        network_tenant = 'net-ten'
+        net_dict = {'network': {'name': 'net1',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network1, _ = self.create_network(net_dict)
+        net_dict = {'network': {'name': 'net2',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network2, _ = self.create_network(net_dict)
+
+        # Create baremetal port
+        device_id = 'baremetal-1'
+        port_tenant = 'port-ten'
+        port_host = 'bm-host'
+        switch_id = '00:11:22:33:44:55'
+        switch_port = 'Ethernet1/1'
+        trunkport_dict = {'name': 'port1',
+                          'tenant_id': port_tenant,
+                          'network_id': network1['id'],
+                          'admin_state_up': True,
+                          'fixed_ips': [],
+                          'device_id': '',
+                          'device_owner': ''}
+        trunkport, _ = self.create_port(trunkport_dict)
+        subport_dict = {'name': 'port2',
+                        'tenant_id': port_tenant,
+                        'network_id': network2['id'],
+                        'admin_state_up': True,
+                        'fixed_ips': [],
+                        'device_id': '',
+                        'device_owner': ''}
+        subport, _ = self.create_port(subport_dict)
+        trunk_dict = {'trunk': {'port_id': trunkport['id'],
+                                'tenant_id': port_tenant,
+                                'sub_ports': [{'port_id': subport['id'],
+                                               'segmentation_type': 'inherit',
+                                               'segmentation_id': 'inherit'}]}}
+        self.trunk_plugin.create_trunk(self.context, trunk_dict)
+        self.bind_trunk_to_baremetal(trunkport['id'], device_id, port_host,
+                                     switch_id, switch_port)
+        self.assertTenantCreated(port_tenant)
+        self.assertBaremetalCreated(device_id)
+        self.assertBaremetalPortCreated(trunkport['id'])
+        self.assertPortBindingCreated(
+            (trunkport['id'], (switch_id, switch_port)))
+        self.assertBaremetalPortCreated(subport['id'])
+        self.assertPortBindingCreated(
+            (subport['id'], (switch_id, switch_port)))
+
+        # Simulate baremetal shutdown
+        self.unbind_trunk_from_baremetal(trunkport['id'])
+        self.assertBaremetalDeleted(device_id)
+        self.assertPortBindingDeleted(
+            (trunkport['id'], (switch_id, switch_port)))
+        self.assertPortBindingDeleted(
+            (subport['id'], (switch_id, switch_port)))
+
+    def test_baremetal_trunk_bind_unbind(self):
+        network_tenant = 'net-ten'
+        net_dict = {'network': {'name': 'net1',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network1, _ = self.create_network(net_dict)
+        net_dict = {'network': {'name': 'net2',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network2, _ = self.create_network(net_dict)
+        net_dict = {'network': {'name': 'net3',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network3, _ = self.create_network(net_dict)
+
+        # Create baremetal port
+        device_id = 'baremetal-1'
+        port_tenant = 'port-ten'
+        port_host = 'bm-host'
+        switch_id = '00:11:22:33:44:55'
+        switch_port = 'Ethernet1/1'
+        trunkport_dict = {'name': 'port1',
+                          'tenant_id': port_tenant,
+                          'network_id': network1['id'],
+                          'admin_state_up': True,
+                          'fixed_ips': [],
+                          'device_id': '',
+                          'device_owner': ''}
+        trunkport, _ = self.create_port(trunkport_dict)
+        subport_dict = {'name': 'port2',
+                        'tenant_id': port_tenant,
+                        'network_id': network2['id'],
+                        'admin_state_up': True,
+                        'fixed_ips': [],
+                        'device_id': '',
+                        'device_owner': ''}
+        subport, _ = self.create_port(subport_dict)
+        trunk_dict = {'trunk': {'port_id': trunkport['id'],
+                                'tenant_id': port_tenant,
+                                'sub_ports': [{'port_id': subport['id'],
+                                               'segmentation_type': 'inherit',
+                                               'segmentation_id': 'inherit'}]}}
+        trunk = self.trunk_plugin.create_trunk(self.context, trunk_dict)
+        self.bind_trunk_to_baremetal(trunkport['id'], device_id, port_host,
+                                     switch_id, switch_port)
+        self.assertTenantCreated(port_tenant)
+        self.assertBaremetalCreated(device_id)
+        self.assertBaremetalPortCreated(trunkport['id'])
+        self.assertPortBindingCreated(
+            (trunkport['id'], (switch_id, switch_port)))
+        self.assertBaremetalPortCreated(subport['id'])
+        self.assertPortBindingCreated(
+            (subport['id'], (switch_id, switch_port)))
+
+        subport_dict2 = {'name': 'port3',
+                         'tenant_id': port_tenant,
+                         'network_id': network3['id'],
+                         'admin_state_up': True,
+                         'fixed_ips': [],
+                         'device_id': '',
+                         'device_owner': ''}
+        subport2, _ = self.create_port(subport_dict2)
+        self.trunk_plugin.add_subports(self.context, trunk['id'],
+                                       {'sub_ports':
+                                        [{'port_id': subport2['id'],
+                                          'segmentation_type': 'inherit',
+                                          'segmentation_id': 'inherit'}]})
+        self.assertBaremetalPortCreated(subport2['id'])
+        self.assertPortBindingCreated(
+            (subport2['id'], (switch_id, switch_port)))
+
+        self.trunk_plugin.remove_subports(self.context, trunk['id'],
+                                          {'sub_ports':
+                                           [{'port_id': subport2['id']}]})
+        self.assertPortBindingDeleted(
+            (subport2['id'], (switch_id, switch_port)))
+
+        # Simulate baremetal shutdown
+        self.unbind_trunk_from_baremetal(trunkport['id'])
+        self.assertBaremetalDeleted(device_id)
+        self.assertPortBindingDeleted(
+            (trunkport['id'], (switch_id, switch_port)))
+        self.assertPortBindingDeleted(
+            (subport['id'], (switch_id, switch_port)))
+
+    def test_baremetal_trunk_pre_bound(self):
+        network_tenant = 'net-ten'
+        net_dict = {'network': {'name': 'net1',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network1, _ = self.create_network(net_dict)
+        net_dict = {'network': {'name': 'net2',
+                                'tenant_id': network_tenant,
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': self.physnet,
+                                'provider:network_type': 'vlan'}}
+        network2, _ = self.create_network(net_dict)
+
+        # Create baremetal port
+        device_id = 'baremetal-1'
+        port_tenant = 'port-ten'
+        port_host = 'bm-host'
+        switch_id = '00:11:22:33:44:55'
+        switch_port = 'Ethernet1/1'
+        trunkport_dict = {'name': 'port1',
+                          'tenant_id': port_tenant,
+                          'network_id': network1['id'],
+                          'admin_state_up': True,
+                          'fixed_ips': [],
+                          'device_id': '',
+                          'device_owner': ''}
+        trunkport, _ = self.create_port(trunkport_dict)
+        subport_dict = {'name': 'port2',
+                        'tenant_id': port_tenant,
+                        'network_id': network2['id'],
+                        'admin_state_up': True,
+                        'fixed_ips': [],
+                        'device_id': '',
+                        'device_owner': ''}
+        subport, _ = self.create_port(subport_dict)
+        trunk_dict = {'trunk': {'port_id': trunkport['id'],
+                                'tenant_id': port_tenant,
+                                'sub_ports': [{'port_id': subport['id'],
+                                               'segmentation_type': 'inherit',
+                                               'segmentation_id': 'inherit'}]}}
+        self.bind_trunk_to_baremetal(trunkport['id'], device_id, port_host,
+                                     switch_id, switch_port)
+        self.trunk_plugin.create_trunk(self.context, trunk_dict)
+        self.assertTenantCreated(port_tenant)
+        self.assertBaremetalCreated(device_id)
+        self.assertBaremetalPortCreated(trunkport['id'])
+        self.assertPortBindingCreated(
+            (trunkport['id'], (switch_id, switch_port)))
+        self.assertBaremetalPortCreated(subport['id'])
+        self.assertPortBindingCreated(
+            (subport['id'], (switch_id, switch_port)))
+
+        # Simulate baremetal shutdown
+        self.unbind_trunk_from_baremetal(trunkport['id'])
+        self.assertBaremetalDeleted(device_id)
+        self.assertPortBindingDeleted(
+            (trunkport['id'], (switch_id, switch_port)))
+        self.assertPortBindingDeleted(
+            (subport['id'], (switch_id, switch_port)))
+
 
 class BasicHpbMechDriverTestCase(ml2_test_base.MechTestBase):
 

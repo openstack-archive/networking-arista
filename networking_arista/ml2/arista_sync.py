@@ -33,10 +33,11 @@ LOG = logging.getLogger(__name__)
 
 
 class AristaSyncWorker(worker.BaseWorker):
-    def __init__(self, provision_queue):
+    def __init__(self, provision_queue, queue_ready):
         super(AristaSyncWorker, self).__init__(worker_process_count=0)
         self._rpc = AristaRPCWrapperJSON()
         self.provision_queue = provision_queue
+        self.queue_ready = queue_ready
         self._thread = None
         self._running = False
         self.done = None
@@ -189,12 +190,13 @@ class AristaSyncWorker(worker.BaseWorker):
 
     def wait_for_mech_driver_update(self, timeout):
         try:
-            resource = self.provision_queue.get(block=True,
-                                                timeout=timeout)
+            self.queue_ready.wait(timeout)
+            resource = self.provision_queue.get_nowait()
             LOG.info("Processing %(res)s", {'res': resource})
             self.process_mech_update(resource)
             return True
         except Empty:
+            self.queue_ready.clear()
             return False
 
     def wait_for_sync_required(self):

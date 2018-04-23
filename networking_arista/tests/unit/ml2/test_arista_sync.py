@@ -16,6 +16,7 @@
 from eventlet import greenthread
 import mock
 from multiprocessing import Queue
+import threading
 
 from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
@@ -41,7 +42,9 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         directory.add_plugin(plugin_constants.CORE, plugin_klass())
         utils.setup_scenario()
         self.mech_queue = Queue()
-        self.sync_service = arista_sync.AristaSyncWorker(self.mech_queue)
+        self.queue_ready = threading.Event()
+        self.sync_service = arista_sync.AristaSyncWorker(self.mech_queue,
+                                                         self.queue_ready)
         self.sync_service._rpc = utils.MockCvx('region')
 
     def tearDown(self):
@@ -153,6 +156,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
     def test_mech_queue_updated(self):
         resource = MechResource('tid', a_const.TENANT_RESOURCE, a_const.CREATE)
         self.mech_queue.put(resource)
+        self.queue_ready.set()
         # Must yield to allow resource to be available on the queue
         greenthread.sleep(0)
         with mock.patch.object(self.sync_service, 'process_mech_update') as up:
