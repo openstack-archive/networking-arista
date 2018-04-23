@@ -33,6 +33,8 @@ from neutron.db import models_v2
 from neutron.db import securitygroups_db as sec_db
 from neutron.db import segments_db
 from neutron.plugins.ml2 import models as ml2_models
+from neutron.services.trunk import constants as t_const
+from neutron.services.trunk import models as trunk_models
 
 from networking_arista.common import utils
 
@@ -295,7 +297,8 @@ def get_router_ports(port_id=None):
 
 def get_vm_ports(port_id=None):
     """Returns filtered list of vms that may be relevant on CVX"""
-    return get_ports(device_owners=[n_const.DEVICE_OWNER_COMPUTE_PREFIX],
+    return get_ports(device_owners=[n_const.DEVICE_OWNER_COMPUTE_PREFIX,
+                                    t_const.TRUNK_SUBPORT_OWNER],
                      vnic_type=portbindings.VNIC_NORMAL, port_id=port_id)
 
 
@@ -446,6 +449,24 @@ def port_provisioned(port_id):
         port_model = models_v2.Port
         res = bool(session.query(port_model)
                    .filter(port_model.id == port_id).count())
+    return res
+
+
+def get_parent(port_id):
+    """Get trunk subport's parent port"""
+    session = db.get_reader_session()
+    res = dict()
+    with session.begin():
+        subport_model = trunk_models.SubPort
+        trunk_model = trunk_models.Trunk
+        subport = (session.query(subport_model).
+                   filter(subport_model.port_id == port_id).first())
+        if subport:
+            trunk = (session.query(trunk_model).
+                     filter(trunk_model.id == subport.trunk_id).first())
+            if trunk:
+                trunk_port_id = trunk.port.id
+                res = get_ports(port_id=trunk_port_id, active=False)[0]
     return res
 
 

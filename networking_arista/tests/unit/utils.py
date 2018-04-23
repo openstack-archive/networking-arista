@@ -23,6 +23,8 @@ from neutron_lib.db import api as db_api
 from neutron.db.models import segment as segment_models
 from neutron.db import models_v2
 from neutron.plugins.ml2 import models as ml2_models
+from neutron.services.trunk import constants as t_const
+from neutron.services.trunk import models as t_models
 
 from networking_arista.common import config  # noqa
 from networking_arista.ml2 import arista_resources as resources
@@ -260,6 +262,23 @@ def remove_switch_binding(port_id, switch_id, intf_id):
         delete_port_binding(port_id, binding.host)
 
 
+# Trunk utils #
+
+
+def create_trunks(trunks):
+    session = db_api.get_writer_session()
+    with session.begin():
+        for trunk in trunks:
+            session.add(t_models.Trunk(**trunk))
+
+
+def create_subports(subports):
+    session = db_api.get_writer_session()
+    with session.begin():
+        for subport in subports:
+            session.add(t_models.SubPort(**subport))
+
+
 def setup_scenario():
     # Create networks
     regular_network = {'id': 'n1',
@@ -305,6 +324,9 @@ def setup_scenario():
     # Create ports
     port_ctr = 0
     ports = list()
+    trunk_ctr = 0
+    trunks = list()
+    subports = list()
     instance_types = [(n_const.DEVICE_OWNER_DHCP, 'normal'),
                       (n_const.DEVICE_OWNER_DVR_INTERFACE, 'normal'),
                       (n_const.DEVICE_OWNER_COMPUTE_PREFIX, 'normal'),
@@ -402,8 +424,36 @@ def setup_scenario():
                     'name': 'hpb_port',
                     'binding_levels': hpb_binding_levels}
         ports.extend([regular_port, hpb_port])
+        if device_owner == n_const.DEVICE_OWNER_COMPUTE_PREFIX:
+            port_ctr += 1
+            trunk_subport = {'admin_state_up': True,
+                             'status': 'ACTIVE',
+                             'device_id': '%s%s1' % (device_owner, vnic_type),
+                             'device_owner': t_const.TRUNK_SUBPORT_OWNER,
+                             'binding': {'host': regular_host,
+                                         'vif_type': vif_type,
+                                         'vnic_type': vnic_type,
+                                         'profile': binding_profile},
+                             'tenant_id': 't1',
+                             'id': 'p%d' % port_ctr,
+                             'network_id': regular_network['id'],
+                             'mac_address': '10:00:00:00:00:%02x' % port_ctr,
+                             'name': 'trunk_subport',
+                             'binding_levels': regular_binding_levels}
+            ports.extend([trunk_subport])
+            trunk = {'id': 't%d' % trunk_ctr,
+                     'port_id': regular_port['id']}
+            subport = {'port_id': trunk_subport['id'],
+                       'trunk_id': trunk['id'],
+                       'segmentation_type': 'vlan',
+                       'segmentation_id': 100}
+            trunk_ctr += 1
+            trunks.append(trunk)
+            subports.append(subport)
 
     create_networks([regular_network, hpb_network])
     create_segments([regular_segment, fabric_segment, flat_segment,
                      dynamic_segment1, dynamic_segment2])
     create_ports(ports)
+    create_trunks(trunks)
+    create_subports(subports)

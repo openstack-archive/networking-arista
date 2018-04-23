@@ -28,6 +28,7 @@ from networking_arista.common import constants as a_const
 from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_sync
+from networking_arista.ml2 import arista_trunk
 from networking_arista.ml2.rpc.arista_eapi import AristaRPCWrapperEapi
 from networking_arista.ml2 import sec_group_callback
 
@@ -71,10 +72,12 @@ class AristaDriver(driver_api.MechanismDriver):
         self.mlag_pairs = dict()
 
         self.provision_queue = Queue()
+        self.trunk_driver = None
 
     def initialize(self):
         self.mlag_pairs = db_lib.get_mlag_physnets()
         self.sg_handler = sec_group_callback.AristaSecurityGroupHandler(self)
+        self.trunk_driver = arista_trunk.AristaTrunkDriver.create()
 
     def get_workers(self):
         return [arista_sync.AristaSyncWorker(self.provision_queue)]
