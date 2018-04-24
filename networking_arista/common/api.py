@@ -21,7 +21,7 @@ import requests
 from requests import exceptions as requests_exc
 from six.moves.urllib import parse
 
-from networking_arista._i18n import _LI, _LW
+from networking_arista._i18n import _LI, _LW, _LC
 from networking_arista.common import exceptions as arista_exc
 
 LOG = logging.getLogger(__name__)
@@ -40,8 +40,7 @@ class EAPIClient(object):
         self.session.headers['Content-Type'] = 'application/json'
         self.session.headers['Accept'] = 'application/json'
         self.session.verify = verify
-        if username and password:
-            self.session.auth = (username, password)
+        self.session.auth = (username, password)
 
     @staticmethod
     def _make_url(host, scheme='https'):
@@ -104,6 +103,13 @@ class EAPIClient(object):
                 # stop processing since we've encountered request error
                 LOG.warning(msg)
                 raise arista_exc.AristaRpcError(msg=msg)
+
+        if response.status_code != requests.status_codes.codes.OK:
+            msg = _LC(
+                'Error (%(code)s - %(reason)s) while executing the command')
+            LOG.error(msg, {
+                'code': response.status_code,
+                'reason': response.text})
 
         # response handling
         try:
