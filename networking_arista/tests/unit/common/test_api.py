@@ -174,11 +174,13 @@ class TestEAPIClientExecute(testtools.TestCase):
 
     def _test_response_helper(self, response_data):
         mock_response = mock.MagicMock(requests.Response)
+        mock_response.status_code = requests.status_codes.codes.OK
         mock_response.json.return_value = response_data
         self.client.session.post.return_value = mock_response
 
     def test_response_success(self):
         mock_response = mock.MagicMock(requests.Response)
+        mock_response.status_code = requests.status_codes.codes.OK
         mock_response.json.return_value = {'result': mock.sentinel}
         self.client.session.post.return_value = mock_response
 
@@ -187,6 +189,7 @@ class TestEAPIClientExecute(testtools.TestCase):
 
     def test_response_json_error(self):
         mock_response = mock.MagicMock(requests.Response)
+        mock_response.status_code = requests.status_codes.codes.OK
         mock_response.json.side_effect = ValueError
         self.client.session.post.return_value = mock_response
 
@@ -196,6 +199,7 @@ class TestEAPIClientExecute(testtools.TestCase):
 
     def _test_response_format_error_helper(self, bad_response):
         mock_response = mock.MagicMock(requests.Response)
+        mock_response.status_code = requests.status_codes.codes.OK
         mock_response.json.return_value = bad_response
         self.client.session.post.return_value = mock_response
 
@@ -226,6 +230,7 @@ class TestEAPIClientExecute(testtools.TestCase):
 
     def test_response_not_cvx_leader(self):
         mock_response = mock.MagicMock(requests.Response)
+        mock_response.status_code = requests.status_codes.codes.OK
         mock_response.json.return_value = {
             'error': {
                 'code': 1002,
@@ -242,6 +247,7 @@ class TestEAPIClientExecute(testtools.TestCase):
             pass
 
         mock_response = mock.MagicMock(requests.Response)
+        mock_response.status_code = requests.status_codes.codes.OK
         mock_response.json.return_value = 'text'
         self.client.session.post.return_value = mock_response
 
