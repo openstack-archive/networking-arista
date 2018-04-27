@@ -34,12 +34,20 @@ acl_cmd = {
     'acl': {'create': ['ip access-list {0}'],
             'in_rule': ['permit {0} {1} any range {2} {3}'],
             'out_rule': ['permit {0} any {1} range {2} {3}'],
+            'in_icmp_custom0': ['permit icmp {0} any'],
+            'out_icmp_custom0': ['permit icmp any {0}'],
             'in_icmp_custom1': ['permit icmp {0} any {1}'],
             'out_icmp_custom1': ['permit icmp any {0} {1}'],
             'in_icmp_custom2': ['permit icmp {0} any {1} {2}'],
             'out_icmp_custom2': ['permit icmp any {0} {1} {2}'],
             'default': [],
             'delete_acl': ['no ip access-list {0}'],
+            'del_in_icmp_custom0': ['ip access-list {0}',
+                                    'no permit icmp {1} any',
+                                    'exit'],
+            'del_out_icmp_custom0': ['ip access-list {0}',
+                                     'no permit icmp any {1}',
+                                     'exit'],
             'del_in_icmp_custom1': ['ip access-list {0}',
                                     'no permit icmp {1} any {2}',
                                     'exit'],
@@ -146,11 +154,12 @@ class AristaSecGroupSwitchDriver(object):
         """
         if protocol == 'icmp':
             # ICMP rules require special processing
-            if ((from_port and to_port) or
-               (not from_port and not to_port)):
-                rule = 'icmp_custom2'
+            if not from_port and not to_port:
+                rule = 'icmp_custom0'
             elif from_port and not to_port:
                 rule = 'icmp_custom1'
+            elif from_port and to_port:
+                rule = 'icmp_custom2'
             else:
                 msg = _('Invalid ICMP rule specified')
                 LOG.exception(msg)
@@ -170,10 +179,12 @@ class AristaSecGroupSwitchDriver(object):
                 to_port = 0
 
             for c in acl_dict:
-                if rule == 'icmp_custom2':
-                    cmds.append(c.format(cidr, from_port, to_port))
-                else:
+                if rule == 'icmp_custom0':
+                    cmds.append(c.format(cidr))
+                elif rule == 'icmp_custom1':
                     cmds.append(c.format(cidr, from_port))
+                else:
+                    cmds.append(c.format(cidr, from_port, to_port))
             return in_cmds, out_cmds
         else:
             # Non ICMP rules processing here
@@ -216,11 +227,12 @@ class AristaSecGroupSwitchDriver(object):
 
         if protocol == 'icmp':
             # ICMP rules require special processing
-            if ((from_port and to_port) or
-               (not from_port and not to_port)):
-                rule = 'icmp_custom2'
+            if not from_port and not to_port:
+                rule = 'icmp_custom0'
             elif from_port and not to_port:
                 rule = 'icmp_custom1'
+            elif from_port and to_port:
+                rule = 'icmp_custom2'
             else:
                 msg = _('Invalid ICMP rule specified')
                 LOG.exception(msg)
@@ -238,11 +250,12 @@ class AristaSecGroupSwitchDriver(object):
                 to_port = 0
 
             for c in acl_dict:
-                if rule == 'icmp_custom2':
-                    cmds.append(c.format(name, cidr, from_port, to_port))
+                if rule == 'icmp_custom0':
+                    cmds.append(c.format(cidr))
+                elif rule == 'icmp_custom1':
+                    cmds.append(c.format(cidr, from_port))
                 else:
-                    cmds.append(c.format(name, cidr, from_port))
-
+                    cmds.append(c.format(cidr, from_port, to_port))
         else:
             acl_dict = self.aclCreateDict['del_in_acl_rule']
             if direction == 'egress':
