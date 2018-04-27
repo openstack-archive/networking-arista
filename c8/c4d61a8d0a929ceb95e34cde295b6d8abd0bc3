@@ -1,0 +1,9 @@
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Code-Review+1: garyk <gkotton@vmware.com>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Fri, 27 Apr 2018 15:18:25 +0000
+Reviewed-on: https://review.openstack.org/561004
+Project: openstack/networking-arista
+Branch: refs/heads/master
