@@ -2078,6 +2078,12 @@ class SyncService(object):
         """Sets the force_sync flag."""
         self._force_sync = True
 
+    def safe_synchronize(self):
+        try:
+            self.do_synchronize()
+        except Exception as e:
+            LOG.warning(e)
+
     def do_synchronize(self):
         """Periodically check whether EOS is in sync with ML2 driver.
 
