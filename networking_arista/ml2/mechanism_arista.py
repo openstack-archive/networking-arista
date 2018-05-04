@@ -554,7 +554,10 @@ class AristaDriver(driver_api.MechanismDriver):
 
     def _synchronization_thread(self):
         with self.eos_sync_lock:
-            self.eos.do_synchronize()
+            try:
+                self.eos.do_synchronize()
+            except Exception as e:
+                LOG.warning(e)
 
         self.timer = threading.Timer(self.sync_timeout,
                                      self._synchronization_thread)
