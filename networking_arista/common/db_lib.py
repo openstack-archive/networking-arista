@@ -16,6 +16,7 @@
 import collections
 
 from oslo_config import cfg
+from oslo_log import log as logging
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Query, aliased
 
@@ -35,6 +36,8 @@ from neutron.plugins.ml2 import models as ml2_models
 from neutron.services.trunk import models as trunk_models
 
 from networking_arista.common import utils
+
+LOG = logging.getLogger(__name__)
 
 
 def join_if_necessary(query, *args, **kwargs):
@@ -187,39 +190,42 @@ Query.filter_inactive_ports = filter_inactive_ports
 Query.filter_unnecessary_ports = filter_unnecessary_ports
 
 
-def get_tenants():
+def get_tenants(tenant_id=None):
     """Returns list of all project/tenant ids that may be relevant on CVX"""
     session = db.get_reader_session()
     project_ids = set()
     with session.begin():
-        network_model = models_v2.Network
-        project_ids |= set(pid[0] for pid in
-                           session.query(network_model.project_id).distinct())
-        port_model = models_v2.Port
-        project_ids |= set(pid[0] for pid in
-                           session.query(port_model.project_id).distinct())
+        for m in [models_v2.Network, models_v2.Port]:
+            q = session.query(m.project_id)
+            if tenant_id:
+                q = q.filter(m.project_id == tenant_id)
+            project_ids.update(pid[0] for pid in q.distinct())
     return [{'project_id': project_id} for project_id in project_ids]
 
 
-def get_networks():
+def get_networks(network_id=None):
     """Returns list of all networks that may be relevant on CVX"""
     session = db.get_reader_session()
     with session.begin():
         model = models_v2.Network
-        networks = (session.query(model)).all()
-    return networks
+        networks = session.query(model)
+        if network_id:
+            networks = networks.filter(model.id == network_id)
+    return networks.all()
 
 
-def get_segments():
+def get_segments(segment_id=None):
     """Returns list of all network segments that may be relevant on CVX"""
     session = db.get_reader_session()
     with session.begin():
         model = segment_models.NetworkSegment
         segments = session.query(model).filter_network_type()
-    return segments
+        if segment_id:
+            segments = segments.filter(model.id == segment_id)
+    return segments.all()
 
 
-def get_instances(device_owners=None, vnic_type=None):
+def get_instances(device_owners=None, vnic_type=None, instance_id=None):
     """Returns filtered list of all instances in the neutron db"""
     session = db.get_reader_session()
     with session.begin():
@@ -234,31 +240,36 @@ def get_instances(device_owners=None, vnic_type=None):
                      .distinct(port_model.device_id)
                      .group_by(port_model.device_id)
                      .filter_unnecessary_ports(device_owners, vnic_type))
+        if instance_id:
+            instances = instances.filter(port_model.device_id == instance_id)
     return instances.all()
 
 
-def get_dhcp_instances():
+def get_dhcp_instances(instance_id=None):
     """Returns filtered list of DHCP instances that may be relevant on CVX"""
-    return get_instances(device_owners=[n_const.DEVICE_OWNER_DHCP])
+    return get_instances(device_owners=[n_const.DEVICE_OWNER_DHCP],
+                         instance_id=instance_id)
 
 
-def get_router_instances():
+def get_router_instances(instance_id=None):
     """Returns filtered list of routers that may be relevant on CVX"""
-    return get_instances(device_owners=[n_const.DEVICE_OWNER_DVR_INTERFACE])
+    return get_instances(device_owners=[n_const.DEVICE_OWNER_DVR_INTERFACE],
+                         instance_id=instance_id)
 
 
-def get_vm_instances():
+def get_vm_instances(instance_id=None):
     """Returns filtered list of vms that may be relevant on CVX"""
     return get_instances(device_owners=[n_const.DEVICE_OWNER_COMPUTE_PREFIX],
-                         vnic_type=portbindings.VNIC_NORMAL)
+                         vnic_type=portbindings.VNIC_NORMAL,
+                         instance_id=instance_id)
 
 
-def get_baremetal_instances():
+def get_baremetal_instances(instance_id=None):
     """Returns filtered list of baremetals that may be relevant on CVX"""
     return get_instances(vnic_type=portbindings.VNIC_BAREMETAL)
 
 
-def get_ports(device_owners=None, vnic_type=None, active=True):
+def get_ports(device_owners=None, vnic_type=None, port_id=None, active=True):
     """Returns list of all ports in neutron the db"""
     session = db.get_reader_session()
     with session.begin():
@@ -266,31 +277,36 @@ def get_ports(device_owners=None, vnic_type=None, active=True):
         ports = (session
                  .query(port_model)
                  .filter_unnecessary_ports(device_owners, vnic_type, active))
+        if port_id:
+            ports = ports.filter(port_model.id == port_id)
     return ports.all()
 
 
-def get_dhcp_ports():
+def get_dhcp_ports(port_id=None):
     """Returns filtered list of DHCP instances that may be relevant on CVX"""
-    return get_ports(device_owners=[n_const.DEVICE_OWNER_DHCP])
+    return get_ports(device_owners=[n_const.DEVICE_OWNER_DHCP],
+                     port_id=port_id)
 
 
-def get_router_ports():
+def get_router_ports(port_id=None):
     """Returns filtered list of routers that may be relevant on CVX"""
-    return get_ports(device_owners=[n_const.DEVICE_OWNER_DVR_INTERFACE])
+    return get_ports(device_owners=[n_const.DEVICE_OWNER_DVR_INTERFACE],
+                     port_id=port_id)
 
 
-def get_vm_ports():
+def get_vm_ports(port_id=None):
     """Returns filtered list of vms that may be relevant on CVX"""
     return get_ports(device_owners=[n_const.DEVICE_OWNER_COMPUTE_PREFIX],
-                     vnic_type=portbindings.VNIC_NORMAL)
+                     vnic_type=portbindings.VNIC_NORMAL, port_id=port_id)
 
 
-def get_baremetal_ports():
+def get_baremetal_ports(port_id=None):
     """Returns filtered list of baremetals that may be relevant on CVX"""
-    return get_ports(vnic_type=portbindings.VNIC_BAREMETAL)
+    return get_ports(vnic_type=portbindings.VNIC_BAREMETAL,
+                     port_id=port_id)
 
 
-def get_port_bindings():
+def get_port_bindings(binding_key=None):
     """Returns filtered list of port bindings that may be relevant on CVX
 
     This query is a little complex as we need all binding levels for any
@@ -336,6 +352,27 @@ def get_port_bindings():
                                     aliased_blm.port_id,
                                     dist_binding_model.host ==
                                     aliased_blm.host)))
+        if binding_key:
+            port_id = binding_key[0]
+            if type(binding_key[1]) == tuple:
+                switch_id = binding_key[1][0]
+                switch_port = binding_key[1][1]
+                bindings = bindings.filter(and_(
+                    port_binding_model.port_id == port_id,
+                    port_binding_model.profile.ilike('%%%s%%' % switch_id),
+                    port_binding_model.profile.ilike('%%%s%%' % switch_port)))
+                dist_bindings = dist_bindings.filter(and_(
+                    dist_binding_model.port_id == port_id,
+                    dist_binding_model.profile.ilike('%%%s%%' % switch_id),
+                    dist_binding_model.profile.ilike('%%%s%%' % switch_port)))
+            else:
+                host_id = binding_key[1]
+                bindings = bindings.filter(and_(
+                    port_binding_model.port_id == port_id,
+                    port_binding_model.host == host_id))
+                dist_bindings = dist_bindings.filter(and_(
+                    dist_binding_model.port_id == port_id,
+                    dist_binding_model.host == host_id))
     binding_levels = collections.defaultdict(list)
     for binding, level in bindings.all() + dist_bindings.all():
         binding_levels[binding].append(level)
@@ -382,20 +419,18 @@ def segment_bound(segment_id):
     return res
 
 
-# # # BEGIN LEGACY DB LIBS # # #
-
-
-def tenant_provisioned(tid):
+def tenant_provisioned(tenant_id):
     """Returns true if any networks or ports exist for a tenant."""
     session = db.get_reader_session()
     with session.begin():
-        network_model = models_v2.Network
-        port_model = models_v2.Port
-        res = bool(
-            session.query(network_model).filter_by(tenant_id=tid).count() or
-            session.query(port_model).filter_by(tenant_id=tid).count()
+        res = any(
+            session.query(m).filter(m.tenant_id == tenant_id).count()
+            for m in [models_v2.Network, models_v2.Port]
         )
     return res
+
+
+# # # BEGIN LEGACY DB LIBS # # #
 
 
 def get_port_binding_level(filters):
