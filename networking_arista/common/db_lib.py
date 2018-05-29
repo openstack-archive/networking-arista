@@ -24,8 +24,8 @@ from sqlalchemy.orm import joinedload, Query, aliased
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from neutron_lib import context as nctx
+from neutron_lib.db import api as db
 
-import neutron.db.api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db.models.plugins.ml2 import vlanallocation
 from neutron.db.models import securitygroup as sg_models
