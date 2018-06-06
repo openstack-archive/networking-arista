@@ -91,6 +91,7 @@ class AristaSyncWorker(worker.BaseWorker):
         self.initialize()
         self.done = event.Event()
         self._running = True
+        LOG.info("Spawning Arista sync loop")
         self._thread = greenthread.spawn(self.sync_loop)
         self._thread.link(self._on_done)
 
@@ -244,7 +245,7 @@ class AristaSyncWorker(worker.BaseWorker):
                 if sync_required:
                     self.synchronize_resources()
             except Exception:
-                LOG.error("Arista Sync failed", exc_info=True)
+                LOG.exception("Arista Sync failed")
                 self._last_sec_gp_sync = 0
                 self._last_sync_time = 0
 

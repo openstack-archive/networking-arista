@@ -520,11 +520,11 @@ class AristaDhcpTest(AristaInstancesTestBase):
         expect_created = {'%s1' % id_base:
                           {'tenantId': 't1',
                            'dhcpHostId': 'host1',
-                           'dhcpInstanceId': '%s1' % id_base},
+                           'id': '%s1' % id_base},
                           '%s2' % id_base:
                           {'tenantId': 't2',
                            'dhcpHostId': 'host2',
-                           'dhcpInstanceId': '%s2' % id_base}}
+                           'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
     def test_dhcps_managed_physnets_scenario(self):
@@ -533,7 +533,7 @@ class AristaDhcpTest(AristaInstancesTestBase):
         expect_created = {'%s2' % id_base:
                           {'tenantId': 't2',
                            'dhcpHostId': 'host2',
-                           'dhcpInstanceId': '%s2' % id_base}}
+                           'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
 
@@ -549,11 +549,11 @@ class AristaRouterTest(AristaInstancesTestBase):
         expect_created = {'%s1' % id_base:
                           {'tenantId': 't1',
                            'routerHostId': 'distributed',
-                           'routerInstanceId': '%s1' % id_base},
+                           'id': '%s1' % id_base},
                           '%s2' % id_base:
                           {'tenantId': 't2',
                            'routerHostId': 'distributed',
-                           'routerInstanceId': '%s2' % id_base}}
+                           'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
     def test_routers_managed_physnets_scenario(self):
@@ -562,7 +562,7 @@ class AristaRouterTest(AristaInstancesTestBase):
         expect_created = {'%s2' % id_base:
                           {'tenantId': 't2',
                            'routerHostId': 'distributed',
-                           'routerInstanceId': '%s2' % id_base}}
+                           'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
 
@@ -578,11 +578,11 @@ class AristaVmTest(AristaInstancesTestBase):
         expect_created = {'%s1' % id_base:
                           {'tenantId': 't1',
                            'vmHostId': 'host1',
-                           'vmInstanceId': '%s1' % id_base},
+                           'id': '%s1' % id_base},
                           '%s2' % id_base:
                           {'tenantId': 't2',
                            'vmHostId': 'host2',
-                           'vmInstanceId': '%s2' % id_base}}
+                           'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
     def test_vms_managed_physnets_scenario(self):
@@ -591,7 +591,7 @@ class AristaVmTest(AristaInstancesTestBase):
         expect_created = {'%s2' % id_base:
                           {'tenantId': 't2',
                            'vmHostId': 'host2',
-                           'vmInstanceId': '%s2' % id_base}}
+                           'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
 
@@ -608,19 +608,19 @@ class AristaBaremetalTest(AristaInstancesTestBase):
         expect_created = {'%s1' % id_base:
                           {'tenantId': 't1',
                            'baremetalHostId': 'host1',
-                           'baremetalInstanceId': '%s1' % id_base},
+                           'id': '%s1' % id_base},
                           '%s2' % id_base:
                           {'tenantId': 't2',
                            'baremetalHostId': 'host2',
-                           'baremetalInstanceId': '%s2' % id_base},
+                           'id': '%s2' % id_base},
                           '%s1' % legacy_id_base:
                           {'tenantId': 't1',
                            'baremetalHostId': 'host1',
-                           'baremetalInstanceId': '%s1' % legacy_id_base},
+                           'id': '%s1' % legacy_id_base},
                           '%s2' % legacy_id_base:
                           {'tenantId': 't2',
                            'baremetalHostId': 'host2',
-                           'baremetalInstanceId': '%s2' % legacy_id_base}}
+                           'id': '%s2' % legacy_id_base}}
         self.run_scenario(expect_created)
 
     def test_baremetals_managed_physnets_scenario(self):
@@ -630,11 +630,11 @@ class AristaBaremetalTest(AristaInstancesTestBase):
         expect_created = {'%s2' % id_base:
                           {'tenantId': 't2',
                            'baremetalHostId': 'host2',
-                           'baremetalInstanceId': '%s2' % id_base},
+                           'id': '%s2' % id_base},
                           '%s2' % legacy_id_base:
                           {'tenantId': 't2',
                            'baremetalHostId': 'host2',
-                           'baremetalInstanceId': '%s2' % legacy_id_base}}
+                           'id': '%s2' % legacy_id_base}}
         self.run_scenario(expect_created)
 
 
