@@ -178,9 +178,9 @@ class AristaResourcesBase(object):
 
     @classmethod
     def format_for_create(cls, neutron_resource):
-        cvx_resource = dict()
-        cvx_resource.update(
-            attr.transform(neutron_resource) for attr in cls.formatter)
+        cvx_resource = dict(
+            attr.transform(neutron_resource) for attr in cls.formatter
+        )
         return {cvx_resource[cls.id_key]: cvx_resource}
 
     @classmethod
@@ -257,62 +257,57 @@ class Segments(AristaResourcesBase):
 
 class Dhcps(AristaResourcesBase):
 
-    formatter = [AttributeFormatter('device_id', 'dhcpInstanceId',
+    formatter = [AttributeFormatter('device_id', 'id',
                                     submodel='Port'),
                  AttributeFormatter('host', 'dhcpHostId',
                                     utils.hostname,
                                     submodel='PortBinding'),
                  AttributeFormatter('project_id', 'tenantId',
                                     submodel='Port')]
-    id_key = 'dhcpInstanceId'
     endpoint = 'region/%(region)s/dhcp'
     get_db_resources = staticmethod(db_lib.get_dhcp_instances)
 
 
 class Routers(AristaResourcesBase):
 
-    formatter = [AttributeFormatter('device_id', 'routerInstanceId',
+    formatter = [AttributeFormatter('device_id', 'id',
                                     submodel='Port'),
                  AttributeFormatter('device_owner', 'routerHostId',
                                     lambda *args: 'distributed',
                                     submodel='Port'),
                  AttributeFormatter('project_id', 'tenantId',
                                     submodel='Port')]
-    id_key = 'routerInstanceId'
     endpoint = 'region/%(region)s/router'
     get_db_resources = staticmethod(db_lib.get_router_instances)
 
 
 class Vms(AristaResourcesBase):
 
-    formatter = [AttributeFormatter('device_id', 'vmInstanceId',
+    formatter = [AttributeFormatter('device_id', 'id',
                                     submodel='Port'),
                  AttributeFormatter('host', 'vmHostId',
                                     utils.hostname,
                                     submodel='PortBinding'),
                  AttributeFormatter('project_id', 'tenantId',
                                     submodel='Port')]
-    id_key = 'vmInstanceId'
     endpoint = 'region/%(region)s/vm'
     get_db_resources = staticmethod(db_lib.get_vm_instances)
 
 
 class Baremetals(AristaResourcesBase):
 
-    formatter = [AttributeFormatter('device_id', 'baremetalInstanceId',
+    formatter = [AttributeFormatter('device_id', 'id',
                                     submodel='Port'),
                  AttributeFormatter('host', 'baremetalHostId',
                                     submodel='PortBinding'),
                  AttributeFormatter('project_id', 'tenantId',
                                     submodel='Port')]
-    id_key = 'baremetalInstanceId'
     endpoint = 'region/%(region)s/baremetal'
     get_db_resources = staticmethod(db_lib.get_baremetal_instances)
 
 
 class PortResourcesBase(AristaResourcesBase):
-
-    id_key = 'id'
+    pass
 
 
 class DhcpPorts(PortResourcesBase):
