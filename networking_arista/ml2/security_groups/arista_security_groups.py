@@ -31,7 +31,7 @@ LOG = logging.getLogger(__name__)
 
 class AristaSecurityGroupHandler(
         service_base.ServicePluginBase,
-        switch_helper.AristaSecurityGroupSwitchHelper):
+        switch_helper.AristaSecurityGroupCallbackHelper):
     """Security Group Handler for Arista networking hardware.
 
     Registers for the notification of security group updates.
@@ -52,7 +52,7 @@ class AristaSecurityGroupHandler(
         return "arista_security_group"
 
     def get_workers(self):
-        return security_group_sync.AristaSecurityGroupSyncWorker()
+        return [security_group_sync.AristaSecurityGroupSyncWorker()]
 
     @log_helpers.log_method_call
     def create_security_group(self, resource, event, trigger, **kwargs):

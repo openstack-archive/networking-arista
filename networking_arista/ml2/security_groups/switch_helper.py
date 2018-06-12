@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
+import json
 import re
 
 from neutron_lib import constants as n_const
@@ -22,6 +24,7 @@ from oslo_log import log as logging
 from networking_arista._i18n import _LI
 from networking_arista.common import api
 from networking_arista.common import constants as a_const
+from networking_arista.common import db_lib
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.common import utils
 
@@ -38,6 +41,7 @@ class AristaSecurityGroupSwitchHelper(object):
 
     def initialize_switch_endpoints(self):
         """Initialize endpoints for switch communication"""
+        self._allow_all_sgs = set()
         self._switches = {}
         self._port_group_info = {}
         self._validate_config()
@@ -51,6 +55,19 @@ class AristaSecurityGroupSwitchHelper(object):
                 switch_pass,
                 verify=False,
                 timeout=cfg.CONF.ml2_arista.conn_timeout)
+        self._check_dynamic_acl_support()
+
+    def _check_dynamic_acl_support(self):
+        """Log an error if any switches don't support dynamic ACLs"""
+        cmds = ['ip access-list openstack-test dynamic',
+                'no ip access-list openstack-test']
+        for switch_ip, switch_client in self._switches.items():
+            try:
+                self.run_openstack_sg_cmds(cmds)
+            except Exception:
+                LOG.error("Switch %s does not support dynamic ACLs. SG "
+                          "support will not be enabled on this switch.",
+                          switch_ip)
 
     def _validate_config(self):
         """Ensure at least one switch is configured"""
@@ -60,7 +77,7 @@ class AristaSecurityGroupSwitchHelper(object):
             LOG.exception(msg)
             raise arista_exc.AristaConfigError(msg=msg)
 
-    def _run_openstack_sg_cmds(self, commands, switch):
+    def run_openstack_sg_cmds(self, commands, switch):
         """Execute/sends a CAPI (Command API) command to EOS.
 
         In this method, list of commands is appended with prefix and
@@ -69,6 +86,9 @@ class AristaSecurityGroupSwitchHelper(object):
         :param commands : List of command to be executed on EOS.
         :param switch: Endpoint on the Arista switch to be configured
         """
+        if not switch:
+            LOG.exception("No client found for switch")
+            return []
         if len(commands) == 0:
             return []
         command_start = ['enable', 'configure']
@@ -99,27 +119,6 @@ class AristaSecurityGroupSwitchHelper(object):
                    {'cmd': commands, 'host': switch})
             LOG.exception(msg)
 
-    def run_cmds_on_all_switches(self, cmds):
-        """Runs all cmds on all configured switches
-
-        This helper is used for ACL and rule creation/deletion as ACLs
-        and rules must exist on all switches.
-        """
-        for switch in self._switches.values():
-            self._run_openstack_sg_cmds(cmds, switch)
-
-    def run_per_switch_cmds(self, switch_cmds):
-        """Applies cmds to appropriate switches
-
-        This takes in a switch->cmds mapping and runs only the set of cmds
-        specified for a switch on that switch. This helper is used for
-        applying/removing ACLs to/from interfaces as this config will vary
-        from switch to switch.
-        """
-        for switch_ip, cmds in switch_cmds.items():
-            switch = self._switches[switch_ip]
-            self._run_openstack_sg_cmds(cmds, switch)
-
     @staticmethod
     def _acl_name(name, direction):
         """Generate an arista specific name for this ACL.
@@ -131,21 +130,18 @@ class AristaSecurityGroupSwitchHelper(object):
         direction = direction.upper()
         return 'SG' + '-' + direction + '-' + name
 
-    def _get_switches(self, profile):
-        """Get set of switches referenced in a port binding profile"""
-        switchports = self._get_switchports(profile)
-        switches = set([switchport[0] for switchport in switchports])
-        return switches
-
     @staticmethod
     def _get_switchports(profile):
         """Return list of (switch_ip, interface) tuples from local_link_info"""
         switchports = []
         if profile.get('local_link_information'):
             for link in profile['local_link_information']:
-                switch = link['switch_info']
-                interface = link['port_id']
-                switchports.append((switch, interface))
+                if 'switch_info' in link and 'port_id' in link:
+                    switch = link['switch_info']
+                    interface = link['port_id']
+                    switchports.append((switch, interface))
+                else:
+                    LOG.warning("Incomplete link information: %s", link)
         return switchports
 
     def _update_port_group_info(self, switches=None):
@@ -153,7 +149,7 @@ class AristaSecurityGroupSwitchHelper(object):
         if switches is None:
             switches = self._switches.keys()
         for switch_ip in switches:
-            client = self._switches[switch_ip]
+            client = self._switches.get(switch_ip)
             ret = self._run_eos_cmds(['show interfaces'], client)
             if not ret or len(ret) == 0:
                 LOG.warning("Unable to retrieve interface info for %s",
@@ -238,19 +234,47 @@ class AristaSecurityGroupSwitchHelper(object):
                 eg_rules.append(formatted_rule)
         return in_rules, eg_rules
 
+
+class AristaSecurityGroupCallbackHelper(AristaSecurityGroupSwitchHelper):
+
+    def run_cmds_on_all_switches(self, cmds):
+        """Runs all cmds on all configured switches
+
+        This helper is used for ACL and rule creation/deletion as ACLs
+        and rules must exist on all switches.
+        """
+        for switch in self._switches.values():
+            self.run_openstack_sg_cmds(cmds, switch)
+
+    def run_per_switch_cmds(self, switch_cmds):
+        """Applies cmds to appropriate switches
+
+        This takes in a switch->cmds mapping and runs only the set of cmds
+        specified for a switch on that switch. This helper is used for
+        applying/removing ACLs to/from interfaces as this config will vary
+        from switch to switch.
+        """
+        for switch_ip, cmds in switch_cmds.items():
+            switch = self._switches.get(switch_ip)
+            self.run_openstack_sg_cmds(cmds, switch)
+
+    def _get_switches(self, profile):
+        """Get set of switches referenced in a port binding profile"""
+        switchports = self._get_switchports(profile)
+        switches = set([switchport[0] for switchport in switchports])
+        return switches
+
     def get_create_security_group_commands(self, sg_id, sg_rules):
         """Commands for creating ACL"""
         cmds = []
         in_rules, eg_rules = self._format_rules_for_eos(sg_rules)
-        cmds.append("ip access-list %s" %
+        cmds.append("ip access-list %s dynamic" %
                     self._acl_name(sg_id, n_const.INGRESS_DIRECTION))
-        cmds.append("no 1-$")
         for in_rule in in_rules:
             cmds.append(in_rule)
         cmds.append("exit")
-        cmds.append("ip access-list %s" %
+        cmds.append("ip access-list %s dynamic" %
                     self._acl_name(sg_id, n_const.EGRESS_DIRECTION))
-        cmds.append("no 1-$")
         for eg_rule in eg_rules:
             cmds.append(eg_rule)
         cmds.append("exit")
@@ -273,13 +297,13 @@ class AristaSecurityGroupSwitchHelper(object):
         in_rules, eg_rules = self._format_rules_for_eos([sg_rule])
         cmds = []
         if in_rules:
-            cmds.append("ip access-list %s" %
+            cmds.append("ip access-list %s dynamic" %
                         self._acl_name(sg_id, n_const.INGRESS_DIRECTION))
             for in_rule in in_rules:
                 cmds.append(rule_prefix + in_rule)
             cmds.append("exit")
         if eg_rules:
-            cmds.append("ip access-list %s" %
+            cmds.append("ip access-list %s dynamic" %
                         self._acl_name(sg_id, n_const.EGRESS_DIRECTION))
             for eg_rule in eg_rules:
                 cmds.append(rule_prefix + eg_rule)
@@ -324,3 +348,176 @@ class AristaSecurityGroupSwitchHelper(object):
     def get_remove_security_group_commands(self, sg_id, profile):
         """Commands for removing ACL from interface"""
         return self._get_interface_commands(sg_id, profile, delete=True)
+
+
+class AristaSecurityGroupSyncHelper(AristaSecurityGroupSwitchHelper):
+
+    def _parse_acl_config(self, acl_config):
+        """Parse configured ACLs and rules
+
+        ACLs are returned as a dict of rule sets:
+        {<eos_acl1_name>: set([<eos_acl1_rules>]),
+         <eos_acl2_name>: set([<eos_acl2_rules>]),
+         ...,
+        }
+        """
+        parsed_acls = dict()
+        for acl in acl_config['aclList']:
+            parsed_acls[acl['name']] = set()
+            for rule in acl['sequence']:
+                parsed_acls[acl['name']].add(rule['text'])
+        return parsed_acls
+
+    def _parse_binding_config(self, binding_config):
+        """Parse configured interface -> ACL bindings
+
+        Bindings are returned as a set of (intf, name, direction) tuples:
+        set([(intf1, acl_name, direction),
+             (intf2, acl_name, direction),
+             ...,
+        ])
+        """
+        parsed_bindings = set()
+        for acl in binding_config['aclList']:
+            for intf in acl['configuredIngressIntfs']:
+                parsed_bindings.add((intf['name'], acl['name'],
+                                     a_const.INGRESS_DIRECTION))
+            for intf in acl['configuredEgressIntfs']:
+                parsed_bindings.add((intf['name'], acl['name'],
+                                     a_const.EGRESS_DIRECTION))
+        return parsed_bindings
+
+    def _get_dynamic_acl_info(self, switch_ip):
+        """Retrieve ACLs, ACLs rules and interface bindings from switch"""
+        cmds = ["enable",
+                "show ip access-lists dynamic",
+                "show ip access-lists summary dynamic"]
+        switch = self._switches.get(switch_ip)
+
+        _, acls, bindings = self._run_eos_cmds(cmds, switch)
+
+        parsed_acls = self._parse_acl_config(acls)
+        parsed_bindings = self._parse_binding_config(bindings)
+
+        return parsed_acls, parsed_bindings
+
+    def get_expected_acls(self):
+        """Query the neutron DB for Security Groups and Rules
+
+        Groups and rules are returned as a dict of rule sets:
+        {<eos_acl1_name>: set([<eos_acl1_rules>]),
+         <eos_acl2_name>: set([<eos_acl2_rules>]),
+         ...,
+        }
+        """
+        security_groups = db_lib.get_security_groups()
+
+        expected_acls = collections.defaultdict(set)
+        for sg in security_groups:
+            in_rules, out_rules = self._format_rules_for_eos(sg['rules'])
+            ingress_acl_name = self._acl_name(sg['id'],
+                                              n_const.INGRESS_DIRECTION)
+            egress_acl_name = self._acl_name(sg['id'],
+                                             n_const.EGRESS_DIRECTION)
+            expected_acls[ingress_acl_name].update(in_rules)
+            expected_acls[egress_acl_name].update(out_rules)
+        return expected_acls
+
+    def get_expected_bindings(self):
+        """Query the neutron DB for SG->switch interface bindings
+
+        Bindings are returned as a dict of bindings for each switch:
+        {<switch1>: set([(intf1, acl_name, direction),
+                         (intf2, acl_name, direction)]),
+         <switch2>: set([(intf1, acl_name, direction)]),
+         ...,
+        }
+        """
+        sg_bindings = db_lib.get_baremetal_sg_bindings()
+
+        all_expected_bindings = collections.defaultdict(set)
+        for sg_binding, port_binding in sg_bindings:
+            sg_id = sg_binding['security_group_id']
+            try:
+                binding_profile = json.loads(port_binding.profile)
+            except ValueError:
+                binding_profile = {}
+            switchports = self._get_switchports(binding_profile)
+            for switch, intf in switchports:
+                ingress_name = self._acl_name(sg_id, n_const.INGRESS_DIRECTION)
+                egress_name = self._acl_name(sg_id, n_const.EGRESS_DIRECTION)
+                all_expected_bindings[switch].add(
+                    (intf, ingress_name, a_const.INGRESS_DIRECTION))
+                all_expected_bindings[switch].add(
+                    (intf, egress_name, a_const.EGRESS_DIRECTION))
+        return all_expected_bindings
+
+    def adjust_bindings_for_lag(self, switch_ip, bindings):
+        """Adjusting interface names for expected bindings where LAGs exist"""
+
+        # Get latest LAG info for switch
+        self._update_port_group_info([switch_ip])
+
+        # Update bindings to account for LAG info
+        adjusted_bindings = set()
+        for binding in bindings:
+            adjusted_bindings.add(
+                (self._get_port_for_acl(binding[0], switch_ip),) + binding[1:])
+        return adjusted_bindings
+
+    def get_sync_acl_cmds(self, switch_acls, expected_acls):
+        """Returns the list of commands required synchronize switch ACLs
+
+        1. Identify unexpected ACLs and delete them
+        2. Iterate over expected ACLs
+           a. Add missing ACLs + all rules
+           b. Delete unexpected rules
+           c. Add missing rules
+        """
+        switch_cmds = list()
+
+        # Delete any stale ACLs
+        acls_to_delete = (set(switch_acls.keys()) - set(expected_acls.keys()))
+        for acl in acls_to_delete:
+            switch_cmds.append('no ip access-list %s' % acl)
+
+        # Update or create ACLs and rules
+        for acl, expected_rules in expected_acls.items():
+            switch_rules = switch_acls.get(acl, set())
+            rules_to_delete = switch_rules - expected_rules
+            rules_to_add = expected_rules - switch_rules
+            # Check if ACL requires create or rule changes
+            if (acl in switch_acls and
+                    len(rules_to_add | rules_to_delete) == 0):
+                continue
+            switch_cmds.append('ip access-list %s dynamic' % acl)
+            # Delete any stale rules
+            for rule in rules_to_delete:
+                switch_cmds.append('no ' + rule)
+            # Add any missing rules
+            for rule in rules_to_add:
+                switch_cmds.append(rule)
+                switch_cmds.append('exit')
+        return switch_cmds
+
+    def get_sync_binding_cmds(self, switch_bindings, expected_bindings):
+        """Returns the list of commands required to synchronize ACL bindings
+
+        1. Delete any unexpected bindings
+        2. Add any missing bindings
+        """
+        switch_cmds = list()
+
+        # Update any necessary switch interface ACLs
+        bindings_to_delete = switch_bindings - expected_bindings
+        bindings_to_add = expected_bindings - switch_bindings
+        for intf, acl, direction in bindings_to_delete:
+            switch_cmds.extend(['interface %s' % intf,
+                                'no ip access-group %s %s' %
+                                (acl, direction),
+                                'exit'])
+        for intf, acl, direction in bindings_to_add:
+            switch_cmds.extend(['interface %s' % intf,
+                                'ip access-group %s %s' % (acl, direction),
+                                'exit'])
+        return switch_cmds

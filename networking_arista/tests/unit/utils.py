@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
 import json
+import re
 
 from oslo_log import log as logging
 
@@ -27,6 +29,7 @@ from neutron.services.trunk import constants as t_const
 from neutron.services.trunk import models as t_models
 
 from networking_arista.common import config  # noqa
+from networking_arista.common import constants as a_const
 from networking_arista.ml2 import arista_resources as resources
 
 LOG = logging.getLogger(__name__)
@@ -38,7 +41,6 @@ def setup_arista_wrapper_config(cfg, host='host', user='user'):
     cfg.CONF.set_override('sync_interval', 1, "ml2_arista")
     cfg.CONF.set_override('conn_timeout', 20, "ml2_arista")
     cfg.CONF.set_override('switch_info', ['switch1:user:pass'], "ml2_arista")
-    cfg.CONF.set_override('sec_group_support', False, "ml2_arista")
 
 
 class MockCvx(object):
@@ -95,9 +97,80 @@ class MockSwitch(object):
 
     def __init__(self):
         self._commands = []
+        self._acl_rules = dict()
+        self._bindings = defaultdict(lambda: defaultdict(set))
+        self._acl_mode_re = re.compile('^(?P<delete>no )?ip access-list '
+                                       '(?P<acl>\S+)(?P<dyn> dynamic)?$')
+        self._interface_mode_re = re.compile('^interface (?P<intf>\S+)$')
+        self._access_group_re = re.compile('^(?P<delete>no )?ip access-group'
+                                           ' (?P<acl>\S+) (?P<dir>\S+)$')
+        self._mode = None
 
     def execute(self, commands, commands_to_log=None):
-        self._commands.extend(commands)
+        ret = []
+        for command in commands:
+            if command == 'show ip access-lists dynamic':
+                acls = {'aclList': []}
+                for name, rules in self._acl_rules.items():
+                    acls['aclList'].append(
+                        {'name': name,
+                         'sequence': [{'text': rule} for rule in rules]})
+                ret.append(acls)
+            elif command == 'show ip access-lists summary dynamic':
+                bindings = {'aclList': []}
+                for acl, binding in self._bindings.items():
+                    bindings['aclList'].append(
+                        {'name': acl,
+                         'configuredIngressIntfs': [
+                             {'name': intf} for intf in
+                             binding.get(a_const.INGRESS_DIRECTION, [])],
+                         'configuredEgressIntfs': [
+                             {'name': intf} for intf in
+                             binding.get(a_const.EGRESS_DIRECTION, [])]})
+                ret.append(bindings)
+            elif command == 'enable':
+                ret.append({})
+            elif 'show' in command:
+                pass
+            elif 'ip access-list' in command:
+                acl_match = self._acl_mode_re.match(command)
+                acl = acl_match.group('acl')
+                delete = acl_match.group('delete')
+                if delete:
+                    del self._acl_rules[acl]
+                else:
+                    assert acl_match.group('dyn'), "All ACLs must be dynamic"
+                    self._mode = ('acl', acl)
+                    if not self._acl_rules.get(acl):
+                        self._acl_rules[acl] = list()
+            elif 'interface' in command:
+                intf = self._interface_mode_re.match(command).group('intf')
+                self._mode = ('interface', intf)
+            elif command == 'exit':
+                self._mode = None
+            else:
+                if self._mode:
+                    if self._mode[0] == 'acl':
+                        if command.startswith('no '):
+                            self._acl_rules[self._mode[1]].remove(command[3:])
+                        else:
+                            self._acl_rules[self._mode[1]].append(command)
+                    elif self._mode[0] == 'interface':
+                        acl_match = self._access_group_re.match(command)
+                        delete = acl_match.group('delete')
+                        acl = acl_match.group('acl')
+                        direction = acl_match.group('dir')
+                        if delete:
+                            self._bindings[acl][direction].remove(
+                                self._mode[1])
+                        else:
+                            # Delete the old binding for this intf if nec.
+                            for binding in self._bindings.values():
+                                if self._mode[1] in binding[direction]:
+                                    binding[direction].remove(self._mode[1])
+                            self._bindings[acl][direction].add(self._mode[1])
+            self._commands.append(command)
+        return ret
 
     @property
     def received_commands(self):
@@ -105,6 +178,11 @@ class MockSwitch(object):
 
     def clear_received_commands(self):
         self._commands = []
+
+    def reset_switch(self):
+        self._commands = []
+        self._acl_rules = dict()
+        self._bindings = defaultdict(lambda: defaultdict(set))
 
 
 # Network utils #

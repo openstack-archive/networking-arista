@@ -49,7 +49,6 @@ class MechTestBase(test_plugin.Ml2PluginV2TestCase):
     def get_additional_service_plugins(self):
         p = super(MechTestBase, self).get_additional_service_plugins()
         p.update({'trunk_plugin_name': 'trunk'})
-        p.update({'arista_security_group_plugin': 'arista_security_group'})
         return p
 
     def setUp(self):
