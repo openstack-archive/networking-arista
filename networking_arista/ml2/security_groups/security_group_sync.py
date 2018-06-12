@@ -13,14 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
-
 from neutron_lib import worker
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_service import loopingcall
 
-from networking_arista.common import db_lib
 from networking_arista.ml2.security_groups import switch_helper
 
 LOG = logging.getLogger(__name__)
@@ -28,7 +25,7 @@ LOG = logging.getLogger(__name__)
 
 class AristaSecurityGroupSyncWorker(
         worker.BaseWorker,
-        switch_helper.AristaSecurityGroupSwitchHelper):
+        switch_helper.AristaSecurityGroupSyncHelper):
     """Worker that handles synchronizing Security Group ACLs on Arista switches
 
     The worker periodically queries the neutron db and sends all security
@@ -63,50 +60,48 @@ class AristaSecurityGroupSyncWorker(
         self.wait()
         self.start()
 
-    def update_switch_commands(self, full_switch_cmds, sg_id, profile):
-        """Add port's SG bindings to existing per switch cmds
+    def synchronize_switch(self, switch_ip, expected_acls, expected_bindings):
+        """Update ACL config on a switch to match expected config
 
-        This is an optimization to configure all interfaces on a switch
-        with a single eAPI call, rather than one call per security group
-        binding.
+        This is done as follows:
+        1. Get switch ACL config using show commands
+        2. Update expected bindings based on switch LAGs
+        3. Get commands to synchronize switch ACLs
+        4. Get commands to synchronize switch ACL bindings
+        5. Run sync commands on switch
         """
-        new_cmds = self.get_apply_security_group_commands(sg_id, profile)
-        for switch_ip, cmds in new_cmds.items():
-            if switch_ip not in full_switch_cmds:
-                full_switch_cmds[switch_ip] = []
-            full_switch_cmds[switch_ip].extend(cmds)
-        return full_switch_cmds
+
+        # Get ACL rules and interface mappings from the switch
+        switch_acls, switch_bindings = self._get_dynamic_acl_info(switch_ip)
+
+        # Adjust expected bindings for switch LAG config
+        expected_bindings = self.adjust_bindings_for_lag(switch_ip,
+                                                         expected_bindings)
+        # Get synchronization commands
+        switch_cmds = list()
+        switch_cmds.extend(
+            self.get_sync_acl_cmds(switch_acls, expected_acls))
+        switch_cmds.extend(
+            self.get_sync_binding_cmds(switch_bindings, expected_bindings))
+
+        # Update switch config
+        self.run_openstack_sg_cmds(switch_cmds, self._switches.get(switch_ip))
 
     def synchronize(self):
-        """Perform sync of the security groups between ML2 and EOS.
+        """Perform sync of the security groups between ML2 and EOS."""
 
-        This is unconditional sync to ensure that all security
-        ACLs are pushed to all the switches, in case of switch
-        or neutron reboot.
+        # Get expected ACLs and rules
+        expected_acls = self.get_expected_acls()
 
-        There is a known limitation in that stale groups, rules
-        and bindings are never cleaned up.
-        """
-        security_groups = db_lib.get_security_groups()
-        sg_bindings = db_lib.get_baremetal_sg_bindings()
+        # Get expected interface to ACL mappings
+        all_expected_bindings = self.get_expected_bindings()
 
-        # Ensure that all SGs have default deny for ingress and egress
-        cmds = []
-        for sg in security_groups:
-            cmds.extend(self.get_create_security_group_commands(sg['id'],
-                                                                sg['rules']))
-        self.run_cmds_on_all_switches(cmds)
-
-        self._update_port_group_info()
-
-        # Apply appropriate ACLs to baremetal connected ports
-        switch_cmds = {}
-        for sg_binding, port_binding in sg_bindings:
-            sg_id = sg_binding['security_group_id']
+        # Check that config is correct on every registered switch
+        for switch_ip in self._switches.keys():
+            expected_bindings = all_expected_bindings.get(switch_ip, [])
             try:
-                binding_profile = json.loads(port_binding.profile)
-            except ValueError:
-                binding_profile = {}
-            switch_cmds = self.update_switch_commands(switch_cmds, sg_id,
-                                                      binding_profile)
-        self.run_per_switch_cmds(switch_cmds)
+                self.synchronize_switch(switch_ip, expected_acls,
+                                        expected_bindings)
+            except Exception:
+                LOG.exception("Failed to sync SGs for %(switch)s",
+                              {'switch': switch_ip})

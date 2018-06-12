@@ -21,6 +21,11 @@ from networking_arista.tests.unit import utils
 
 class SecurityGroupTestBase(ml2_test_base.MechTestBase):
 
+    def get_additional_service_plugins(self):
+        p = super(SecurityGroupTestBase, self).get_additional_service_plugins()
+        p.update({'arista_security_group_plugin': 'arista_security_group'})
+        return p
+
     def setUp(self):
         super(SecurityGroupTestBase, self).setUp()
         self.arista_sec_gp_plugin = directory.get_plugin(
