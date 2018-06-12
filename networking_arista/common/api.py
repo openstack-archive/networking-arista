@@ -118,17 +118,21 @@ class EAPIClient(object):
         except ValueError as e:
             LOG.info(_LI('Ignoring invalid JSON response'))
         except KeyError:
+            eapi_msg = ''
             if 'error' in resp_data and resp_data['error']['code'] == 1002:
+                if 'message' in resp_data['error']:
+                    eapi_msg = resp_data['error']['message']
                 for d in resp_data['error']['data']:
+                    LOG.error(d)
                     if not isinstance(d, dict):
                         continue
-                    elif ERR_CVX_NOT_LEADER in d.get('errors', {})[0]:
+                    elif ERR_CVX_NOT_LEADER in d.get('errors', [''])[0]:
                         LOG.info(
                             _LI('%(ip)s is not the CVX leader'),
                             {'ip': self.host}
                         )
                         return
-            msg = _LI('Unexpected EAPI error')
+            msg = 'Unexpected EAPI error %s' % eapi_msg
             LOG.info(msg)
             raise arista_exc.AristaRpcError(msg=msg)
         except Exception as e:
