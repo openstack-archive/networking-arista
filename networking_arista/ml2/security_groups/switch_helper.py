@@ -245,11 +245,13 @@ class AristaSecurityGroupSwitchHelper(object):
         in_rules, out_rules = self._format_rules_for_eos(sg_rules)
         cmds.append("ip access-list %s" %
                     self._acl_name(sg_id, n_const.INGRESS_DIRECTION))
+        cmds.append("no 1-$")
         for in_rule in in_rules:
             cmds.append(in_rule)
         cmds.append("exit")
         cmds.append("ip access-list %s" %
                     self._acl_name(sg_id, n_const.EGRESS_DIRECTION))
+        cmds.append("no 1-$")
         for out_rule in out_rules:
             cmds.append(out_rule)
         cmds.append("exit")
