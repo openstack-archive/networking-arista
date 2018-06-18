@@ -31,8 +31,10 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
             'enable',
             'configure',
             'ip access-list SG-IN-%s' % grp['id'],
+            'no 1-$',
             'exit',
             'ip access-list SG-OUT-%s' % grp['id'],
+            'no 1-$',
             'exit',
             'exit']
         for switch in self.switches.values():
