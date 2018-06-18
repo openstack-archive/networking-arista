@@ -58,7 +58,7 @@ ARISTA_DRIVER_OPTS = [
                       'field. If not set, a value of 30 seconds is '
                       'assumed.')),
     cfg.IntOpt('conn_timeout',
-               default=10,
+               default=60,
                help=_('Connection timeout interval in seconds. This interval '
                       'defines how long an EAPI request from the driver to '
                       'EOS waits before timing out. If not set, a value of 10 '
