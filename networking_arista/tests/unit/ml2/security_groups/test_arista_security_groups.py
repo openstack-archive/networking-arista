@@ -30,9 +30,9 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-IN-%s' % grp['id'],
+            'ip access-list SG-INGRESS-%s' % grp['id'],
             'exit',
-            'ip access-list SG-OUT-%s' % grp['id'],
+            'ip access-list SG-EGRESS-%s' % grp['id'],
             'exit',
             'exit']
         for switch in self.switches.values():
@@ -52,8 +52,8 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'no ip access-list SG-IN-%s' % grp['id'],
-            'no ip access-list SG-OUT-%s' % grp['id'],
+            'no ip access-list SG-INGRESS-%s' % grp['id'],
+            'no ip access-list SG-EGRESS-%s' % grp['id'],
             'exit']
         for switch in self.switches.values():
             self.assertEqual(expected_eapi_commands,
@@ -67,7 +67,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-IN-%s' % grp_id,
+            'ip access-list SG-INGRESS-%s' % grp_id,
             'permit %s %s any' % (proto, cidr),
             'exit',
             'exit']
@@ -83,7 +83,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'permit %s any %s' % (proto, cidr),
             'exit',
             'exit']
@@ -99,7 +99,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'permit %s any %s' % (proto, cidr),
             'exit',
             'exit']
@@ -115,7 +115,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'permit %s any %s' % (proto, cidr),
             'exit',
             'exit']
@@ -134,7 +134,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'permit %s any %s range %s %s' % (proto, cidr,
                                               range_min, range_max),
             'exit',
@@ -151,7 +151,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'permit %s any %s' % (proto, cidr),
             'exit',
             'exit']
@@ -168,7 +168,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'permit %s any %s %s' % (proto, cidr, message_type),
             'exit',
             'exit']
@@ -187,7 +187,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'permit %s any %s %s %s' % (proto, cidr, message_type,
                                         message_code),
             'exit',
@@ -204,7 +204,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'permit %s any any' % proto,
             'exit',
             'exit']
@@ -233,7 +233,7 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
         expected_eapi_commands = [
             'enable',
             'configure',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'no permit %s any %s' % (proto, cidr),
             'exit',
             'exit']
@@ -275,8 +275,8 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
             'enable',
             'configure',
             'interface %s' % switch_port,
-            'ip access-group SG-IN-%s in' % grp_id,
-            'ip access-group SG-OUT-%s out' % grp_id,
+            'ip access-group SG-INGRESS-%s out' % grp_id,
+            'ip access-group SG-EGRESS-%s in' % grp_id,
             'exit',
             'exit']
         # SGs are applied on binding and on status DOWN->UP,
@@ -322,8 +322,8 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
             'enable',
             'configure',
             'interface %s' % port_channel,
-            'ip access-group SG-IN-%s in' % grp_id,
-            'ip access-group SG-OUT-%s out' % grp_id,
+            'ip access-group SG-INGRESS-%s out' % grp_id,
+            'ip access-group SG-EGRESS-%s in' % grp_id,
             'exit',
             'exit']
         # SGs are applied on binding and on status DOWN->UP,
@@ -374,8 +374,8 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
             'enable',
             'configure',
             'interface %s' % port_channel,
-            'ip access-group SG-IN-%s in' % grp_id,
-            'ip access-group SG-OUT-%s out' % grp_id,
+            'ip access-group SG-INGRESS-%s out' % grp_id,
+            'ip access-group SG-EGRESS-%s in' % grp_id,
             'exit',
             'exit']
         # SGs are applied on binding and on status DOWN->UP,
@@ -421,8 +421,8 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
             'enable',
             'configure',
             'interface %s' % switch_port,
-            'no ip access-group SG-IN-%s in' % grp_id,
-            'no ip access-group SG-OUT-%s out' % grp_id,
+            'no ip access-group SG-INGRESS-%s out' % grp_id,
+            'no ip access-group SG-EGRESS-%s in' % grp_id,
             'exit',
             'exit']
         self.assertEqual(expected_eapi_commands,
@@ -466,8 +466,8 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
             'enable',
             'configure',
             'interface %s' % port_channel,
-            'no ip access-group SG-IN-%s in' % grp_id,
-            'no ip access-group SG-OUT-%s out' % grp_id,
+            'no ip access-group SG-INGRESS-%s out' % grp_id,
+            'no ip access-group SG-EGRESS-%s in' % grp_id,
             'exit',
             'exit']
         self.assertEqual(expected_eapi_commands,
@@ -516,8 +516,8 @@ class SecurityGroupCallbacksTestCase(sg_test_base.SecurityGroupTestBase):
             'enable',
             'configure',
             'interface %s' % port_channel,
-            'no ip access-group SG-IN-%s in' % grp_id,
-            'no ip access-group SG-OUT-%s out' % grp_id,
+            'no ip access-group SG-INGRESS-%s out' % grp_id,
+            'no ip access-group SG-EGRESS-%s in' % grp_id,
             'exit',
             'exit']
         self.assertEqual(expected_eapi_commands,

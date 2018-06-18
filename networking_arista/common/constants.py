@@ -51,6 +51,10 @@ ALL_RESOURCE_TYPES = [TENANT_RESOURCE,
 INTERNAL_TENANT_ID = 'INTERNAL-TENANT-ID'
 MECHANISM_DRV_NAME = 'arista'
 
+# SG Constants
+INGRESS_DIRECTION = 'out'
+EGRESS_DIRECTION = 'in'
+
 # EAPI error messages of interest
 EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
 ERR_CVX_NOT_LEADER = _('Only available on cluster leader')
