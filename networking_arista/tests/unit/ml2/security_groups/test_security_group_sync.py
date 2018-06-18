@@ -126,42 +126,42 @@ class SecurityGroupSyncTestCase(sg_test_base.SecurityGroupTestBase):
             switch.clear_received_commands()
         self.sync_worker.synchronize()
         switch1_expected_cmd_seqs = [
-            ['ip access-list SG-IN-%s' % grp1_id,
+            ['ip access-list SG-INGRESS-%s' % grp1_id,
              'exit'],
-            ['ip access-list SG-OUT-%s' % grp1_id,
+            ['ip access-list SG-EGRESS-%s' % grp1_id,
              'permit %s any %s' % (proto1, cidr),
              'permit %s any %s' % (proto2, cidr),
              'exit'],
-            ['ip access-list SG-IN-%s' % grp2_id,
+            ['ip access-list SG-INGRESS-%s' % grp2_id,
              'permit %s %s any' % (proto1, cidr),
              'permit %s %s any' % (proto2, cidr),
              'exit'],
-            ['ip access-list SG-OUT-%s' % grp2_id,
+            ['ip access-list SG-EGRESS-%s' % grp2_id,
              'exit'],
             ['interface %s' % switch_port1,
-             'ip access-group SG-IN-%s in' % grp1_id,
-             'ip access-group SG-OUT-%s out' % grp1_id,
+             'ip access-group SG-INGRESS-%s out' % grp1_id,
+             'ip access-group SG-EGRESS-%s in' % grp1_id,
              'exit'],
             ['interface %s' % port_channel,
-             'ip access-group SG-IN-%s in' % grp2_id,
-             'ip access-group SG-OUT-%s out' % grp2_id,
+             'ip access-group SG-INGRESS-%s out' % grp2_id,
+             'ip access-group SG-EGRESS-%s in' % grp2_id,
              'exit']]
         switch2_expected_cmd_seqs = [
-            ['ip access-list SG-IN-%s' % grp1_id,
+            ['ip access-list SG-INGRESS-%s' % grp1_id,
              'exit'],
-            ['ip access-list SG-OUT-%s' % grp1_id,
+            ['ip access-list SG-EGRESS-%s' % grp1_id,
              'permit %s any %s' % (proto1, cidr),
              'permit %s any %s' % (proto2, cidr),
              'exit'],
-            ['ip access-list SG-IN-%s' % grp2_id,
+            ['ip access-list SG-INGRESS-%s' % grp2_id,
              'permit %s %s any' % (proto1, cidr),
              'permit %s %s any' % (proto2, cidr),
              'exit'],
-            ['ip access-list SG-OUT-%s' % grp2_id,
+            ['ip access-list SG-EGRESS-%s' % grp2_id,
              'exit'],
             ['interface %s' % port_channel,
-             'ip access-group SG-IN-%s in' % grp2_id,
-             'ip access-group SG-OUT-%s out' % grp2_id,
+             'ip access-group SG-INGRESS-%s out' % grp2_id,
+             'ip access-group SG-EGRESS-%s in' % grp2_id,
              'exit']]
         for cmd_seq in switch1_expected_cmd_seqs:
             self.assertCmdSequenceReceived(cmd_seq,
@@ -198,9 +198,9 @@ class SecurityGroupSyncTestCase(sg_test_base.SecurityGroupTestBase):
         expected_cmds = [
             'enable',
             'configure',
-            'ip access-list SG-IN-%s' % grp_id,
+            'ip access-list SG-INGRESS-%s' % grp_id,
             'exit',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'permit %s any %s' % (proto, cidr),
             'exit',
             'exit',
@@ -244,10 +244,10 @@ class SecurityGroupSyncTestCase(sg_test_base.SecurityGroupTestBase):
         # that neither group was applied
         unexpected_cmds = [
             'interface %s' % switch_port,
-            'ip access-group SG-IN-%s in' % grp1_id,
-            'ip access-group SG-OUT-%s out' % grp1_id,
-            'ip access-group SG-IN-%s in' % grp2_id,
-            'ip access-group SG-OUT-%s out' % grp2_id
+            'ip access-group SG-INGRESS-%s out' % grp1_id,
+            'ip access-group SG-EGRESS-%s in' % grp1_id,
+            'ip access-group SG-INGRESS-%s out' % grp2_id,
+            'ip access-group SG-EGRESS-%s in' % grp2_id
             ]
         for cmd in unexpected_cmds:
             self.assertNotIn(cmd, self.switch1.received_commands)
@@ -262,9 +262,9 @@ class SecurityGroupSyncTestCase(sg_test_base.SecurityGroupTestBase):
         expected_cmds = [
             'enable',
             'configure',
-            'ip access-list SG-IN-%s' % grp_id,
+            'ip access-list SG-INGRESS-%s' % grp_id,
             'exit',
-            'ip access-list SG-OUT-%s' % grp_id,
+            'ip access-list SG-EGRESS-%s' % grp_id,
             'exit',
             'exit',
             'show interfaces']
