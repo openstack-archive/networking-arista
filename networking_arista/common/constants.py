@@ -51,6 +51,16 @@ ALL_RESOURCE_TYPES = [TENANT_RESOURCE,
 INTERNAL_TENANT_ID = 'INTERNAL-TENANT-ID'
 MECHANISM_DRV_NAME = 'arista'
 
+# SG Constants
+
+# When a SG is applied to a VM, ingress refers to traffic flowing
+# into a VM and egress refers to traffic flowing out.
+# In the baremetal case, traffic flowing out of a switchport is
+# flowing into the the baremetal. Therefore, INGRESS SG rules
+# should be applied as 'out' ACLs and EGRESS rules as 'in' ACLs.
+INGRESS_DIRECTION = 'out'
+EGRESS_DIRECTION = 'in'
+
 # EAPI error messages of interest
 EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
 ERR_CVX_NOT_LEADER = _('Only available on cluster leader')
