@@ -21,6 +21,7 @@ from oslo_log import log as logging
 
 from networking_arista._i18n import _LI
 from networking_arista.common import api
+from networking_arista.common import constants as a_const
 from networking_arista.common import exceptions as arista_exc
 from networking_arista.common import utils
 
@@ -127,10 +128,8 @@ class AristaSecurityGroupSwitchHelper(object):
         can be distinguishged from the user created ACLs
         on Arista HW.
         """
-        in_out = 'IN'
-        if direction == 'egress':
-            in_out = 'OUT'
-        return 'SG' + '-' + in_out + '-' + name
+        direction = direction.upper()
+        return 'SG' + '-' + direction + '-' + name
 
     def _get_switches(self, profile):
         """Get set of switches referenced in a port binding profile"""
@@ -221,7 +220,7 @@ class AristaSecurityGroupSwitchHelper(object):
     def _format_rules_for_eos(self, rules):
         """Format list of rules for EOS and sort into ingress/egress rules"""
         in_rules = []
-        out_rules = []
+        eg_rules = []
         for rule in rules:
             protocol = rule.get('protocol')
             cidr = rule.get('remote_ip_prefix', 'any')
@@ -236,13 +235,13 @@ class AristaSecurityGroupSwitchHelper(object):
             if rule['direction'] == n_const.INGRESS_DIRECTION:
                 in_rules.append(formatted_rule)
             elif rule['direction'] == n_const.EGRESS_DIRECTION:
-                out_rules.append(formatted_rule)
-        return in_rules, out_rules
+                eg_rules.append(formatted_rule)
+        return in_rules, eg_rules
 
     def get_create_security_group_commands(self, sg_id, sg_rules):
         """Commands for creating ACL"""
         cmds = []
-        in_rules, out_rules = self._format_rules_for_eos(sg_rules)
+        in_rules, eg_rules = self._format_rules_for_eos(sg_rules)
         cmds.append("ip access-list %s" %
                     self._acl_name(sg_id, n_const.INGRESS_DIRECTION))
         cmds.append("no 1-$")
@@ -252,8 +251,8 @@ class AristaSecurityGroupSwitchHelper(object):
         cmds.append("ip access-list %s" %
                     self._acl_name(sg_id, n_const.EGRESS_DIRECTION))
         cmds.append("no 1-$")
-        for out_rule in out_rules:
-            cmds.append(out_rule)
+        for eg_rule in eg_rules:
+            cmds.append(eg_rule)
         cmds.append("exit")
         return cmds
 
@@ -271,7 +270,7 @@ class AristaSecurityGroupSwitchHelper(object):
         rule_prefix = ""
         if delete:
             rule_prefix = "no "
-        in_rules, out_rules = self._format_rules_for_eos([sg_rule])
+        in_rules, eg_rules = self._format_rules_for_eos([sg_rule])
         cmds = []
         if in_rules:
             cmds.append("ip access-list %s" %
@@ -279,11 +278,11 @@ class AristaSecurityGroupSwitchHelper(object):
             for in_rule in in_rules:
                 cmds.append(rule_prefix + in_rule)
             cmds.append("exit")
-        if out_rules:
+        if eg_rules:
             cmds.append("ip access-list %s" %
                         self._acl_name(sg_id, n_const.EGRESS_DIRECTION))
-            for out_rule in out_rules:
-                cmds.append(rule_prefix + out_rule)
+            for eg_rule in eg_rules:
+                cmds.append(rule_prefix + eg_rule)
             cmds.append("exit")
         return cmds
 
@@ -307,9 +306,11 @@ class AristaSecurityGroupSwitchHelper(object):
             intf_id = self._get_port_for_acl(intf, switch_ip)
             cmds.append("interface %s" % intf_id)
             name = self._acl_name(sg_id, n_const.INGRESS_DIRECTION)
-            cmds.append(rule_prefix + "ip access-group %s in" % name)
+            cmds.append(rule_prefix + "ip access-group %s %s" %
+                        (name, a_const.INGRESS_DIRECTION))
             name = self._acl_name(sg_id, n_const.EGRESS_DIRECTION)
-            cmds.append(rule_prefix + "ip access-group %s out" % name)
+            cmds.append(rule_prefix + "ip access-group %s %s" %
+                        (name, a_const.EGRESS_DIRECTION))
             cmds.append("exit")
             if switch_ip not in switch_cmds.keys():
                 switch_cmds[switch_ip] = []
