@@ -122,17 +122,22 @@ def update_port(vm_id, host_id, port_id, network_id, tenant_id):
             port.tenant_id = tenant_id
 
 
-def forget_port(port_id, host_id):
+def forget_port(port_id, host_id=None):
     """Deletes the port from the database
 
     :param port_id: globally unique port ID that connects VM to network
     :param host_id: host to which the port is bound to
     """
+    filters = {
+        'port_id': port_id,
+    }
+    if host_id:
+        filters['host_id'] = host_id
+
     session = db.get_writer_session()
     with session.begin():
         session.query(db_models.AristaProvisionedVms).filter_by(
-            port_id=port_id,
-            host_id=host_id).delete()
+            **filters).delete()
 
 
 def remember_network_segment(tenant_id,

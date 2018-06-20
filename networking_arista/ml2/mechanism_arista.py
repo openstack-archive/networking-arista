@@ -554,6 +554,8 @@ class AristaDriver(driver_api.MechanismDriver):
         if not seg_info:
             # Ignoring the update as the port is not managed by
             # arista mechanism driver.
+            LOG.debug("Ignoring the update as the port is not managed by "
+                      "Arista switches.")
             return
 
         # device_id and device_owner are set on VM boot
@@ -772,8 +774,11 @@ class AristaDriver(driver_api.MechanismDriver):
         port_id = port['id']
         host_id = context.host
         with self.eos_sync_lock:
-            if db_lib.is_port_provisioned(port_id, host_id):
-                db_lib.forget_port(port_id, host_id)
+            if port['device_owner'] == n_const.DEVICE_OWNER_DVR_INTERFACE:
+                if db_lib.is_port_provisioned(port_id, host_id):
+                    db_lib.forget_port(port_id, host_id)
+            elif db_lib.is_port_provisioned(port_id):
+                db_lib.forget_port(port_id)
 
     def delete_port_postcommit(self, context):
         """Unplug a physical host from a network.
@@ -829,7 +834,7 @@ class AristaDriver(driver_api.MechanismDriver):
             switch_bindings = binding_profile.get('local_link_information', [])
         sg = port['security_groups']
 
-        if not device_id or not host:
+        if not device_id:
             LOG.warning(constants.UNABLE_TO_DELETE_DEVICE_MSG)
             return
 
@@ -898,14 +903,22 @@ class AristaDriver(driver_api.MechanismDriver):
         by the driver, it should be released
         """
         host = context.original_host if migration else context.host
+        port = context.current
 
         physnet_info = self.eapi.get_physical_network(host)
-        physnet = physnet_info.get('physnet')
+        if (port.get('binding:vnic_type') ==
+                portbindings.VNIC_BAREMETAL):
+            # Find physnet using link_information in baremetal case
+            physnet = self._get_physnet_from_link_info(port,
+                                                       physnet_info)
+        else:
+            physnet = physnet_info.get('physnet')
         if not physnet:
+            LOG.debug("_try_to_release_dynamic_segment: No physnet is found")
             return
 
         binding_levels = context.binding_levels
-        LOG.debug("_try_release_dynamic_segment: "
+        LOG.debug("_try_to_release_dynamic_segment: "
                   "binding_levels=%(bl)s", {'bl': binding_levels})
         if not binding_levels:
             return
@@ -925,7 +938,7 @@ class AristaDriver(driver_api.MechanismDriver):
         # If the segment id is found and it is bound by this driver, and also
         # the segment id is not bound to any other port, release the segment.
         # When Arista driver participate in port binding by allocating dynamic
-        # segment and then calling continue_binding, the driver should the
+        # segment and then calling continue_binding, the driver should be
         # second last driver in the bound drivers list.
         if (segment_id and bound_drivers[-2:-1] ==
                 [constants.MECHANISM_DRV_NAME]):

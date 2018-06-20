@@ -446,10 +446,12 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
                                                     segmentation_id,
                                                     False)
 
+        owner = n_const.DEVICE_OWNER_DVR_INTERFACE
         port_context = self._get_port_context(tenant_id,
                                               network_id,
                                               vm_id,
-                                              network_context)
+                                              network_context,
+                                              device_owner=owner)
         mechanism_arista.db_lib.is_port_provisioned.return_value = True
         mechanism_arista.db_lib.num_nets_provisioned.return_value = 0
         mechanism_arista.db_lib.num_vms_provisioned.return_value = 0
@@ -486,8 +488,8 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         port_id = port_context.current['id']
         expected_calls += [
-            mock.call.is_port_provisioned(port_id, port_context.host),
-            mock.call.forget_port(port_id, port_context.host),
+            mock.call.is_port_provisioned(port_id),
+            mock.call.forget_port(port_id),
         ]
 
         mechanism_arista.db_lib.assert_has_calls(expected_calls)
