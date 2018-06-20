@@ -526,7 +526,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.NeutronNets(),
-            mock.call.get_physical_network(host_id),
             mock.call.unplug_port_from_network(device_id, 'compute', host_id,
                                                port_id, network_id, tenant_id,
                                                None, vnic_type,
@@ -574,7 +573,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
         self.drv.delete_port_postcommit(port_context)
 
         expected_calls += [
-            mock.call.get_physical_network(host_id),
             mock.call.unplug_port_from_network(device_id, 'compute', host_id,
                                                port_id, network_id,
                                                INTERNAL_TENANT_ID, None,
@@ -639,7 +637,6 @@ class AristaDriverTestCase(testlib_api.SqlTestCase):
 
         expected_calls = [
             mock.call.NeutronNets(),
-            mock.call.get_physical_network(host_id),
             mock.call.unplug_port_from_network(device_id, 'compute', host_id,
                                                port_id, network_id, tenant_id,
                                                None, vnic_type,
