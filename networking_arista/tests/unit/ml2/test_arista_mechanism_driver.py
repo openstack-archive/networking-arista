@@ -490,6 +490,15 @@ class FakePortContext(object):
             } for level in self._binding_levels]
 
     @property
+    def original_binding_levels(self):
+        if self._original_binding_levels:
+            return [{
+                driver_api.BOUND_DRIVER: level.driver,
+                driver_api.BOUND_SEGMENT: (
+                    self._expand_segment(level.segment_id))
+            } for level in self._original_binding_levels]
+
+    @property
     def bottom_bound_segment(self):
         if self._binding_levels:
             return self._expand_segment(self._binding_levels[-1].segment_id)
