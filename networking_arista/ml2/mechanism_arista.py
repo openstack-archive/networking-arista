@@ -421,11 +421,13 @@ class AristaDriver(driver_api.MechanismDriver):
         if not self.managed_physnets:
             return [
                 binding_level.get(driver_api.BOUND_SEGMENT)
-                for binding_level in (context.binding_levels or [])
+                for binding_level in (context.binding_levels or
+                                      context.original_binding_levels or [])
             ]
 
         bound_segments = []
-        for binding_level in (context.binding_levels or []):
+        for binding_level in (context.binding_levels or
+                              context.original_binding_levels or []):
             bound_segment = binding_level.get(driver_api.BOUND_SEGMENT)
             if (bound_segment and
                 self._is_in_managed_physnets(
@@ -443,9 +445,40 @@ class AristaDriver(driver_api.MechanismDriver):
         new_host = context.host
         new_port = context.current
         port_id = orig_port['id']
+        new_status = context.status
+        orig_status = context.original_status
 
-        if new_host and orig_host and new_host != orig_host:
-            LOG.debug("Handling port migration for: %s " % orig_port)
+        # Deleting of a baremetal port is handled here as update_port_pre/post
+        # commit are invoked with port with the following settings:
+        # +---------------------------------------------------------------+
+        # | port attr          | current     | original                   |
+        # +====================+=============+============================+
+        # | host_id            | ""          | <uuid of baremetal>        |
+        # +---------------------+------------+----------------------------+
+        # | status             | "DOWN"      | "ACTIVE"                   |
+        # +--------------------+-------------+----------------------------+
+        # | binding:vif_type   | "unbound"   | "other"                    |
+        # +--------------------+-------------+----------------------------+
+        # | binding:vnic_type  | "baremetal" | "baremetal"                |
+        # +--------------------+-----+-------+----------------------------+
+        # | binding:           |  {}         | {"vlan": "<vlan_id>"}      |
+        # | vif_details        |             |                            |
+        # +--------------------+-------------+----------------------------+
+        # | binding:profile    |  {}         | {"local_link_information": |
+        # |                    |             |                     [...]} |
+        # +---------------------------------------------------------------+
+        # Because of the change in host_id, binding_levels in port context
+        # the database will be cleared in _process_port_binding, and when
+        # delete_port_pre/postcommit are called the required information such
+        # as host_id, binding_levels and binding:profile will not be available
+        # to remove deleted port and segment from EOS.
+        is_port_deleted = (new_status == n_const.PORT_STATUS_DOWN and
+                           orig_status == n_const.PORT_STATUS_ACTIVE and
+                           new_host != orig_host)
+        is_port_migrated = (new_host and orig_host and new_host != orig_host)
+        if is_port_deleted or is_port_migrated:
+            LOG.debug("Handling port %s for: %s " % (
+                "migration" if is_port_migrated else "delete", orig_port))
             network_id = orig_port['network_id']
             tenant_id = orig_port['tenant_id'] or constants.INTERNAL_TENANT_ID
             # Ensure that we use tenant Id for the network owner
@@ -471,8 +504,14 @@ class AristaDriver(driver_api.MechanismDriver):
         orig_port = context.original
         orig_host = context.original_host
         new_host = context.host
+        new_status = context.status
+        orig_status = context.original_status
 
-        if new_host and orig_host and new_host != orig_host:
+        is_port_deleted = (new_status == n_const.PORT_STATUS_DOWN and
+                           orig_status == n_const.PORT_STATUS_ACTIVE and
+                           new_host != orig_host)
+        is_port_migrated = (new_host and orig_host and new_host != orig_host)
+        if is_port_deleted or is_port_migrated:
             self._try_to_release_dynamic_segment(context, migration=True)
 
             # Handling migration case.
@@ -554,6 +593,8 @@ class AristaDriver(driver_api.MechanismDriver):
         if not seg_info:
             # Ignoring the update as the port is not managed by
             # arista mechanism driver.
+            LOG.debug("Ignoring the update as the port is not managed by "
+                      "Arista switches.")
             return
 
         # device_id and device_owner are set on VM boot
@@ -897,15 +938,9 @@ class AristaDriver(driver_api.MechanismDriver):
         If this port is the last port using the segmentation id allocated
         by the driver, it should be released
         """
-        host = context.original_host if migration else context.host
-
-        physnet_info = self.eapi.get_physical_network(host)
-        physnet = physnet_info.get('physnet')
-        if not physnet:
-            return
-
-        binding_levels = context.binding_levels
-        LOG.debug("_try_release_dynamic_segment: "
+        binding_levels = (context.binding_levels or
+                          context.original_binding_levels)
+        LOG.debug("_try_to_release_dynamic_segment: "
                   "binding_levels=%(bl)s", {'bl': binding_levels})
         if not binding_levels:
             return
@@ -917,7 +952,6 @@ class AristaDriver(driver_api.MechanismDriver):
             driver = binding_level.get(driver_api.BOUND_DRIVER)
             bound_drivers.append(driver)
             if (bound_segment and
-                bound_segment.get('physical_network') == physnet and
                     bound_segment.get('network_type') == n_const.TYPE_VLAN):
                 segment_id = bound_segment.get('id')
                 break
