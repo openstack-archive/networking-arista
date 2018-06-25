@@ -47,6 +47,7 @@ class AristaSyncWorker(worker.BaseWorker):
         self._last_sec_gp_sync = 0
         self._last_sync_time = 0
         self._cvx_uuid = None
+        self._synchronizing_uuid = None
 
         self.tenants = resources.Tenants(self._rpc)
         self.networks = resources.Networks(self._rpc)
@@ -184,7 +185,7 @@ class AristaSyncWorker(worker.BaseWorker):
                      {'l_uuid': self._cvx_uuid,
                       'c_uuid': cvx_uuid})
             self.force_full_sync()
-            self._cvx_uuid = cvx_uuid
+            self._synchronizing_uuid = cvx_uuid
             out_of_sync = True
         self._last_sync_time = time.time()
         return out_of_sync
@@ -236,6 +237,13 @@ class AristaSyncWorker(worker.BaseWorker):
 
         # Release the sync lock
         self._rpc.sync_end()
+
+        # Update local uuid if this was a full sync
+        if self._synchronizing_uuid:
+           LOG.info("Full sync for cvx uuid %(uuid) complete",
+                    {'uuid': self._synchronizing_uuid})
+           self._cvx_uuid = self._synchronizing_uuid
+           self._synchronizing_uuid = None
 
     def sync_loop(self):
         while self._running:
