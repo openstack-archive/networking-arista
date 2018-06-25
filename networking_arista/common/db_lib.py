@@ -196,7 +196,7 @@ def get_tenants(tenant_id=None):
     project_ids = set()
     with session.begin():
         for m in [models_v2.Network, models_v2.Port]:
-            q = session.query(m.project_id)
+            q = session.query(m.project_id).filter(m.project_id != '')
             if tenant_id:
                 q = q.filter(m.project_id == tenant_id)
             project_ids.update(pid[0] for pid in q.distinct())
