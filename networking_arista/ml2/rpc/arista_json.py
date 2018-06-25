@@ -168,6 +168,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def sync_start(self):
         LOG.info('Attempt to start sync')
+        self.current_sync_name = None
         try:
             region = self.get_region(self.region)
 
@@ -176,6 +177,9 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             if not region:
                 self.register_with_eos()
                 return False
+
+            if region.get('syncInterval') != self.sync_interval:
+                self._set_region_update_interval()
 
             if region and region['syncStatus'] == 'syncInProgress':
                 LOG.info('Sync in progress, not syncing')

@@ -14,9 +14,8 @@
 # limitations under the License.
 
 from eventlet import greenthread
+from eventlet import queue
 import mock
-from multiprocessing import Queue
-import threading
 
 from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
@@ -41,10 +40,8 @@ class SyncServiceTest(testlib_api.SqlTestCase):
             "neutron.db.db_base_plugin_v2.NeutronDbPluginV2")
         directory.add_plugin(plugin_constants.CORE, plugin_klass())
         utils.setup_scenario()
-        self.mech_queue = Queue()
-        self.queue_ready = threading.Event()
-        self.sync_service = arista_sync.AristaSyncWorker(self.mech_queue,
-                                                         self.queue_ready)
+        self.mech_queue = queue.LightQueue()
+        self.sync_service = arista_sync.AristaSyncWorker(self.mech_queue)
         self.sync_service._rpc = utils.MockCvx('region')
 
     def tearDown(self):
@@ -128,7 +125,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.sync_service.force_full_sync()
         for resource_type in self.sync_service.sync_order:
             resource_type.clear_all_data.assert_called_once()
-            resource_type.get_cvx_ids.assert_called_once()
             resource_type.get_neutron_resources.assert_called_once()
 
     def test_sync_timeout(self):
@@ -146,7 +142,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         with mock.patch.object(self.sync_service, 'force_full_sync') as ffs:
             self.assertTrue(self.sync_service.check_if_out_of_sync())
             ffs.assert_called_once()
-            self.assertEqual(self.sync_service._cvx_uuid, 'new-id')
+            self.assertEqual(self.sync_service._synchronizing_uuid, 'new-id')
             self.assertNotEqual(self.sync_service._last_sync_time, 0)
 
     def test_mech_queue_timeout(self):
@@ -156,7 +152,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
     def test_mech_queue_updated(self):
         resource = MechResource('tid', a_const.TENANT_RESOURCE, a_const.CREATE)
         self.mech_queue.put(resource)
-        self.queue_ready.set()
         # Must yield to allow resource to be available on the queue
         greenthread.sleep(0)
         with mock.patch.object(self.sync_service, 'process_mech_update') as up:
