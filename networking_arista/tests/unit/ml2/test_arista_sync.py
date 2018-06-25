@@ -128,7 +128,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.sync_service.force_full_sync()
         for resource_type in self.sync_service.sync_order:
             resource_type.clear_all_data.assert_called_once()
-            resource_type.get_cvx_ids.assert_called_once()
             resource_type.get_neutron_resources.assert_called_once()
 
     def test_sync_timeout(self):
@@ -146,7 +145,7 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         with mock.patch.object(self.sync_service, 'force_full_sync') as ffs:
             self.assertTrue(self.sync_service.check_if_out_of_sync())
             ffs.assert_called_once()
-            self.assertEqual(self.sync_service._cvx_uuid, 'new-id')
+            self.assertEqual(self.sync_service._synchronizing_uuid, 'new-id')
             self.assertNotEqual(self.sync_service._last_sync_time, 0)
 
     def test_mech_queue_timeout(self):

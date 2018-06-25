@@ -193,14 +193,23 @@ class AristaResourcesBase(object):
         resources_to_create = list(neutron_resources[resource_id] for
                                    resource_id in resource_ids_to_create)
         if resources_to_create:
+            LOG.info("%(tid)s Creating %(class)s resources with ids %(ids)s "
+                     "on CVX",
+                     {'class': self.__class__.__name__,
+                      'ids': ', '.join(str(r) for r in resource_ids_to_create),
+                      'tid': threading.current_thread().ident})
             self.rpc.send_api_request(self.get_endpoint(), 'POST',
                                       resources_to_create)
-        self.cvx_ids.update(resource_ids_to_create)
-        LOG.info("%(tid)s %(class)s resource with ids %(ids)s created "
-                 "on CVX",
-                 {'class': self.__class__.__name__,
-                  'ids': ', '.join(str(r) for r in resource_ids_to_create),
-                  'tid': threading.current_thread().ident})
+            self.cvx_ids.update(resource_ids_to_create)
+            LOG.info("%(tid)s %(class)s resources with ids %(ids)s created "
+                     "on CVX",
+                     {'class': self.__class__.__name__,
+                      'ids': ', '.join(str(r) for r in resource_ids_to_create),
+                      'tid': threading.current_thread().ident})
+        else:
+            LOG.info("%(tid)s No %(class)s resources to create",
+                     {'class': self.__class__.__name__,
+                      'tid': threading.current_thread().ident})
         return resources_to_create
 
     def delete_cvx_resources(self):
@@ -208,14 +217,23 @@ class AristaResourcesBase(object):
         resources_to_delete = list(self.format_for_delete(id) for id in
                                    resource_ids_to_delete)
         if resources_to_delete:
+            LOG.info("%(tid)s Deleting %(class)s resources with ids %(ids)s "
+                     "from CVX",
+                     {'class': self.__class__.__name__,
+                      'ids': ', '.join(str(r) for r in resource_ids_to_delete),
+                      'tid': threading.current_thread().ident})
             self.rpc.send_api_request(self.get_endpoint(), 'DELETE',
                                       resources_to_delete)
-        self.cvx_ids -= resource_ids_to_delete
-        LOG.info("%(tid)s %(class)s resource with ids %(ids)s deleted "
-                 "from CVX",
-                 {'class': self.__class__.__name__,
-                  'ids': ', '.join(str(r) for r in resource_ids_to_delete),
-                  'tid': threading.current_thread().ident})
+            self.cvx_ids -= resource_ids_to_delete
+            LOG.info("%(tid)s %(class)s resources with ids %(ids)s deleted "
+                     "from CVX",
+                     {'class': self.__class__.__name__,
+                      'ids': ', '.join(str(r) for r in resource_ids_to_delete),
+                      'tid': threading.current_thread().ident})
+        else:
+            LOG.info("%(tid)s No %(class)s resources to delete",
+                     {'class': self.__class__.__name__,
+                      'tid': threading.current_thread().ident})
         return resources_to_delete
 
 
