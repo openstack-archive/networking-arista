@@ -97,10 +97,9 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
     @patch(RAND_FUNC, _get_random_name)
     def test_sync_start(self, mock_send_api_req):
         mock_send_api_req.side_effect = [
-            [{'name': 'RegionOne', 'syncStatus': ''}],
-            [{}],
-            [{'syncStatus': 'syncInProgress',
-              'requestId': self._get_random_name()}]
+            [{'name': 'RegionOne', 'syncStatus': '',
+              'syncInterval': self.drv.sync_interval}],
+            [{}]
         ]
         assert self.drv.sync_start()
         calls = [
@@ -122,6 +121,47 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         calls = [
             ('region/RegionOne', 'GET'),
             ('region/', 'POST', [{'name': 'RegionOne'}])
+        ]
+        self._verify_send_api_request_call(mock_send_api_req, calls)
+
+    def _get_region(self, region):
+        return {'name': region, 'syncStatus': 'syncTimedout',
+                'syncInterval': self.sync_interval}
+
+    @patch('requests.post')
+    @patch(BASE_RPC + 'get_region', _get_region)
+    @patch(BASE_RPC + '_get_eos_master', lambda _: 'cvx')
+    @patch(RAND_FUNC, _get_random_name)
+    def test_sync_start_after_failure(self, mock_post):
+        self.drv.current_sync_name = 'bad-sync-id'
+        self.assertTrue(self.drv.sync_start())
+        expected_header = {'Content-Type': 'application/json',
+                           'Accept': 'application/json',
+                           'X-Sync-ID': None}
+        mock_post.assert_called_once_with(mock.ANY,
+                                          data=mock.ANY,
+                                          timeout=mock.ANY,
+                                          verify=mock.ANY,
+                                          headers=expected_header)
+
+    @patch(JSON_SEND_FUNC)
+    @patch(RAND_FUNC, _get_random_name)
+    def test_sync_start_incorrect_interval(self, mock_send_api_req):
+        mock_send_api_req.side_effect = [
+            [{'name': 'RegionOne', 'syncStatus': '',
+              'syncInterval': 0.0}],
+            [{}],
+            [{'syncStatus': 'syncInProgress',
+              'requestId': self._get_random_name()}]
+        ]
+        assert self.drv.sync_start()
+        calls = [
+            ('region/RegionOne', 'PUT',
+             [{'name': 'RegionOne',
+               'syncInterval': self.drv.sync_interval}]),
+            ('region/RegionOne/sync', 'POST',
+             {'requester': socket.gethostname().split('.')[0],
+              'requestId': self._get_random_name()})
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 

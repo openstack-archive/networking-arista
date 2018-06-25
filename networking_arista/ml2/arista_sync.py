@@ -33,11 +33,10 @@ LOG = logging.getLogger(__name__)
 
 
 class AristaSyncWorker(worker.BaseWorker):
-    def __init__(self, provision_queue, queue_ready):
+    def __init__(self, provision_queue):
         super(AristaSyncWorker, self).__init__(worker_process_count=0)
         self._rpc = AristaRPCWrapperJSON()
         self.provision_queue = provision_queue
-        self.queue_ready = queue_ready
         self._thread = None
         self._running = False
         self.done = None
@@ -47,6 +46,7 @@ class AristaSyncWorker(worker.BaseWorker):
         self._last_sec_gp_sync = 0
         self._last_sync_time = 0
         self._cvx_uuid = None
+        self._synchronizing_uuid = None
 
         self.tenants = resources.Tenants(self._rpc)
         self.networks = resources.Networks(self._rpc)
@@ -172,7 +172,6 @@ class AristaSyncWorker(worker.BaseWorker):
         """
         for resource_type in reversed(self.sync_order):
             resource_type.clear_all_data()
-            resource_type.get_cvx_ids()
             resource_type.get_neutron_resources()
 
     def check_if_out_of_sync(self):
@@ -184,20 +183,18 @@ class AristaSyncWorker(worker.BaseWorker):
                      {'l_uuid': self._cvx_uuid,
                       'c_uuid': cvx_uuid})
             self.force_full_sync()
-            self._cvx_uuid = cvx_uuid
+            self._synchronizing_uuid = cvx_uuid
             out_of_sync = True
         self._last_sync_time = time.time()
         return out_of_sync
 
     def wait_for_mech_driver_update(self, timeout):
         try:
-            self.queue_ready.wait(timeout)
-            resource = self.provision_queue.get_nowait()
+            resource = self.provision_queue.get(timeout=timeout)
             LOG.info("Processing %(res)s", {'res': resource})
             self.process_mech_update(resource)
             return True
         except Empty:
-            self.queue_ready.clear()
             return False
 
     def wait_for_sync_required(self):
@@ -236,6 +233,13 @@ class AristaSyncWorker(worker.BaseWorker):
 
         # Release the sync lock
         self._rpc.sync_end()
+
+        # Update local uuid if this was a full sync
+        if self._synchronizing_uuid:
+            LOG.info("Full sync for cvx uuid %(uuid) complete",
+                     {'uuid': self._synchronizing_uuid})
+            self._cvx_uuid = self._synchronizing_uuid
+            self._synchronizing_uuid = None
 
     def sync_loop(self):
         while self._running:
