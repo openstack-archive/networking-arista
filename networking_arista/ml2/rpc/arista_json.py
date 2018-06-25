@@ -168,6 +168,7 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
 
     def sync_start(self):
         LOG.info('Attempt to start sync')
+        self.current_sync_name = None
         try:
             region = self.get_region(self.region)
 

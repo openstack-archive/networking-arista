@@ -125,6 +125,25 @@ class TestAristaJSONRPCWrapper(testlib_api.SqlTestCase):
         ]
         self._verify_send_api_request_call(mock_send_api_req, calls)
 
+    def _get_region(self, region):
+        return {'name': region, 'syncStatus': 'syncTimedout'}
+
+    @patch('requests.post')
+    @patch(BASE_RPC + 'get_region', _get_region)
+    @patch(BASE_RPC + '_get_eos_master', lambda _: 'cvx')
+    @patch(RAND_FUNC, _get_random_name)
+    def test_sync_start_after_failure(self, mock_post):
+        self.drv.current_sync_name = 'bad-sync-id'
+        self.assertTrue(self.drv.sync_start())
+        expected_header = {'Content-Type': 'application/json',
+                           'Accept': 'application/json',
+                           'X-Sync-ID': None}
+        mock_post.assert_called_once_with(mock.ANY,
+                                          data=mock.ANY,
+                                          timeout=mock.ANY,
+                                          verify=mock.ANY,
+                                          headers=expected_header)
+
     @patch(JSON_SEND_FUNC)
     @patch(RAND_FUNC, _get_random_name)
     def test_sync_end(self, mock_send_api_req):
