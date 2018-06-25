@@ -193,14 +193,23 @@ class AristaResourcesBase(object):
         resources_to_create = list(neutron_resources[resource_id] for
                                    resource_id in resource_ids_to_create)
         if resources_to_create:
+            LOG.info("%(tid)s Creating %(class)s resources with ids %(ids)s "
+                     "on CVX",
+                     {'class': self.__class__.__name__,
+                      'ids': ', '.join(str(r) for r in resource_ids_to_create),
+                      'tid': threading.current_thread().ident})
             self.rpc.send_api_request(self.get_endpoint(), 'POST',
                                       resources_to_create)
-        self.cvx_ids.update(resource_ids_to_create)
-        LOG.info("%(tid)s %(class)s resource with ids %(ids)s created "
-                 "on CVX",
-                 {'class': self.__class__.__name__,
-                  'ids': ', '.join(str(r) for r in resource_ids_to_create),
-                  'tid': threading.current_thread().ident})
+            self.cvx_ids.update(resource_ids_to_create)
+            LOG.info("%(tid)s %(class)s resources with ids %(ids)s created "
+                     "on CVX",
+                     {'class': self.__class__.__name__,
+                      'ids': ', '.join(str(r) for r in resource_ids_to_create),
+                      'tid': threading.current_thread().ident})
+        else:
+            LOG.info("%(tid)s No %(class)s resources to create",
+                     {'class': self.__class__.__name__,
+                      'tid': threading.current_thread().ident})
         return resources_to_create
 
     def delete_cvx_resources(self):
@@ -208,14 +217,23 @@ class AristaResourcesBase(object):
         resources_to_delete = list(self.format_for_delete(id) for id in
                                    resource_ids_to_delete)
         if resources_to_delete:
+            LOG.info("%(tid)s Deleting %(class)s resources with ids %(ids)s "
+                     "from CVX",
+                     {'class': self.__class__.__name__,
+                      'ids': ', '.join(str(r) for r in resource_ids_to_delete),
+                      'tid': threading.current_thread().ident})
             self.rpc.send_api_request(self.get_endpoint(), 'DELETE',
                                       resources_to_delete)
-        self.cvx_ids -= resource_ids_to_delete
-        LOG.info("%(tid)s %(class)s resource with ids %(ids)s deleted "
-                 "from CVX",
-                 {'class': self.__class__.__name__,
-                  'ids': ', '.join(str(r) for r in resource_ids_to_delete),
-                  'tid': threading.current_thread().ident})
+            self.cvx_ids -= resource_ids_to_delete
+            LOG.info("%(tid)s %(class)s resources with ids %(ids)s deleted "
+                     "from CVX",
+                     {'class': self.__class__.__name__,
+                      'ids': ', '.join(str(r) for r in resource_ids_to_delete),
+                      'tid': threading.current_thread().ident})
+        else:
+            LOG.info("%(tid)s No %(class)s resources to delete",
+                     {'class': self.__class__.__name__,
+                      'tid': threading.current_thread().ident})
         return resources_to_delete
 
 
@@ -237,7 +255,7 @@ class Networks(AristaResourcesBase):
 
     formatter = [AttributeFormatter('id', 'id'),
                  AttributeFormatter('project_id', 'tenantId'),
-                 AttributeFormatter('name', 'networkName'),
+                 AttributeFormatter('name', 'name'),
                  AttributeFormatter('rbac_entries', 'shared', _is_shared)]
     endpoint = 'region/%(region)s/network'
     get_db_resources = staticmethod(db_lib.get_networks)
@@ -259,7 +277,7 @@ class Dhcps(AristaResourcesBase):
 
     formatter = [AttributeFormatter('device_id', 'id',
                                     submodel='Port'),
-                 AttributeFormatter('host', 'dhcpHostId',
+                 AttributeFormatter('host', 'hostId',
                                     utils.hostname,
                                     submodel='PortBinding'),
                  AttributeFormatter('project_id', 'tenantId',
@@ -272,7 +290,7 @@ class Routers(AristaResourcesBase):
 
     formatter = [AttributeFormatter('device_id', 'id',
                                     submodel='Port'),
-                 AttributeFormatter('device_owner', 'routerHostId',
+                 AttributeFormatter('device_owner', 'hostId',
                                     lambda *args: 'distributed',
                                     submodel='Port'),
                  AttributeFormatter('project_id', 'tenantId',
@@ -285,7 +303,7 @@ class Vms(AristaResourcesBase):
 
     formatter = [AttributeFormatter('device_id', 'id',
                                     submodel='Port'),
-                 AttributeFormatter('host', 'vmHostId',
+                 AttributeFormatter('host', 'hostId',
                                     utils.hostname,
                                     submodel='PortBinding'),
                  AttributeFormatter('project_id', 'tenantId',
@@ -298,7 +316,7 @@ class Baremetals(AristaResourcesBase):
 
     formatter = [AttributeFormatter('device_id', 'id',
                                     submodel='Port'),
-                 AttributeFormatter('host', 'baremetalHostId',
+                 AttributeFormatter('host', 'hostId',
                                     submodel='PortBinding'),
                  AttributeFormatter('project_id', 'tenantId',
                                     submodel='Port')]
@@ -306,11 +324,7 @@ class Baremetals(AristaResourcesBase):
     get_db_resources = staticmethod(db_lib.get_baremetal_instances)
 
 
-class PortResourcesBase(AristaResourcesBase):
-    pass
-
-
-class DhcpPorts(PortResourcesBase):
+class DhcpPorts(AristaResourcesBase):
 
     endpoint = 'region/%(region)s/port?type=dhcp'
     formatter = [AttributeFormatter('id', 'id'),
@@ -325,7 +339,7 @@ class DhcpPorts(PortResourcesBase):
     get_db_resources = staticmethod(db_lib.get_dhcp_ports)
 
 
-class RouterPorts(PortResourcesBase):
+class RouterPorts(AristaResourcesBase):
 
     endpoint = 'region/%(region)s/port?type=router'
     formatter = [AttributeFormatter('id', 'id'),
@@ -340,7 +354,7 @@ class RouterPorts(PortResourcesBase):
     get_db_resources = staticmethod(db_lib.get_router_ports)
 
 
-class VmPorts(PortResourcesBase):
+class VmPorts(AristaResourcesBase):
 
     endpoint = 'region/%(region)s/port?type=vm'
     formatter = [AttributeFormatter('id', 'id'),
@@ -364,7 +378,7 @@ class VmPorts(PortResourcesBase):
         return super(VmPorts, cls).format_for_create(port)
 
 
-class BaremetalPorts(PortResourcesBase):
+class BaremetalPorts(AristaResourcesBase):
 
     def _get_vlan_type(device_owner):
         if (device_owner.startswith(n_const.DEVICE_OWNER_BAREMETAL_PREFIX) or
