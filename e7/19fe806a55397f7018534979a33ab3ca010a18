@@ -1,0 +1,9 @@
+Code-Review+1: Nader Lahouti <nader.lahouti@gmail.com>
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Wed, 27 Jun 2018 16:52:33 +0000
+Reviewed-on: https://review.openstack.org/576237
+Project: openstack/networking-arista
+Branch: refs/heads/stable/queens
