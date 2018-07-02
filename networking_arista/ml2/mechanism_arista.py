@@ -27,7 +27,6 @@ from neutron.services.trunk import constants as trunk_consts
 
 from networking_arista.common import constants as a_const
 from networking_arista.common import db_lib
-from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_sync
 from networking_arista.ml2 import arista_trunk
 from networking_arista.ml2.rpc.arista_eapi import AristaRPCWrapperEapi
@@ -352,16 +351,6 @@ class AristaDriver(driver_api.MechanismDriver):
         context.continue_binding(segment['id'], [next_segment])
         return True
 
-    def _is_in_managed_physnets(self, physnet):
-        # Check if this is a fabric segment
-        if not physnet:
-            return self.manage_fabric
-        # If managed physnet is empty, accept all.
-        if not self.managed_physnets:
-            return True
-        # managed physnet is not empty, find for matching physnet
-        return any(pn == physnet for pn in self.managed_physnets)
-
     def bind_port(self, context):
         """Bind port to a network segment.
 
@@ -414,46 +403,3 @@ class AristaDriver(driver_api.MechanismDriver):
                 LOG.debug("Released dynamic segment %(seg)s allocated "
                           "by %(drv)s", {'seg': segment_id,
                                          'drv': allocating_driver})
-
-    def create_security_group(self, sg):
-        try:
-            self.eapi.create_acl(sg)
-        except Exception:
-            msg = (_('Failed to create ACL on EOS %s') % sg)
-            LOG.exception(msg)
-            raise arista_exc.AristaSecurityGroupError(msg=msg)
-
-    def delete_security_group(self, sg):
-        try:
-            self.eapi.delete_acl(sg)
-        except Exception:
-            msg = (_('Failed to create ACL on EOS %s') % sg)
-            LOG.exception(msg)
-            raise arista_exc.AristaSecurityGroupError(msg=msg)
-
-    def update_security_group(self, sg):
-        try:
-            self.eapi.create_acl(sg)
-        except Exception:
-            msg = (_('Failed to create ACL on EOS %s') % sg)
-            LOG.exception(msg)
-            raise arista_exc.AristaSecurityGroupError(msg=msg)
-
-    def create_security_group_rule(self, sgr):
-        try:
-            self.eapi.create_acl_rule(sgr)
-        except Exception:
-            msg = (_('Failed to create ACL rule on EOS %s') % sgr)
-            LOG.exception(msg)
-            raise arista_exc.AristaSecurityGroupError(msg=msg)
-
-    def delete_security_group_rule(self, sgr_id):
-        if sgr_id:
-            sgr = self.ndb.get_security_group_rule(sgr_id)
-            if sgr:
-                try:
-                    self.eapi.delete_acl_rule(sgr)
-                except Exception:
-                    msg = (_('Failed to delete ACL rule on EOS %s') % sgr)
-                    LOG.exception(msg)
-                    raise arista_exc.AristaSecurityGroupError(msg=msg)
