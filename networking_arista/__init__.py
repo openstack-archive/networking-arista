@@ -25,3 +25,7 @@ if six.PY2:
     gettext.install('networking_arista', unicode=1)
 else:
     gettext.install('networking_arista')
+
+import os
+import pprint
+pprint.pprint(os.environ)
