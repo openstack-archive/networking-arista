@@ -19,6 +19,8 @@ from neutron_lib.agent import topics
 from neutron_lib import constants as n_const
 from neutron_lib import context as nctx
 from neutron_lib.plugins import constants as plugin_constants
+from neutron_lib.plugins import directory
+from neutron_lib.services import base as service_base
 from oslo_config import cfg
 from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
@@ -27,7 +29,6 @@ from oslo_utils import excutils
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.rpc.handlers import l3_rpc
 from neutron.common import rpc as n_rpc
-from neutron.db import db_base_plugin_v2
 from neutron.db import extraroute_db
 from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_gwmode_db
@@ -40,7 +41,7 @@ from networking_arista.l3Plugin import arista_l3_driver
 LOG = logging.getLogger(__name__)
 
 
-class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
+class AristaL3ServicePlugin(service_base.ServicePluginBase,
                             extraroute_db.ExtraRoute_db_mixin,
                             l3_gwmode_db.L3_NAT_db_mixin,
                             l3_agentschedulers_db.L3AgentSchedulerDbMixin):
@@ -113,16 +114,17 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE("Error creating router on Arista HW router=%s "),
                           new_router)
-                super(AristaL3ServicePlugin, self).delete_router(
-                    context, new_router['id'])
+                super(AristaL3ServicePlugin).delete_router(
+                    context,
+                    new_router['id']
+                )
 
     @log_helpers.log_method_call
     def update_router(self, context, router_id, router):
         """Update an existing router in DB, and update it in Arista HW."""
 
         # Read existing router record from DB
-        original_router = super(AristaL3ServicePlugin, self).get_router(
-            context, router_id)
+        original_router = self.get_router(context, router_id)
         # Update router DB
         new_router = super(AristaL3ServicePlugin, self).update_router(
             context, router_id, router)
@@ -140,8 +142,7 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
     def delete_router(self, context, router_id):
         """Delete an existing router from Arista HW as well as from the DB."""
 
-        router = super(AristaL3ServicePlugin, self).get_router(context,
-                                                               router_id)
+        router = self.get_router(context, router_id)
         tenant_id = router['tenant_id']
 
         # Delete router on the Arista Hw
@@ -161,15 +162,17 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         new_router = super(AristaL3ServicePlugin, self).add_router_interface(
             context, router_id, interface_info)
 
+        core = directory.get_plugin()
+
         # Get network info for the subnet that is being added to the router.
         # Check if the interface information is by port-id or subnet-id
         add_by_port, add_by_sub = self._validate_interface_info(interface_info)
         if add_by_sub:
-            subnet = self.get_subnet(context, interface_info['subnet_id'])
+            subnet = core.get_subnet(context, interface_info['subnet_id'])
         elif add_by_port:
-            port = self.get_port(context, interface_info['port_id'])
+            port = core.get_port(context, interface_info['port_id'])
             subnet_id = port['fixed_ips'][0]['subnet_id']
-            subnet = self.get_subnet(context, subnet_id)
+            subnet = core.get_subnet(context, subnet_id)
         network_id = subnet['network_id']
 
         # To create SVI's in Arista HW, the segmentation Id is required
@@ -178,8 +181,7 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         seg_id = ml2_db.network_segments[0]['segmentation_id']
 
         # Package all the info needed for Hw programming
-        router = super(AristaL3ServicePlugin, self).get_router(context,
-                                                               router_id)
+        router = self.get_router(context, router_id)
         router_info = copy.deepcopy(new_router)
         router_info['seg_id'] = seg_id
         router_info['name'] = router['name']
@@ -204,27 +206,30 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
     def remove_router_interface(self, context, router_id, interface_info):
         """Remove a subnet of a network from an existing router."""
 
-        new_router = (
+        router_to_del = (
             super(AristaL3ServicePlugin, self).remove_router_interface(
-                context, router_id, interface_info))
+                context,
+                router_id,
+                interface_info)
+            )
 
         # Get network information of the subnet that is being removed
-        subnet = self.get_subnet(context, new_router['subnet_id'])
+        core = directory.get_plugin()
+        subnet = core.get_subnet(context, router_to_del['subnet_id'])
         network_id = subnet['network_id']
 
         # For SVI removal from Arista HW, segmentation ID is needed
         ml2_db = NetworkContext(self, context, {'id': network_id})
         seg_id = ml2_db.network_segments[0]['segmentation_id']
 
-        router = super(AristaL3ServicePlugin, self).get_router(context,
-                                                               router_id)
-        router_info = copy.deepcopy(new_router)
+        router = self.get_router(context, router_id)
+        router_info = copy.deepcopy(router_to_del)
         router_info['seg_id'] = seg_id
         router_info['name'] = router['name']
 
         try:
             self.driver.remove_router_interface(context, router_info)
-            return new_router
+            return router_to_del
         except Exception as exc:
             LOG.error(_LE("Error removing interface %(interface)s from "
                           "router %(router_id)s on Arista HW"
@@ -244,7 +249,7 @@ class AristaL3ServicePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         LOG.info(_LI('Syncing Neutron Router DB <-> EOS'))
         ctx = nctx.get_admin_context()
 
-        routers = super(AristaL3ServicePlugin, self).get_routers(ctx)
+        routers = self.get_routers(ctx)
         for r in routers:
             tenant_id = r['tenant_id']
             ports = self.ndb.get_all_ports_for_tenant(tenant_id)
