@@ -13,7 +13,6 @@
 #    under the License.
 
 import copy
-import threading
 
 from neutron_lib.agent import topics
 from neutron_lib import constants as n_const
@@ -21,9 +20,11 @@ from neutron_lib import context as nctx
 from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
 from neutron_lib.services import base as service_base
+from neutron_lib import worker
 from oslo_config import cfg
 from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
+from oslo_service import loopingcall
 from oslo_utils import excutils
 
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
@@ -41,6 +42,79 @@ from networking_arista.l3Plugin import arista_l3_driver
 LOG = logging.getLogger(__name__)
 
 
+class AristaL3SyncWorker(worker.BaseWorker):
+    def __init__(self, driver):
+        self.driver = driver
+        self.ndb = db_lib.NeutronNets()
+        self._loop = None
+        super(AristaL3SyncWorker, self).__init__(worker_process_count=0)
+
+    def start(self):
+        super(AristaL3SyncWorker, self).start()
+        if self._loop is None:
+            self._loop = loopingcall.FixedIntervalLoopingCall(
+                self.synchronize
+            )
+        self._loop.start(interval=cfg.CONF.l3_arista.l3_sync_interval)
+
+    def stop(self):
+        if self._loop is not None:
+            self._loop.stop()
+
+    def wait(self):
+        if self._loop is not None:
+            self._loop.wait()
+        self._loop = None
+
+    def reset(self):
+        self.stop()
+        self.wait()
+        self.start()
+
+    def synchronize(self):
+        """Synchronizes Router DB from Neturon DB with EOS.
+
+        Walks through the Neturon Db and ensures that all the routers
+        created in Netuton DB match with EOS. After creating appropriate
+        routers, it ensures to add interfaces as well.
+        Uses idempotent properties of EOS configuration, which means
+        same commands can be repeated.
+        """
+        LOG.info(_LI('Syncing Neutron Router DB <-> EOS'))
+        ctx = nctx.get_admin_context()
+        routers = directory.get_plugin(plugin_constants.L3).get_routers(ctx)
+        for r in routers:
+            tenant_id = r['tenant_id']
+            ports = self.ndb.get_all_ports_for_tenant(tenant_id)
+
+            try:
+                self.driver.create_router(self, tenant_id, r)
+
+            except Exception:
+                continue
+
+            # Figure out which interfaces are added to this router
+            for p in ports:
+                if p['device_id'] == r['id']:
+                    net_id = p['network_id']
+                    subnet_id = p['fixed_ips'][0]['subnet_id']
+                    subnet = self.ndb.get_subnet_info(subnet_id)
+                    ml2_db = NetworkContext(self, ctx, {'id': net_id})
+                    seg_id = ml2_db.network_segments[0]['segmentation_id']
+
+                    r['seg_id'] = seg_id
+                    r['cidr'] = subnet['cidr']
+                    r['gip'] = subnet['gateway_ip']
+                    r['ip_version'] = subnet['ip_version']
+
+                    try:
+                        self.driver.add_router_interface(self, r)
+                    except Exception:
+                        LOG.error(_LE("Error Adding interface %(subnet_id)s "
+                                      "to router %(router_id)s on Arista HW"),
+                                  {'subnet_id': subnet_id, 'router_id': r})
+
+
 class AristaL3ServicePlugin(service_base.ServicePluginBase,
                             extraroute_db.ExtraRoute_db_mixin,
                             l3_gwmode_db.L3_NAT_db_mixin,
@@ -56,13 +130,10 @@ class AristaL3ServicePlugin(service_base.ServicePluginBase,
                                    "extraroute"]
 
     def __init__(self, driver=None):
-
+        super(AristaL3ServicePlugin, self).__init__()
         self.driver = driver or arista_l3_driver.AristaL3Driver()
-        self.ndb = db_lib.NeutronNets()
         self.setup_rpc()
-        self.sync_timeout = cfg.CONF.l3_arista.l3_sync_interval
-        self.sync_lock = threading.Lock()
-        self._synchronization_thread()
+        self.add_worker(AristaL3SyncWorker(self.driver))
 
     def setup_rpc(self):
         # RPC support
@@ -82,19 +153,6 @@ class AristaL3ServicePlugin(service_base.ServicePluginBase,
         """Returns string description of the plugin."""
         return ("Arista L3 Router Service Plugin for Arista Hardware "
                 "based routing")
-
-    def _synchronization_thread(self):
-        with self.sync_lock:
-            self.synchronize()
-
-        self.timer = threading.Timer(self.sync_timeout,
-                                     self._synchronization_thread)
-        self.timer.start()
-
-    def stop_synchronization_thread(self):
-        if self.timer:
-            self.timer.cancel()
-            self.timer = None
 
     @log_helpers.log_method_call
     def create_router(self, context, router):
@@ -236,47 +294,3 @@ class AristaL3ServicePlugin(service_base.ServicePluginBase,
                           "Exception =(exc)s"),
                       {'interface': interface_info, 'router_id': router_id,
                        'exc': exc})
-
-    def synchronize(self):
-        """Synchronizes Router DB from Neturon DB with EOS.
-
-        Walks through the Neturon Db and ensures that all the routers
-        created in Netuton DB match with EOS. After creating appropriate
-        routers, it ensures to add interfaces as well.
-        Uses idempotent properties of EOS configuration, which means
-        same commands can be repeated.
-        """
-        LOG.info(_LI('Syncing Neutron Router DB <-> EOS'))
-        ctx = nctx.get_admin_context()
-
-        routers = self.get_routers(ctx)
-        for r in routers:
-            tenant_id = r['tenant_id']
-            ports = self.ndb.get_all_ports_for_tenant(tenant_id)
-
-            try:
-                self.driver.create_router(self, tenant_id, r)
-
-            except Exception:
-                continue
-
-            # Figure out which interfaces are added to this router
-            for p in ports:
-                if p['device_id'] == r['id']:
-                    net_id = p['network_id']
-                    subnet_id = p['fixed_ips'][0]['subnet_id']
-                    subnet = self.ndb.get_subnet_info(subnet_id)
-                    ml2_db = NetworkContext(self, ctx, {'id': net_id})
-                    seg_id = ml2_db.network_segments[0]['segmentation_id']
-
-                    r['seg_id'] = seg_id
-                    r['cidr'] = subnet['cidr']
-                    r['gip'] = subnet['gateway_ip']
-                    r['ip_version'] = subnet['ip_version']
-
-                    try:
-                        self.driver.add_router_interface(self, r)
-                    except Exception:
-                        LOG.error(_LE("Error Adding interface %(subnet_id)s "
-                                      "to router %(router_id)s on Arista HW"),
-                                  {'subnet_id': subnet_id, 'router_id': r})
