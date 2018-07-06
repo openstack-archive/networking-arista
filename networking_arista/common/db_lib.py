@@ -23,10 +23,8 @@ from sqlalchemy.orm import joinedload, Query, aliased
 
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
-from neutron_lib import context as nctx
 
 import neutron.db.api as db
-from neutron.db import db_base_plugin_v2
 from neutron.db.models.plugins.ml2 import vlanallocation
 from neutron.db.models import securitygroup as sg_models
 from neutron.db.models import segment as segment_models
@@ -506,27 +504,3 @@ def get_baremetal_sg_bindings():
                        .group_by(sg_binding_model.port_id)
                        .having(func.count(sg_binding_model.port_id) == 1))
     return sg_bindings
-
-
-class NeutronNets(db_base_plugin_v2.NeutronDbPluginV2):
-    """Access to Neutron DB.
-
-    Provides access to the Neutron Data bases for all provisioned
-    networks as well ports. This data is used during synchronization
-    between the L3 Plugin and Arista EOS.
-    """
-
-    def __init__(self):
-        self.admin_ctx = nctx.get_admin_context()
-
-    def get_all_ports_for_tenant(self, tenant_id):
-        filters = {'tenant_id': [tenant_id]}
-        return super(NeutronNets,
-                     self).get_ports(self.admin_ctx, filters=filters) or []
-
-    def get_subnet_info(self, subnet_id):
-        return self.get_subnet(subnet_id)
-
-    def get_subnet(self, subnet_id):
-        return super(NeutronNets,
-                     self).get_subnet(self.admin_ctx, subnet_id) or {}
