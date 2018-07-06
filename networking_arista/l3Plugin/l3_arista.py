@@ -36,7 +36,6 @@ from neutron.db import l3_gwmode_db
 from neutron.plugins.ml2.driver_context import NetworkContext  # noqa
 
 from networking_arista._i18n import _LE, _LI
-from networking_arista.common import db_lib
 from networking_arista.l3Plugin import arista_l3_driver
 
 LOG = logging.getLogger(__name__)
@@ -45,7 +44,6 @@ LOG = logging.getLogger(__name__)
 class AristaL3SyncWorker(worker.BaseWorker):
     def __init__(self, driver):
         self.driver = driver
-        self.ndb = db_lib.NeutronNets()
         self._loop = None
         super(AristaL3SyncWorker, self).__init__(worker_process_count=0)
 
@@ -71,6 +69,9 @@ class AristaL3SyncWorker(worker.BaseWorker):
         self.wait()
         self.start()
 
+    def get_subnet_info(self, subnet_id):
+        return self.get_subnet(subnet_id)
+
     def synchronize(self):
         """Synchronizes Router DB from Neturon DB with EOS.
 
@@ -81,11 +82,12 @@ class AristaL3SyncWorker(worker.BaseWorker):
         same commands can be repeated.
         """
         LOG.info(_LI('Syncing Neutron Router DB <-> EOS'))
+        core = directory.get_plugin()
         ctx = nctx.get_admin_context()
         routers = directory.get_plugin(plugin_constants.L3).get_routers(ctx)
         for r in routers:
             tenant_id = r['tenant_id']
-            ports = self.ndb.get_all_ports_for_tenant(tenant_id)
+            ports = core.get_ports(ctx, filters={'tenant_id': tenant_id}) or []
 
             try:
                 self.driver.create_router(self, tenant_id, r)
@@ -98,7 +100,7 @@ class AristaL3SyncWorker(worker.BaseWorker):
                 if p['device_id'] == r['id']:
                     net_id = p['network_id']
                     subnet_id = p['fixed_ips'][0]['subnet_id']
-                    subnet = self.ndb.get_subnet_info(subnet_id)
+                    subnet = core.get_subnet(ctx, subnet_id)
                     ml2_db = NetworkContext(self, ctx, {'id': net_id})
                     seg_id = ml2_db.network_segments[0]['segmentation_id']
 
