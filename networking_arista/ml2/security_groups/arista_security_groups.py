@@ -43,6 +43,7 @@ class AristaSecurityGroupHandler(
         super(AristaSecurityGroupHandler, self).__init__()
         self.initialize_switch_endpoints()
         self.subscribe()
+        self.add_worker(security_group_sync.AristaSecurityGroupSyncWorker())
 
     def get_plugin_description(self):
         return "Arista baremetal security group service plugin"
@@ -50,9 +51,6 @@ class AristaSecurityGroupHandler(
     @classmethod
     def get_plugin_type(cls):
         return "arista_security_group"
-
-    def get_workers(self):
-        return security_group_sync.AristaSecurityGroupSyncWorker()
 
     @log_helpers.log_method_call
     def create_security_group(self, resource, event, trigger, **kwargs):
