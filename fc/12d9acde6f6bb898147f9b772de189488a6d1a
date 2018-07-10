@@ -1,0 +1,8 @@
+Code-Review+2: Mitchell Jameson <mitchell@arista.com>
+Workflow+1: Nader Lahouti <nader.lahouti@gmail.com>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Tue, 10 Jul 2018 22:34:48 +0000
+Reviewed-on: https://review.openstack.org/580768
+Project: openstack/networking-arista
+Branch: refs/heads/master
