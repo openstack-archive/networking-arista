@@ -370,11 +370,11 @@ class AristaNetworkTest(AristaResourcesTestBase):
     def test_networks_scenario(self):
         expect_created = {'n1': {'id': 'n1',
                                  'tenantId': 't1',
-                                 'networkName': 'regular',
+                                 'name': 'regular',
                                  'shared': False},
                           'n2': {'id': 'n2',
                                  'tenantId': 't2',
-                                 'networkName': 'hpb',
+                                 'name': 'hpb',
                                  'shared': False}}
         self.run_scenario(expect_created)
 
@@ -388,7 +388,7 @@ class AristaNetworkTest(AristaResourcesTestBase):
                         'rbac_entries': []}
         net1_expected = {'n1': {'id': 'n1',
                                 'tenantId': 't1',
-                                'networkName': 'n1_name',
+                                'name': 'n1_name',
                                 'shared': False}}
         # Shared network
         shared_rbac = rbac_models.NetworkRBAC(**{'id': 1,
@@ -402,7 +402,7 @@ class AristaNetworkTest(AristaResourcesTestBase):
                         'rbac_entries': [shared_rbac]}
         net2_expected = {'n2': {'id': 'n2',
                                 'tenantId': 't2',
-                                'networkName': '',
+                                'name': '',
                                 'shared': True}}
         # Other RBAC
         other_rbac1 = rbac_models.NetworkRBAC(**{'id': 2,
@@ -420,7 +420,7 @@ class AristaNetworkTest(AristaResourcesTestBase):
                         'rbac_entries': [other_rbac1, other_rbac2]}
         net3_expected = {'n3': {'id': 'n3',
                                 'tenantId': 't3',
-                                'networkName': 'n3_name',
+                                'name': 'n3_name',
                                 'shared': False}}
         test_cases = [(net1_neutron, net1_expected),
                       (net2_neutron, net2_expected),
@@ -519,11 +519,11 @@ class AristaDhcpTest(AristaInstancesTestBase):
         id_base = n_const.DEVICE_OWNER_DHCP + 'normal'
         expect_created = {'%s1' % id_base:
                           {'tenantId': 't1',
-                           'dhcpHostId': 'host1',
+                           'hostId': 'host1',
                            'id': '%s1' % id_base},
                           '%s2' % id_base:
                           {'tenantId': 't2',
-                           'dhcpHostId': 'host2',
+                           'hostId': 'host2',
                            'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
@@ -532,7 +532,7 @@ class AristaDhcpTest(AristaInstancesTestBase):
         id_base = n_const.DEVICE_OWNER_DHCP + 'normal'
         expect_created = {'%s2' % id_base:
                           {'tenantId': 't2',
-                           'dhcpHostId': 'host2',
+                           'hostId': 'host2',
                            'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
@@ -548,11 +548,11 @@ class AristaRouterTest(AristaInstancesTestBase):
         id_base = n_const.DEVICE_OWNER_DVR_INTERFACE + 'normal'
         expect_created = {'%s1' % id_base:
                           {'tenantId': 't1',
-                           'routerHostId': 'distributed',
+                           'hostId': 'distributed',
                            'id': '%s1' % id_base},
                           '%s2' % id_base:
                           {'tenantId': 't2',
-                           'routerHostId': 'distributed',
+                           'hostId': 'distributed',
                            'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
@@ -561,7 +561,7 @@ class AristaRouterTest(AristaInstancesTestBase):
         id_base = n_const.DEVICE_OWNER_DVR_INTERFACE + 'normal'
         expect_created = {'%s2' % id_base:
                           {'tenantId': 't2',
-                           'routerHostId': 'distributed',
+                           'hostId': 'distributed',
                            'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
@@ -577,11 +577,11 @@ class AristaVmTest(AristaInstancesTestBase):
         id_base = n_const.DEVICE_OWNER_COMPUTE_PREFIX + 'normal'
         expect_created = {'%s1' % id_base:
                           {'tenantId': 't1',
-                           'vmHostId': 'host1',
+                           'hostId': 'host1',
                            'id': '%s1' % id_base},
                           '%s2' % id_base:
                           {'tenantId': 't2',
-                           'vmHostId': 'host2',
+                           'hostId': 'host2',
                            'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
@@ -590,7 +590,7 @@ class AristaVmTest(AristaInstancesTestBase):
         id_base = n_const.DEVICE_OWNER_COMPUTE_PREFIX + 'normal'
         expect_created = {'%s2' % id_base:
                           {'tenantId': 't2',
-                           'vmHostId': 'host2',
+                           'hostId': 'host2',
                            'id': '%s2' % id_base}}
         self.run_scenario(expect_created)
 
@@ -607,19 +607,19 @@ class AristaBaremetalTest(AristaInstancesTestBase):
         legacy_id_base = n_const.DEVICE_OWNER_BAREMETAL_PREFIX + 'baremetal'
         expect_created = {'%s1' % id_base:
                           {'tenantId': 't1',
-                           'baremetalHostId': 'host1',
+                           'hostId': 'host1',
                            'id': '%s1' % id_base},
                           '%s2' % id_base:
                           {'tenantId': 't2',
-                           'baremetalHostId': 'host2',
+                           'hostId': 'host2',
                            'id': '%s2' % id_base},
                           '%s1' % legacy_id_base:
                           {'tenantId': 't1',
-                           'baremetalHostId': 'host1',
+                           'hostId': 'host1',
                            'id': '%s1' % legacy_id_base},
                           '%s2' % legacy_id_base:
                           {'tenantId': 't2',
-                           'baremetalHostId': 'host2',
+                           'hostId': 'host2',
                            'id': '%s2' % legacy_id_base}}
         self.run_scenario(expect_created)
 
@@ -629,11 +629,11 @@ class AristaBaremetalTest(AristaInstancesTestBase):
         legacy_id_base = n_const.DEVICE_OWNER_BAREMETAL_PREFIX + 'baremetal'
         expect_created = {'%s2' % id_base:
                           {'tenantId': 't2',
-                           'baremetalHostId': 'host2',
+                           'hostId': 'host2',
                            'id': '%s2' % id_base},
                           '%s2' % legacy_id_base:
                           {'tenantId': 't2',
-                           'baremetalHostId': 'host2',
+                           'hostId': 'host2',
                            'id': '%s2' % legacy_id_base}}
         self.run_scenario(expect_created)
 

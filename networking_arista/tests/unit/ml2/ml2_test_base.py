@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import cProfile
+from eventlet import queue
 import mock
 from pstats import Stats
 
@@ -77,10 +78,14 @@ class MechTestBase(test_plugin.Ml2PluginV2TestCase):
         self.region = 'region'
         self.cvx = utils.MockCvx(self.region)
         self.drv = self.driver.mechanism_manager.mech_drivers['arista'].obj
+        # multiprocessing.Queue's get() fails to wake up a thread, swap
+        # it out for a LightQueue for testing purposes
+        self.drv.provision_queue = queue.LightQueue()
         for worker in self.driver._workers:
             if isinstance(worker, arista_sync.AristaSyncWorker):
                 self.ar_sync = worker
                 self.ar_sync._rpc = self.cvx
+                self.ar_sync.provision_queue = self.drv.provision_queue
             worker.start()
         self.trunk_plugin = directory.get_plugin('trunk')
         self.net_count = 0

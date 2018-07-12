@@ -15,7 +15,6 @@
 
 import json
 from multiprocessing import Queue
-import threading
 
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
@@ -35,10 +34,10 @@ LOG = logging.getLogger(__name__)
 cfg.CONF.import_group('ml2_arista', 'networking_arista.common.config')
 
 
-def pretty_log(tag, obj):
-    log_data = json.dumps(obj, sort_keys=True, indent=4)
-    LOG.debug(tag)
-    LOG.debug(log_data)
+def log_context(function, context):
+    pretty_context = json.dumps(context, sort_keys=True, indent=4)
+    LOG.debug(function)
+    LOG.debug(pretty_context)
 
 
 class MechResource(object):
@@ -67,7 +66,6 @@ class AristaDriver(driver_api.MechanismDriver):
         self.eapi = AristaRPCWrapperEapi()
         self.mlag_pairs = dict()
 
-        self.queue_ready = threading.Event()
         self.provision_queue = Queue()
         self.trunk_driver = None
 
@@ -76,8 +74,7 @@ class AristaDriver(driver_api.MechanismDriver):
         self.trunk_driver = arista_trunk.AristaTrunkDriver.create()
 
     def get_workers(self):
-        return [arista_sync.AristaSyncWorker(self.provision_queue,
-                                             self.queue_ready)]
+        return [arista_sync.AristaSyncWorker(self.provision_queue)]
 
     def create_tenant(self, tenant_id):
         """Enqueue tenant create"""
@@ -207,12 +204,14 @@ class AristaDriver(driver_api.MechanismDriver):
     def create_network_postcommit(self, context):
         """Provision the network on CVX"""
         network = context.current
+
+        log_context("create_network_postcommit: network", network)
+
         segments = context.network_segments
         tenant_id = network['project_id']
         self.create_tenant(tenant_id)
         self.create_network(network)
         self.create_segments(segments)
-        self.queue_ready.set()
 
     def update_network_postcommit(self, context):
         """Send network updates to CVX:
@@ -223,6 +222,10 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         network = context.current
         orig_network = context.original
+
+        log_context("update_network_postcommit: network", network)
+        log_context("update_network_postcommit: orig", orig_network)
+
         segments = context.network_segments
 
         # Check for name change
@@ -231,17 +234,18 @@ class AristaDriver(driver_api.MechanismDriver):
 
         # New segments may have been added
         self.create_segments(segments)
-        self.queue_ready.set()
 
     def delete_network_postcommit(self, context):
         """Delete the network from CVX"""
         network = context.current
+
+        log_context("delete_network_postcommit: network", network)
+
         segments = context.network_segments
         tenant_id = network['project_id']
         self.delete_segments(segments)
         self.delete_network(network)
         self.delete_tenant_if_removed(tenant_id)
-        self.queue_ready.set()
 
     def _delete_port_resources(self, port, host):
         tenant_id = port['project_id']
@@ -259,6 +263,10 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         port = context.current
         orig_port = context.original
+
+        log_context("update_port_postcommit: port", port)
+        log_context("update_port_postcommit: orig", orig_port)
+
         tenant_id = port['project_id']
 
         # Device id can change without a port going DOWN, but the new device
@@ -267,7 +275,8 @@ class AristaDriver(driver_api.MechanismDriver):
             self._delete_port_resources(orig_port, context.original_host)
 
         if context.status == n_const.PORT_STATUS_DOWN:
-            if context.original_host:
+            if (context.original_host and
+                    context.status != context.original_status):
                 self._delete_port_resources(orig_port, context.original_host)
                 self._try_to_release_dynamic_segment(context, migration=True)
         else:
@@ -279,14 +288,15 @@ class AristaDriver(driver_api.MechanismDriver):
             self.create_instance(port)
             self.create_port(port)
             self.create_port_binding(port, context.host)
-        self.queue_ready.set()
 
     def delete_port_postcommit(self, context):
         """Delete the port from CVX"""
         port = context.current
+
+        log_context("delete_port_postcommit: port", port)
+
         self._delete_port_resources(port, context.host)
         self._try_to_release_dynamic_segment(context)
-        self.queue_ready.set()
 
     def _bind_baremetal_port(self, context, segment):
         """Bind the baremetal port to the segment"""
@@ -359,6 +369,9 @@ class AristaDriver(driver_api.MechanismDriver):
         this simply tells the ML2 Plugin that we are binding the port
         """
         port = context.current
+
+        log_context("bind_port: port", port)
+
         for segment in context.segments_to_bind:
             physnet = segment.get(driver_api.PHYSICAL_NETWORK)
             segment_type = segment[driver_api.NETWORK_TYPE]
