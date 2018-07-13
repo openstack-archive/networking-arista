@@ -407,7 +407,10 @@ class AristaDriver(driver_api.MechanismDriver):
         If this port was the last port using a segment and the segment was
         allocated by this driver, it should be released
         """
-        binding_levels = context.binding_levels
+        if migration:
+            binding_levels = context.original_binding_levels
+        else:
+            binding_levels = context.binding_levels
         LOG.debug("_try_release_dynamic_segment: "
                   "binding_levels=%(bl)s", {'bl': binding_levels})
         if not binding_levels:
