@@ -43,7 +43,6 @@ class AristaSyncWorker(worker.BaseWorker):
         self._sync_interval = cfg.CONF.ml2_arista.sync_interval
 
     def initialize(self):
-        self._last_sec_gp_sync = 0
         self._last_sync_time = 0
         self._cvx_uuid = None
         self._synchronizing_uuid = None
@@ -209,15 +208,6 @@ class AristaSyncWorker(worker.BaseWorker):
         else:
             return self.wait_for_mech_driver_update(timeout)
 
-    def synchronize_security_groups(self):
-        # Perform sync of Security Groups every sync interval
-        if time.time() - self._last_sec_gp_sync > self._sync_interval:
-            try:
-                self._rpc.perform_sync_of_sg()
-                self._last_sec_gp_sync = time.time()
-            except Exception as e:
-                LOG.warning(e)
-
     def synchronize_resources(self):
         # Grab the sync lock
         if not self._rpc.sync_start():
@@ -240,7 +230,7 @@ class AristaSyncWorker(worker.BaseWorker):
 
         # Update local uuid if this was a full sync
         if self._synchronizing_uuid:
-            LOG.info("Full sync for cvx uuid %(uuid) complete",
+            LOG.info("Full sync for cvx uuid %(uuid)s complete",
                      {'uuid': self._synchronizing_uuid})
             self._cvx_uuid = self._synchronizing_uuid
             self._synchronizing_uuid = None
@@ -254,8 +244,8 @@ class AristaSyncWorker(worker.BaseWorker):
                     self.synchronize_resources()
             except Exception:
                 LOG.exception("Arista Sync failed")
-                self._last_sec_gp_sync = 0
-                self._last_sync_time = 0
+                self._cvx_uuid = None
+                self._synchronizing_uuid = None
 
             # Yield to avoid starvation
             greenthread.sleep(0)
