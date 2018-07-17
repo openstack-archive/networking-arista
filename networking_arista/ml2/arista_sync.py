@@ -226,9 +226,13 @@ class AristaSyncWorker(worker.BaseWorker):
             greenthread.sleep(1)
             return
 
-        # Sync any necessary resources
-        for resource_type in self.sync_order:
+        # Sync any necessary resources.
+        # We delete in reverse order and create in order to ensure that
+        # dependent resources  are deleted before the resources they depend
+        # on and created after them
+        for resource_type in reversed(self.sync_order):
             resource_type.delete_cvx_resources()
+        for resource_type in self.sync_order:
             resource_type.create_cvx_resources()
 
         # Release the sync lock
