@@ -189,6 +189,8 @@ class AristaDriver(driver_api.MechanismDriver):
 
     def create_port_binding(self, port, host):
         """Enqueue port binding create"""
+        if not self.get_instance_type(port):
+            return
         for pb_key in self._get_binding_keys(port, host):
             pb_res = MechResource(pb_key, a_const.PORT_BINDING_RESOURCE,
                                   a_const.CREATE)
@@ -196,6 +198,8 @@ class AristaDriver(driver_api.MechanismDriver):
 
     def delete_port_binding(self, port, host):
         """Enqueue port binding delete"""
+        if not self.get_instance_type(port):
+            return
         for pb_key in self._get_binding_keys(port, host):
             pb_res = MechResource(pb_key, a_const.PORT_BINDING_RESOURCE,
                                   a_const.DELETE)
