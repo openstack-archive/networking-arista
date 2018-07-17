@@ -190,6 +190,8 @@ Query.filter_unnecessary_ports = filter_unnecessary_ports
 
 def get_tenants(tenant_id=None):
     """Returns list of all project/tenant ids that may be relevant on CVX"""
+    if tenant_id == '':
+        return []
     session = db.get_reader_session()
     project_ids = set()
     with session.begin():
