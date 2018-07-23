@@ -1,0 +1,9 @@
+Code-Review+2: Mitchell Jameson <mitchell@arista.com>
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Mon, 23 Jul 2018 14:48:41 +0000
+Reviewed-on: https://review.openstack.org/576924
+Project: openstack/networking-arista
+Branch: refs/heads/stable/pike
