@@ -106,15 +106,19 @@ class AristaResourcesBase(object):
 
     def _add_neutron_resource(self, resource):
         formatted_resource = self.format_for_create(resource)
+        resource_id = list(formatted_resource.keys())[0]
         LOG.info("%(tid)s %(class)s resource %(id)s added locally",
                  {'class': self.__class__.__name__,
-                  'id': list(formatted_resource.keys())[0],
+                  'id': resource_id,
                   'tid': threading.current_thread().ident})
+        # If the resource has changed, force a POST to CVX
+        old_resource = self.neutron_resources.get(resource_id)
+        if old_resource and old_resource != formatted_resource:
+            self.force_resource_update(id)
         self.neutron_resources.update(formatted_resource)
 
-    def update_neutron_resource(self, id):
+    def force_resource_update(self, id):
         self.cvx_ids.discard(id)
-        self.add_neutron_resource(id)
 
     def delete_neutron_resource(self, id):
         # Until we start using etcd, we need to unconditionally send the

@@ -143,8 +143,6 @@ class AristaSyncWorker(worker.BaseWorker):
                   'tid': threading.current_thread().ident})
         if resource.action == a_const.CREATE:
             self.add_neutron_resource(resource)
-        elif resource.action == a_const.UPDATE:
-            self.update_neutron_resource(resource)
         elif resource.action == a_const.DELETE:
             self.delete_neutron_resource(resource)
         else:
