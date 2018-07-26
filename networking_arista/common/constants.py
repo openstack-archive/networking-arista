@@ -17,7 +17,6 @@ from networking_arista._i18n import _
 
 # Resource actions
 CREATE = 'create'
-UPDATE = 'update'
 DELETE = 'delete'
 
 # Resource types
