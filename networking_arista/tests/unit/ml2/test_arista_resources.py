@@ -99,7 +99,7 @@ class AristaResourcesBaseTest(base.BaseTestCase):
         ar._add_neutron_resource({'id': 1})
         self.assertEqual(ar.neutron_resources, {1: {'id': 1}})
 
-    def test_update_neutron_resource(self):
+    def test_force_resource_update(self):
         # Setup
         neutron_resources = {i: {'id': i} for i in range(10)}
         ar = resources.AristaResourcesBase(self.rpc)
@@ -110,10 +110,10 @@ class AristaResourcesBaseTest(base.BaseTestCase):
         resource_to_update = 5
         ar.get_db_resources = mock.MagicMock()
         ar.get_db_resources.return_value = [{'id': resource_to_update}]
-        # Ensure that calling update_neutron_resource would result in that
+        # Ensure that calling force_resource_update would result in that
         # resource being resent to CVX (with any updated data)
         self.assertEqual(ar.resource_ids_to_create(), set())
-        ar.update_neutron_resource(resource_to_update)
+        ar.force_resource_update(resource_to_update)
         self.assertEqual(ar.resource_ids_to_create(),
                          set([resource_to_update]))
 
