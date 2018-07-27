@@ -22,8 +22,8 @@ from neutron.plugins.ml2.drivers import type_vlan
 
 from networking_arista._i18n import _LI
 from networking_arista.common import exceptions as exc
-from networking_arista.ml2.drivers import driver_helpers
 from networking_arista.ml2.rpc.arista_eapi import AristaRPCWrapperEapi
+from networking_arista.ml2.type_drivers import driver_helpers
 
 LOG = log.getLogger(__name__)
 cfg.CONF.import_group('arista_type_driver', 'networking_arista.common.config')
@@ -48,7 +48,6 @@ class AristaVlanTypeDriver(type_vlan.VlanTypeDriver):
         self.sync_timeout = cfg.CONF.arista_type_driver['sync_interval']
 
     def initialize(self):
-        self.rpc.check_supported_features()
         self.rpc.check_vlan_type_driver_commands()
         self._synchronization_thread()
         LOG.info(_LI("AristaVlanTypeDriver initialization complete"))
