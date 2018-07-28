@@ -96,12 +96,6 @@ class AristaDriver(driver_api.MechanismDriver):
                              a_const.CREATE)
         self.provision_queue.put(n_res)
 
-    def update_network(self, network):
-        """Enqueue network update"""
-        n_res = MechResource(network['id'], a_const.NETWORK_RESOURCE,
-                             a_const.UPDATE)
-        self.provision_queue.put(n_res)
-
     def delete_network(self, network):
         """Enqueue network delete"""
         n_res = MechResource(network['id'], a_const.NETWORK_RESOURCE,
@@ -233,9 +227,7 @@ class AristaDriver(driver_api.MechanismDriver):
 
         segments = context.network_segments
 
-        # Check for name change
-        if network['name'] != orig_network['name']:
-            self.update_network(network)
+        self.create_network(network)
 
         # New segments may have been added
         self.create_segments(segments)
