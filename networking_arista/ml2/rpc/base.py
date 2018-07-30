@@ -417,6 +417,15 @@ class AristaRPCWrapperBase(object):
         """
 
     @abc.abstractmethod
+    def delete_dhcp_bulk(self, tenant_id, dhcp_id_list, sync=False):
+        """Deletes instances from EOS for a given tenant
+
+        :param tenant_id : globally unique neutron tenant identifier
+        :param dhcp_id_list : ids of dhcp instances that needs to be deleted.
+        :param sync: This flags indicates that the region is being synced.
+        """
+
+    @abc.abstractmethod
     def hpb_supported(self):
         """Whether hierarchical port binding (HPB) is supported by CVX.
 
