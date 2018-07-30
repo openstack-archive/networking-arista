@@ -558,6 +558,9 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             cmds.append(self.cli_commands[const.CMD_SYNC_HEARTBEAT])
         self._run_openstack_cmds(cmds, sync=sync)
 
+    def delete_dhcp_bulk(self, tenant_id, dhcp_id_list, sync=False):
+        self.delete_vm_bulk(tenant_id, dhcp_id_list, sync)
+
     def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
         cmds = ['tenant %s' % tenant_id]
         counter = 0

@@ -276,6 +276,10 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             vmDict = dict((v['id'], v) for v in vms)
             ten['tenantVmInstances'] = vmDict
 
+            dhcps = self.get_dhcps_for_tenant(ten['tenantId'])
+            dhcpsDict = dict((v['id'], v) for v in dhcps)
+            ten['tenantVmInstances'].update(dhcpsDict)
+
             routers = self.get_routers_for_tenant(ten['tenantId'])
             routerDict = dict((r['id'], r) for r in routers)
             ten['tenantRouterInstances'] = routerDict
@@ -537,9 +541,9 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
         self.delete_instance_bulk(tenant_id, vm_id_list, const.InstanceType.VM)
 
-    def delete_dhcp_bulk(self, tenant_id, dhcp_id_list):
+    def delete_dhcp_bulk(self, tenant_id, dhcp_id_list, sync=False):
         self.delete_instance_bulk(tenant_id, dhcp_id_list,
-                                  const.InstanceType.DHCP)
+                                  const.InstanceType.DHCP, sync)
 
     def delete_port(self, port_id, instance_id, instance_type,
                     device_owner=None):
