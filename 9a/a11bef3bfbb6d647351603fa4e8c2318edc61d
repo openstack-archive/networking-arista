@@ -1,0 +1,8 @@
+Code-Review+2: Mitchell Jameson <mitchell@arista.com>
+Workflow+1: Mitchell Jameson <mitchell@arista.com>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Wed, 08 Aug 2018 18:23:31 +0000
+Reviewed-on: https://review.openstack.org/589685
+Project: openstack/networking-arista
+Branch: refs/heads/stable/ocata
