@@ -461,6 +461,15 @@ class AristaRPCWrapperBase(object):
         """
 
     @abc.abstractmethod
+    def delete_dhcp_bulk(self, tenant_id, dhcp_id_list, sync=False):
+        """Deletes instances from EOS for a given tenant
+
+        :param tenant_id : globally unique neutron tenant identifier
+        :param dhcp_id_list : ids of dhcp instances that needs to be deleted.
+        :param sync: This flags indicates that the region is being synced.
+        """
+
+    @abc.abstractmethod
     def hpb_supported(self):
         """Whether hierarchical port binding (HPB) is supported by CVX.
 
@@ -772,6 +781,10 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
             vmDict = dict((v['id'], v) for v in vms)
             ten['tenantVmInstances'] = vmDict
 
+            dhcps = self.get_dhcps_for_tenant(ten['tenantId'])
+            dhcpsDict = dict((v['id'], v) for v in dhcps)
+            ten['tenantVmInstances'].update(dhcpsDict)
+
             routers = self.get_routers_for_tenant(ten['tenantId'])
             routerDict = dict((r['id'], r) for r in routers)
             ten['tenantRouterInstances'] = routerDict
@@ -1028,8 +1041,9 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
     def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
         self.delete_instance_bulk(tenant_id, vm_id_list, InstanceType.VM)
 
-    def delete_dhcp_bulk(self, tenant_id, dhcp_id_list):
-        self.delete_instance_bulk(tenant_id, dhcp_id_list, InstanceType.DHCP)
+    def delete_dhcp_bulk(self, tenant_id, dhcp_id_list, sync=False):
+        self.delete_instance_bulk(tenant_id, dhcp_id_list, InstanceType.DHCP,
+                                  sync=sync)
 
     def delete_port(self, port_id, instance_id, instance_type):
         path = ('region/%s/port?portId=%s&id=%s&type=%s' %
@@ -1661,6 +1675,9 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
             cmds.append(self.cli_commands[CMD_SYNC_HEARTBEAT])
         self._run_openstack_cmds(cmds, sync=sync)
 
+    def delete_dhcp_bulk(self, tenant_id, dhcp_id_list, sync=False):
+        self.delete_vm_bulk(tenant_id, dhcp_id_list, sync=sync)
+
     def delete_vm_bulk(self, tenant_id, vm_id_list, sync=False):
         cmds = ['tenant %s' % tenant_id]
         counter = 0
@@ -2167,8 +2184,8 @@ class SyncService(object):
             db_instances = db_lib.get_vms(tenant)
 
             eos_nets = self._get_eos_networks(eos_tenants, tenant)
-            eos_vms, eos_bms, eos_routers = self._get_eos_vms(eos_tenants,
-                                                              tenant)
+            eos_vms, eos_bms, eos_routers, eos_dhcps = self._get_eos_vms(
+                eos_tenants, tenant)
 
             db_nets_key_set = frozenset(db_nets.keys())
             db_instances_key_set = frozenset(db_instances.keys())
@@ -2176,10 +2193,11 @@ class SyncService(object):
             eos_vms_key_set = frozenset(eos_vms.keys())
             eos_routers_key_set = frozenset(eos_routers.keys())
             eos_bms_key_set = frozenset(eos_bms.keys())
+            eos_dhcps_key_set = frozenset(eos_dhcps.keys())
 
             # Create a candidate list by incorporating all instances
             eos_instances_key_set = (eos_vms_key_set | eos_routers_key_set |
-                                     eos_bms_key_set)
+                                     eos_bms_key_set | eos_dhcps_key_set)
 
             # Find the networks that are present on EOS, but not in Neutron DB
             nets_to_delete = eos_nets_key_set.difference(db_nets_key_set)
@@ -2188,6 +2206,8 @@ class SyncService(object):
             instances_to_delete = eos_instances_key_set.difference(
                 db_instances_key_set)
 
+            dhcps_to_delete = [dhcp for dhcp in eos_dhcps_key_set
+                               if dhcp in instances_to_delete]
             vms_to_delete = [
                 vm for vm in eos_vms_key_set if vm in instances_to_delete]
             routers_to_delete = [
@@ -2205,6 +2225,9 @@ class SyncService(object):
             try:
                 if vms_to_delete:
                     self._rpc.delete_vm_bulk(tenant, vms_to_delete, sync=True)
+                if dhcps_to_delete:
+                    self._rpc.delete_dhcp_bulk(tenant, dhcps_to_delete,
+                                               sync=True)
                 if routers_to_delete:
                     if self._rpc.bm_and_dvr_supported():
                         self._rpc.delete_instance_bulk(tenant,
@@ -2311,14 +2334,19 @@ class SyncService(object):
         vms = {}
         bms = {}
         routers = {}
+        dhcps = {}
+        all_vms = {}
         if eos_tenants and tenant in eos_tenants:
-            vms = eos_tenants[tenant]['tenantVmInstances']
+            all_vms = eos_tenants[tenant]['tenantVmInstances']
+            dhcps = (dict((vmid, all_vms[vmid]) for vmid in all_vms
+                          if vmid.startswith('dhcp')))
+            vms = dict((vm, all_vms[vm]) for vm in set(all_vms) - set(dhcps))
             if 'tenantBaremetalInstances' in eos_tenants[tenant]:
                 # Check if baremetal service is supported
                 bms = eos_tenants[tenant]['tenantBaremetalInstances']
             if 'tenantRouterInstances' in eos_tenants[tenant]:
                 routers = eos_tenants[tenant]['tenantRouterInstances']
-        return vms, bms, routers
+        return vms, bms, routers, dhcps
 
     def _port_dict_representation(self, port):
         return {port['id']: {'device_owner': port['device_owner'],

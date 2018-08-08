@@ -2591,3 +2591,70 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         ]
 
         self.rpc.assert_has_calls(expected_calls)
+
+    def test_synchronize_deleted_instances(self):
+        """Test to ensure instances are synchronized."""
+
+        tenant_1_id = 'tenant-1'
+        db_lib.remember_tenant(tenant_1_id)
+
+        region_tenants = {
+            tenant_1_id: {
+                'tenantVmInstances': {
+                    'vm-instance-1': {
+                        'vmInstanceId': 'vm-instance-1',
+                    },
+                    'dhcp-instacne-1': {
+                        'vmInstanceId': 'dhcp-instance-1',
+                    },
+                },
+                'tenantBaremetalInstances': {
+                    'bm-instance-1': {
+                        'baremetalInstanceId': 'bm-instance-1',
+                    },
+                },
+                'tenantRouterInstances': {
+                    'router-instance-1': {
+                        'routerPorts': {},
+                    },
+                },
+                'tenantNetworks': {}
+            }
+        }
+        self.rpc.get_tenants.return_value = region_tenants
+
+        self.rpc.sync_start.return_value = True
+        self.rpc.sync_end.return_value = True
+        self.rpc.check_cvx_availability.return_value = True
+        self.rpc.get_region_updated_time.return_value = {'regionTimestamp': 1}
+        self.rpc.bm_and_dvr_supported.return_value = True
+
+        self.sync_service.do_synchronize()
+
+        expected_calls = [
+            mock.call.perform_sync_of_sg(),
+            mock.call.check_cvx_availability(),
+            mock.call.get_region_updated_time(),
+            mock.call.sync_start(),
+            mock.call.register_with_eos(sync=True),
+            mock.call.check_supported_features(),
+            mock.call.get_tenants(),
+            mock.call.delete_vm_bulk(u'tenant-1',
+                                     ['vm-instance-1'],
+                                     sync=True),
+            mock.call.delete_dhcp_bulk(u'tenant-1',
+                                       ['dhcp-instacne-1'],
+                                       sync=True),
+            mock.call.bm_and_dvr_supported(),
+            mock.call.delete_instance_bulk(u'tenant-1',
+                                           ['router-instance-1'],
+                                           'router', sync=True),
+            mock.call.bm_and_dvr_supported(),
+            mock.call.delete_instance_bulk(u'tenant-1',
+                                           ['bm-instance-1'],
+                                           'baremetal', sync=True),
+            mock.call.sync_end(),
+            mock.call.get_region_updated_time()
+        ]
+
+        self.rpc.assert_has_calls(expected_calls)
