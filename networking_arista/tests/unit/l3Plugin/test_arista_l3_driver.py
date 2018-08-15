@@ -240,6 +240,89 @@ class AristaL3DriverTestCasesMlagConfig(base.BaseTestCase):
             s.execute.assert_called_once_with(cmds)
 
 
+class AristaL3DriverTestCasesMlagVRFConfig(base.BaseTestCase):
+    """Test cases to test the RPC between Arista Driver and EOS.
+
+    Tests all methods used to send commands between Arista L3 Driver and EOS
+    to program routing functions in VRFs using MLAG configuration.
+    """
+
+    def setUp(self):
+        super(AristaL3DriverTestCasesMlagVRFConfig, self).setUp()
+        setup_arista_config('value', mlag=True, vrf=True)
+        self.drv = arista.AristaL3Driver()
+        self.drv._servers = []
+        self.drv._servers.append(mock.MagicMock())
+        self.drv._servers.append(mock.MagicMock())
+
+    def test_no_exception_on_correct_configuration(self):
+        self.assertIsNotNone(self.drv)
+
+    def test_create_router_on_eos(self):
+        max_vrfs = 5
+        routers = ['testRouter-%s' % n for n in range(max_vrfs)]
+        domains = ['10%s' % n for n in range(max_vrfs)]
+
+        router_mac = '00:11:22:33:44:55'
+
+        for s in self.drv._servers:
+            for (r, d) in zip(routers, domains):
+                self.drv.create_router_on_eos(r, d, s)
+
+                cmds = ['enable', 'configure',
+                        'vrf definition %s' % r,
+                        'rd %(rd)s:%(rd)s' % {'rd': d},
+                        'exit',
+                        'ip virtual-router mac-address %s' % router_mac,
+                        'exit']
+                s.execute.assert_called_with(cmds)
+
+    def test_delete_router_from_eos(self):
+        max_vrfs = 5
+        routers = ['testRouter-%s' % n for n in range(max_vrfs)]
+
+        for s in self.drv._servers:
+            for r in routers:
+                self.drv.delete_router_from_eos(r, s)
+                cmds = ['enable', 'configure', 'no vrf definition %s' % r,
+                        'exit']
+
+                s.execute.assert_called_with(cmds)
+
+    def test_add_interface_to_router_on_eos(self):
+        router_name = 'test-router-1'
+        segment_id = '123'
+        router_ip = '10.10.10.10'
+        gw_ip = '10.10.10.1'
+        mask = '255.255.255.0'
+
+        for s in self.drv._servers:
+            self.drv.add_interface_to_router(segment_id, router_name, gw_ip,
+                                             router_ip, mask, s)
+            cmds = ['enable', 'configure',
+                    'ip routing vrf %s' % router_name,
+                    'vlan %s' % segment_id, 'exit',
+                    'interface vlan %s' % segment_id,
+                    'vrf forwarding %s' % router_name,
+                    'ip address %s' % router_ip,
+                    'ip virtual-router address %s' % gw_ip,
+                    'exit']
+
+            s.execute.assert_called_once_with(cmds)
+
+    def test_delete_interface_from_router_on_eos(self):
+        router_name = 'test-router-1'
+        segment_id = '123'
+
+        for s in self.drv._servers:
+            self.drv.delete_interface_from_router(segment_id, router_name, s)
+
+            cmds = ['enable', 'configure', 'no interface vlan %s' % segment_id,
+                    'exit']
+
+            s.execute.assert_called_once_with(cmds)
+
+
 class AristaL3DriverTestCases_v4(base.BaseTestCase):
     """Test cases to test the RPC between Arista Driver and EOS.
 
