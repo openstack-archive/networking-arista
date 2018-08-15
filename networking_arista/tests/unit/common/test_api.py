@@ -215,7 +215,7 @@ class TestEAPIClientExecute(testtools.TestCase):
 
     def test_response_unknown_error_code(self):
         self._test_response_format_error_helper(
-            {'error': {'code': 999}}
+            {'error': {'code': 999, 'data': []}}
         )
 
     def test_response_known_error_code(self):

@@ -134,11 +134,6 @@ class AristaL3Driver(object):
             LOG.error(msg)
             raise arista_exc.AristaServicePluginConfigError(msg=msg)
         if cfg.CONF.l3_arista.get('mlag_config'):
-            if cfg.CONF.l3_arista.get('use_vrf'):
-                # This is invalid/unsupported configuration
-                msg = _('VRFs are not supported MLAG config mode')
-                LOG.error(msg)
-                raise arista_exc.AristaServicePluginConfigError(msg=msg)
             if cfg.CONF.l3_arista.get('secondary_l3_host') == '':
                 msg = _('Required option secondary_l3_host is not set')
                 LOG.error(msg)
