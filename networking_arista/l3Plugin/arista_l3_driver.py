@@ -37,8 +37,7 @@ IPV6_BITS = 128
 # pylint: disable=too-many-format-args
 router_in_vrf = {
     'router': {'create': ['vrf definition {0}',
-                          'rd {1}',
-                          'exit'],
+                          'rd {1}'],
                'delete': ['no vrf definition {0}']},
 
     'interface': {'add': ['ip routing vrf {1}',
@@ -134,11 +133,6 @@ class AristaL3Driver(object):
             LOG.error(msg)
             raise arista_exc.AristaServicePluginConfigError(msg=msg)
         if cfg.CONF.l3_arista.get('mlag_config'):
-            if cfg.CONF.l3_arista.get('use_vrf'):
-                # This is invalid/unsupported configuration
-                msg = _('VRFs are not supported MLAG config mode')
-                LOG.error(msg)
-                raise arista_exc.AristaServicePluginConfigError(msg=msg)
             if cfg.CONF.l3_arista.get('secondary_l3_host') == '':
                 msg = _('Required option secondary_l3_host is not set')
                 LOG.error(msg)
@@ -165,6 +159,9 @@ class AristaL3Driver(object):
             mac = VIRTUAL_ROUTER_MAC
             for c in self._additionalRouterCmdsDict['create']:
                 cmds.append(c.format(mac))
+
+        if self._use_vrf:
+            cmds.append('exit')
 
         self._run_openstack_l3_cmds(cmds, server)
 
