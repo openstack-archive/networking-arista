@@ -55,7 +55,7 @@ MECHANISM_DRV_NAME = 'arista'
 # When a SG is applied to a VM, ingress refers to traffic flowing
 # into a VM and egress refers to traffic flowing out.
 # In the baremetal case, traffic flowing out of a switchport is
-# flowing into the the baremetal. Therefore, INGRESS SG rules
+# flowing into the baremetal. Therefore, INGRESS SG rules
 # should be applied as 'out' ACLs and EGRESS rules as 'in' ACLs.
 INGRESS_DIRECTION = 'out'
 EGRESS_DIRECTION = 'in'

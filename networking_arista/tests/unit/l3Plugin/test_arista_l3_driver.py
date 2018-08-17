@@ -390,7 +390,7 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
 
     In the following test cases, the driver is configured in MLAG (redundancy
     mode) but, one of the switches is mocked to throw exceptoin to mimic
-    failure of the switch. Ensure that the the operation does not fail when
+    failure of the switch. Ensure that the operation does not fail when
     one of the switches fails.
     """
 
