@@ -134,11 +134,6 @@ class AristaL3Driver(object):
             LOG.error(msg)
             raise arista_exc.AristaServicePluginConfigError(msg=msg)
         if cfg.CONF.l3_arista.get('mlag_config'):
-            if cfg.CONF.l3_arista.get('use_vrf'):
-                # This is invalid/unsupported configuration
-                msg = _('VRFs are not supported MLAG config mode')
-                LOG.error(msg)
-                raise arista_exc.AristaServicePluginConfigError(msg=msg)
             if cfg.CONF.l3_arista.get('secondary_l3_host') == '':
                 msg = _('Required option secondary_l3_host is not set')
                 LOG.error(msg)
@@ -395,9 +390,9 @@ class AristaL3Driver(object):
 
         Use a unique name so that OpenStack created routers/SVIs
         can be distinguishged from the user created routers/SVIs
-        on Arista HW.
+        on Arista HW. Replace spaces with underscores for CLI compatibility
         """
-        return 'OS' + '-' + tenant_id + '-' + name
+        return 'OS' + '-' + tenant_id + '-' + name.replace(' ', '_')
 
     def _get_binary_from_ipv4(self, ip_addr):
         """Converts IPv4 address to binary form."""

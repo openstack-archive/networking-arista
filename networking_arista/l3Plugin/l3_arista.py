@@ -87,7 +87,8 @@ class AristaL3SyncWorker(worker.BaseWorker):
         routers = directory.get_plugin(plugin_constants.L3).get_routers(ctx)
         for r in routers:
             tenant_id = r['tenant_id']
-            ports = core.get_ports(ctx, filters={'tenant_id': tenant_id}) or []
+            ports = core.get_ports(ctx,
+                                   filters={'tenant_id': [tenant_id]}) or []
 
             try:
                 self.driver.create_router(self, tenant_id, r)
