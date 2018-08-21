@@ -1,0 +1,8 @@
+Code-Review+2: Nader Lahouti <nader.lahouti@gmail.com>
+Workflow+1: Nader Lahouti <nader.lahouti@gmail.com>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Tue, 21 Aug 2018 01:03:21 +0000
+Reviewed-on: https://review.openstack.org/593980
+Project: openstack/networking-arista
+Branch: refs/heads/stable/pike
