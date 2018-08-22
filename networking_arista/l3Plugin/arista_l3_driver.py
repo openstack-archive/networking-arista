@@ -397,7 +397,7 @@ class AristaL3Driver(object):
         can be distinguishged from the user created routers/SVIs
         on Arista HW.
         """
-        return 'OS' + '-' + tenant_id + '-' + name
+        return 'OS' + '-' + tenant_id + '-' + name.replace(' ', '_')
 
     def _get_binary_from_ipv4(self, ip_addr):
         """Converts IPv4 address to binary form."""
