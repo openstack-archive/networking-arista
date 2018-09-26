@@ -19,6 +19,7 @@ from neutron_lib import constants as n_const
 from neutron_lib import context as nctx
 from neutron_lib.plugins import constants as plugin_constants
 from neutron_lib.plugins import directory
+from neutron_lib import rpc as n_rpc
 from neutron_lib.services import base as service_base
 from neutron_lib import worker
 from oslo_config import cfg
@@ -29,7 +30,6 @@ from oslo_utils import excutils
 
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.rpc.handlers import l3_rpc
-from neutron.common import rpc as n_rpc
 from neutron.db import extraroute_db
 from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_gwmode_db
