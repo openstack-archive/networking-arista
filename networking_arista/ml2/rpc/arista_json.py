@@ -434,6 +434,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         portBindings = {}
 
         for vm in vms.values():
+            if vm['vmId'] == n_const.DEVICE_ID_RESERVED_DHCP_PORT:
+                continue
             for v_port in vm['ports']:
                 port_id = v_port['portId']
                 if not v_port['hosts']:

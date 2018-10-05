@@ -626,13 +626,18 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     segments = db_lib.get_port_binding_level(filters)
 
                 if device_owner == n_const.DEVICE_OWNER_DHCP:
-                    append_cmd('network id %s' % neutron_port['network_id'])
-                    append_cmd('dhcp id %s hostid %s port-id %s %s' %
-                               (vm['vmId'], v_port['hosts'][0],
-                                neutron_port['id'], port_name))
-                    cmds.extend('segment level %d id %s' % (
-                        segment.level, segment.segment_id)
-                        for segment in segments)
+                    if vm['vmId'] != n_const.DEVICE_ID_RESERVED_DHCP_PORT:
+                        append_cmd('network id %s' %
+                                   neutron_port['network_id'])
+                        append_cmd('dhcp id %s hostid %s port-id %s %s' %
+                                   (vm['vmId'], v_port['hosts'][0],
+                                    neutron_port['id'], port_name))
+                        cmds.extend('segment level %d id %s' % (
+                            segment.level, segment.segment_id)
+                            for segment in segments)
+                    else:
+                        LOG.info(_LI("Not syncing reserved DHCP port: %s"),
+                                 neutron_port['id'])
                 elif (device_owner.startswith('compute') or
                       device_owner.startswith('baremetal') or
                       device_owner.startswith('trunk')):
