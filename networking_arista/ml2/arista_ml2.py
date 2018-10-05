@@ -27,6 +27,7 @@ from oslo_utils import excutils
 import requests
 import six
 
+from neutron.common import constants as neutron_const
 from neutron.db import api as db_api
 from neutron.db.models.plugins.ml2 import vlanallocation
 
@@ -937,6 +938,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         portBindings = {}
 
         for vm in vms.values():
+            if vm['vmId'] == neutron_const.DEVICE_ID_RESERVED_DHCP_PORT:
+                continue
             for v_port in vm['ports']:
                 port_id = v_port['portId']
                 if not v_port['hosts']:
@@ -1744,13 +1747,19 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                     segments = db_lib.get_port_binding_level(filters)
 
                 if device_owner == n_const.DEVICE_OWNER_DHCP:
-                    append_cmd('network id %s' % neutron_port['network_id'])
-                    append_cmd('dhcp id %s hostid %s port-id %s %s' %
-                               (vm['vmId'], v_port['hosts'][0],
-                                neutron_port['id'], port_name))
-                    cmds.extend('segment level %d id %s' % (
-                        segment.level, segment.segment_id)
-                        for segment in segments)
+                    if (vm['vmId']
+                            != neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
+                        append_cmd('network id %s' %
+                                   neutron_port['network_id'])
+                        append_cmd('dhcp id %s hostid %s port-id %s %s' %
+                                   (vm['vmId'], v_port['hosts'][0],
+                                    neutron_port['id'], port_name))
+                        cmds.extend('segment level %d id %s' % (
+                            segment.level, segment.segment_id)
+                            for segment in segments)
+                    else:
+                        LOG.info(_LI("Not syncing reserved DHCP port: %s"),
+                                 neutron_port['id'])
                 elif (device_owner.startswith('compute') or
                       device_owner.startswith('baremetal')):
                     if vnic_type == 'baremetal':
