@@ -648,10 +648,14 @@ class AristaRPCWrapper(object):
 
             device_owner = neutron_port['device_owner']
             if device_owner == n_const.DEVICE_OWNER_DHCP:
-                append_cmd('network id %s' % neutron_port['network_id'])
-                append_cmd('dhcp id %s hostid %s port-id %s %s' %
-                           (port['deviceId'], port['hosts'][0],
-                            neutron_port['id'], port_name))
+                if port['deviceId'] != n_const.DEVICE_ID_RESERVED_DHCP_PORT:
+                    append_cmd('network id %s' % neutron_port['network_id'])
+                    append_cmd('dhcp id %s hostid %s port-id %s %s' %
+                               (port['deviceId'], port['hosts'][0],
+                                neutron_port['id'], port_name))
+                else:
+                    LOG.info(_LI("Not syncing reserved DHCP port: %s"),
+                             neutron_port['id'])
             elif device_owner.startswith('compute'):
                 append_cmd('vm id %s hostid %s' % (port['deviceId'],
                                                    port['hosts'][0]))
