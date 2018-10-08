@@ -26,6 +26,7 @@ from oslo_utils import excutils
 import requests
 from six import add_metaclass
 
+from neutron.common import constants as neutron_const
 from neutron.db import api as db_api
 from neutron.extensions import portbindings
 from neutron.plugins.ml2.drivers import type_vlan
@@ -922,6 +923,8 @@ class AristaRPCWrapperJSON(AristaRPCWrapperBase):
         portBindings = {}
 
         for vm in vms.values():
+            if vm['vmId'] == neutron_const.DEVICE_ID_RESERVED_DHCP_PORT:
+                continue
             for v_port in vm['ports']:
                 port_id = v_port['portId']
                 if (port_id in neutron_ports and
@@ -1742,13 +1745,19 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
                 if self.hpb_supported():
                     segments = self._ndb.get_all_network_segments(network_id)
                 if device_owner == n_const.DEVICE_OWNER_DHCP:
-                    append_cmd('network id %s' % neutron_port['network_id'])
-                    append_cmd('dhcp id %s hostid %s port-id %s %s' %
-                               (vm['vmId'], v_port['hosts'][0],
-                                neutron_port['id'], port_name))
-                    cmds.extend(
-                        'segment level %d id %s' % (level, segment['id'])
-                        for level, segment in enumerate(segments))
+                    if (vm['vmId']
+                            != neutron_const.DEVICE_ID_RESERVED_DHCP_PORT):
+                        append_cmd('network id %s' %
+                                   neutron_port['network_id'])
+                        append_cmd('dhcp id %s hostid %s port-id %s %s' %
+                                   (vm['vmId'], v_port['hosts'][0],
+                                    neutron_port['id'], port_name))
+                        cmds.extend(
+                            'segment level %d id %s' % (level, segment['id'])
+                            for level, segment in enumerate(segments))
+                    else:
+                        LOG.info(_LI("Not syncing reserved DHCP port: %s"),
+                                 neutron_port['id'])
                 elif device_owner.startswith('baremetal'):
                     append_cmd('instance id %s hostid %s type baremetal' %
                                (vm['vmId'], v_port['hosts'][0]))
