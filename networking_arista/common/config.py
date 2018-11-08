@@ -84,20 +84,20 @@ ARISTA_DRIVER_OPTS = [
                 default=[],
                 help=_('This is a comma separated list of Arista switches '
                        'where security groups (i.e. ACLs) need to be '
-                       'applied. Each string has three values separated  '
+                       'applied. Each string has three values separated '
                        'by : in the follow format '
-                       '<IP of switch>:<username>:<password>, ...... '
+                       '<switch_ip>:<username>:<password>, ...\n'
                        'For Example: 172.13.23.55:admin:admin, '
-                       '172.13.23.56:admin:admin, .... '
+                       '172.13.23.56:admin:admin, ...\n'
                        'This is required if sec_group_support is set to '
                        '"True"')),
     cfg.ListOpt('managed_physnets',
                 default=[],
                 help=_('This is a comma separated list of physical networks '
-                       'which are managed by Arista switches.'
-                       'This list will be used by the Arista ML2 plugin'
-                       'to make the decision if it can participate in binding'
-                       'or updating a port.'
+                       'which are managed by Arista switches. '
+                       'This list will be used by the Arista ML2 plugin '
+                       'to make the decision if it can participate in binding '
+                       'or updating a port.\n'
                        'For Example: '
                        'managed_physnets = arista_network')),
     cfg.BoolOpt('manage_fabric',
@@ -136,7 +136,7 @@ ARISTA_L3_PLUGIN = [
     cfg.StrOpt('secondary_l3_host',
                default='',
                help=_('Arista EOS IP address for second Switch MLAGed with '
-                      'the first one. This an optional field, however, if '
+                      'the first one. This is an optional field, however, if '
                       'mlag_config flag is set, then this is required. '
                       'If not set, all communications to Arista EOS '
                       'will fail')),
@@ -148,7 +148,7 @@ ARISTA_L3_PLUGIN = [
                       'seconds is assumed.')),
     cfg.BoolOpt('mlag_config',
                 default=False,
-                help=_('This flag is used indicate if Arista Switches are '
+                help=_('This flag is used to indicate if Arista Switches are '
                        'configured in MLAG mode. If yes, all L3 config '
                        'is pushed to both the switches automatically. '
                        'If this flag is set to True, ensure to specify IP '
@@ -167,7 +167,20 @@ ARISTA_L3_PLUGIN = [
                help=_('Sync interval in seconds between L3 Service plugin '
                       'and EOS. This interval defines how often the '
                       'synchronization is performed. This is an optional '
-                      'field. If not set, a value of 180 seconds is assumed'))
+                      'field. If not set, a value of 180 seconds is assumed')),
+    cfg.BoolOpt('enable_cleanup',
+                default=False,
+                help=_('Toggle to enable cleanup of unused VLANs, VRFs and '
+                       'SVIs on EOS L3 hosts in the sync worker. If enabled, '
+                       'ensure that all non-openstack VLANs are added to '
+                       'protected_vlans to ensure that they are not removed '
+                       'by the sync worker. If not set, a value of "False" '
+                       'is assumed.')),
+    cfg.ListOpt('protected_vlans',
+                default=[],
+                help=_('List of vlans or <vlan_min>:<vlan_max> ranges that '
+                       'should never be cleaned up by the L3 sync worker. '
+                       'This applies to both VLANs and SVIs')),
 ]
 
 
@@ -186,3 +199,14 @@ cfg.CONF.register_opts(ARISTA_L3_PLUGIN, "l3_arista")
 cfg.CONF.register_opts(ARISTA_DRIVER_OPTS, "ml2_arista")
 
 cfg.CONF.register_opts(ARISTA_TYPE_DRIVER_OPTS, "arista_type_driver")
+
+
+def list_opts():
+    return [
+        ('ml2_arista',
+         ARISTA_DRIVER_OPTS),
+        ('l3_arista',
+         ARISTA_L3_PLUGIN),
+        ('arista_type_driver',
+         ARISTA_TYPE_DRIVER_OPTS)
+    ]
