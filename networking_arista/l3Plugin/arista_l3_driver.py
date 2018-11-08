@@ -16,6 +16,7 @@ import hashlib
 import socket
 import struct
 
+from neutron_lib import constants as const
 from oslo_config import cfg
 from oslo_log import log as logging
 
@@ -117,6 +118,40 @@ class AristaL3Driver(object):
         else:
             self.routerDict = router_in_default_vrf['router']
             self._interfaceDict = router_in_default_vrf['interface']
+        self._enable_cleanup = cfg.CONF.l3_arista.enable_cleanup
+        self._protected_vlans = self._parse_protected_vlans(
+            cfg.CONF.l3_arista.protected_vlans)
+
+    @staticmethod
+    def _raise_invalid_protected_vlans(vlan_string):
+        msg = '%s is not a valid vlan or vlan range' % vlan_string
+        LOG.error(msg)
+        raise arista_exc.AristaServicePluginConfigError(msg=msg)
+
+    def _parse_protected_vlans(self, vlan_strings):
+        # VLAN 1 is always protected as it exists by default on EOS
+        vlans = set([1])
+        for vlan_string in vlan_strings:
+            vlan_parsed = vlan_string.split(':', 2)
+
+            if len(vlan_parsed) > 2:
+                self._raise_invalid_protected_vlans(vlan_string)
+
+            try:
+                min_vlan = int(vlan_parsed[0])
+            except ValueError:
+                self._raise_invalid_protected_vlans(vlan_string)
+
+            try:
+                max_vlan = int(vlan_parsed[-1])
+            except ValueError:
+                self._raise_invalid_protected_vlans(vlan_string)
+
+            if not (const.MIN_VLAN_TAG < min_vlan
+                    <= max_vlan < const.MAX_VLAN_TAG):
+                self._raise_invalid_protected_vlans(vlan_string)
+            vlans.update(range(min_vlan, max_vlan + 1))
+        return vlans
 
     @staticmethod
     def _make_eapi_client(host):
@@ -161,7 +196,7 @@ class AristaL3Driver(object):
             for c in self._additionalRouterCmdsDict['create']:
                 cmds.append(c.format(mac))
 
-        self._run_openstack_l3_cmds(cmds, server)
+        self._run_config_cmds(cmds, server)
 
     def delete_router_from_eos(self, router_name, server):
         """Deletes a router from Arista HW Device.
@@ -176,10 +211,14 @@ class AristaL3Driver(object):
             for c in self._additionalRouterCmdsDict['delete']:
                 cmds.append(c)
 
-        self._run_openstack_l3_cmds(cmds, server)
+        self._run_config_cmds(cmds, server)
 
     def _select_dicts(self, ipv):
         if self._use_vrf:
+            if ipv == 6:
+                msg = (_('IPv6 subnets are not supported with VRFs'))
+                LOG.exception(msg)
+                raise arista_exc.AristaServicePluginRpcError(msg=msg)
             self._interfaceDict = router_in_vrf['interface']
         else:
             if ipv == 6:
@@ -218,7 +257,7 @@ class AristaL3Driver(object):
             for c in self._additionalInterfaceCmdsDict['add']:
                 cmds.append(c.format(gip))
 
-        self._run_openstack_l3_cmds(cmds, server)
+        self._run_config_cmds(cmds, server)
 
     def delete_interface_from_router(self, segment_id, router_name, server):
         """Deletes an interface from existing HW router on Arista HW device.
@@ -234,16 +273,17 @@ class AristaL3Driver(object):
         for c in self._interfaceDict['remove']:
             cmds.append(c.format(segment_id))
 
-        self._run_openstack_l3_cmds(cmds, server)
+        self._run_config_cmds(cmds, server)
 
-    def create_router(self, context, tenant_id, router):
+    def create_router(self, context, router):
         """Creates a router on Arista Switch.
 
         Deals with multiple configurations - such as Router per VRF,
         a router in default VRF, Virtual Router in MLAG configurations
         """
         if router:
-            router_name = self._arista_router_name(tenant_id, router['name'])
+            router_name = self._arista_router_name(router['id'],
+                                                   router['name'])
 
             hashed = hashlib.sha256(router_name.encode('utf-8'))
             rdm = str(int(hashed.hexdigest(), 16) % 65536)
@@ -263,11 +303,11 @@ class AristaL3Driver(object):
                         LOG.exception(msg)
                         raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
-    def delete_router(self, context, tenant_id, router_id, router):
+    def delete_router(self, context, router_id, router):
         """Deletes a router from Arista Switch."""
 
         if router:
-            router_name = self._arista_router_name(tenant_id, router['name'])
+            router_name = self._arista_router_name(router_id, router['name'])
             mlag_peer_failed = False
             for s in self._servers:
                 try:
@@ -299,7 +339,7 @@ class AristaL3Driver(object):
             self._select_dicts(router_info['ip_version'])
             cidr = router_info['cidr']
             subnet_mask = cidr.split('/')[1]
-            router_name = self._arista_router_name(router_info['tenant_id'],
+            router_name = self._arista_router_name(router_info['id'],
                                                    router_info['name'])
             if self._mlag_configured:
                 # For MLAG, we send a specific IP address as opposed to cidr
@@ -339,7 +379,7 @@ class AristaL3Driver(object):
         This deals with both IPv6 and IPv4 configurations.
         """
         if router_info:
-            router_name = self._arista_router_name(router_info['tenant_id'],
+            router_name = self._arista_router_name(router_info['id'],
                                                    router_info['name'])
             mlag_peer_failed = False
             for s in self._servers:
@@ -357,7 +397,7 @@ class AristaL3Driver(object):
                         LOG.exception(msg)
                         raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
-    def _run_openstack_l3_cmds(self, commands, server):
+    def _run_config_cmds(self, commands, server):
         """Execute/sends a CAPI (Command API) command to EOS.
 
         In this method, list of commands is appended with prefix and
@@ -369,30 +409,32 @@ class AristaL3Driver(object):
         command_start = ['enable', 'configure']
         command_end = ['exit']
         full_command = command_start + commands + command_end
+        self._run_eos_cmds(full_command, server)
 
-        LOG.info(_LI('Executing command on Arista EOS: %s'), full_command)
+    def _run_eos_cmds(self, commands, server):
+        LOG.info(_LI('Executing command on Arista EOS: %s'), commands)
 
         try:
             # this returns array of return values for every command in
             # full_command list
-            ret = server.execute(full_command)
+            ret = server.execute(commands)
             LOG.info(_LI('Results of execution on Arista EOS: %s'), ret)
-
+            return ret
         except Exception:
             msg = (_('Error occurred while trying to execute '
                      'commands %(cmd)s on EOS %(host)s') %
-                   {'cmd': full_command, 'host': server})
+                   {'cmd': commands, 'host': server})
             LOG.exception(msg)
             raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
-    def _arista_router_name(self, tenant_id, name):
+    def _arista_router_name(self, router_id, name):
         """Generate an arista specific name for this router.
 
         Use a unique name so that OpenStack created routers/SVIs
         can be distinguishged from the user created routers/SVIs
         on Arista HW. Replace spaces with underscores for CLI compatibility
         """
-        return 'OS' + '-' + tenant_id + '-' + name.replace(' ', '_')
+        return '__OpenStack__' + router_id + '-' + name.replace(' ', '_')
 
     def _get_binary_from_ipv4(self, ip_addr):
         """Converts IPv4 address to binary form."""
