@@ -167,7 +167,19 @@ ARISTA_L3_PLUGIN = [
                help=_('Sync interval in seconds between L3 Service plugin '
                       'and EOS. This interval defines how often the '
                       'synchronization is performed. This is an optional '
-                      'field. If not set, a value of 180 seconds is assumed'))
+                      'field. If not set, a value of 180 seconds is assumed')),
+    cfg.BoolOpt('enable_cleanup',
+                default=False,
+                help=_('Toggle to enable cleanup of unused VLANs, VRFs and '
+                       'SVIs on EOS L3 hosts in the sync worker. If enabled, '
+                       'ensure that all non-openstack VLANs are added to '
+                       'protected_vlans to ensure that they are not removed '
+                       'by the sync worker')),
+    cfg.ListOpt('protected_vlans',
+                default=[],
+                help=_('List of vlans or <vlan_min>:<vlan_max> ranges that '
+                       'should never be cleaned up by the L3 sync worker. '
+                       'This applies to both VLANs and SVIs')),
 ]
 
 
@@ -186,3 +198,14 @@ cfg.CONF.register_opts(ARISTA_L3_PLUGIN, "l3_arista")
 cfg.CONF.register_opts(ARISTA_DRIVER_OPTS, "ml2_arista")
 
 cfg.CONF.register_opts(ARISTA_TYPE_DRIVER_OPTS, "arista_type_driver")
+
+
+def list_opts():
+    return [
+        ('ml2_arista',
+         ARISTA_DRIVER_OPTS),
+        ('l3_arista',
+         ARISTA_L3_PLUGIN),
+        ('arista_type_driver',
+         ARISTA_TYPE_DRIVER_OPTS)
+    ]

@@ -13,13 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import hashlib
 import mock
 from oslo_config import cfg
 
 from neutron.tests import base
+from neutron.tests.unit.db import test_db_base_plugin_v2
+from neutron_lib import context
+from neutron_lib.plugins import constants
+from neutron_lib.plugins import directory
 
+from networking_arista.common import exceptions as arista_exc
 from networking_arista.l3Plugin import arista_l3_driver as arista
+from networking_arista.tests.unit import utils
 
 
 def setup_arista_config(value='', vrf=False, mlag=False):
@@ -346,7 +352,8 @@ class AristaL3DriverTestCases_v4(base.BaseTestCase):
 
         # Add couple of IPv4 subnets to router
         for cidr in cidrs:
-            router = {'name': 'test-router-1',
+            router = {'id': 'r1',
+                      'name': 'test-router-1',
                       'tenant_id': 'ten-a',
                       'seg_id': '123',
                       'cidr': "%s" % cidr,
@@ -361,7 +368,8 @@ class AristaL3DriverTestCases_v4(base.BaseTestCase):
 
         # remove couple of IPv4 subnets from router
         for cidr in cidrs:
-            router = {'name': 'test-router-1',
+            router = {'id': 'r1',
+                      'name': 'test-router-1',
                       'tenant_id': 'ten-a',
                       'seg_id': '123',
                       'cidr': "%s" % cidr,
@@ -394,7 +402,8 @@ class AristaL3DriverTestCases_v6(base.BaseTestCase):
 
         # Add couple of IPv6 subnets to router
         for cidr in cidrs:
-            router = {'name': 'test-router-1',
+            router = {'id': 'r1',
+                      'name': 'test-router-1',
                       'tenant_id': 'ten-a',
                       'seg_id': '123',
                       'cidr': "%s" % cidr,
@@ -409,7 +418,8 @@ class AristaL3DriverTestCases_v6(base.BaseTestCase):
 
         # remove couple of IPv6 subnets from router
         for cidr in cidrs:
-            router = {'name': 'test-router-1',
+            router = {'id': 'r1',
+                      'name': 'test-router-1',
                       'tenant_id': 'ten-a',
                       'seg_id': '123',
                       'cidr': "%s" % cidr,
@@ -443,7 +453,8 @@ class AristaL3DriverTestCases_MLAG_v6(base.BaseTestCase):
 
         # Add couple of IPv6 subnets to router
         for cidr in cidrs:
-            router = {'name': 'test-router-1',
+            router = {'id': 'r1',
+                      'name': 'test-router-1',
                       'tenant_id': 'ten-a',
                       'seg_id': '123',
                       'cidr': "%s" % cidr,
@@ -458,7 +469,8 @@ class AristaL3DriverTestCases_MLAG_v6(base.BaseTestCase):
 
         # remove couple of IPv6 subnets from router
         for cidr in cidrs:
-            router = {'name': 'test-router-1',
+            router = {'id': 'r1',
+                      'name': 'test-router-1',
                       'tenant_id': 'ten-a',
                       'seg_id': '123',
                       'cidr': "%s" % cidr,
@@ -487,29 +499,30 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
 
     def test_create_router_when_one_switch_fails(self):
         router = {}
+        router['id'] = 'r1'
         router['name'] = 'test-router-1'
-        tenant = '123'
 
         # Make one of the switches throw an exception - i.e. fail
         self.drv._servers[0].execute = mock.Mock(side_effect=Exception)
         with mock.patch.object(arista.LOG, 'exception') as log_exception:
-            self.drv.create_router(None, tenant, router)
+            self.drv.create_router(None, router)
             log_exception.assert_called_once_with(mock.ANY)
 
     def test_delete_router_when_one_switch_fails(self):
         router = {}
+        router['id'] = 'r1'
         router['name'] = 'test-router-1'
-        tenant = '123'
         router_id = '345'
 
         # Make one of the switches throw an exception - i.e. fail
         self.drv._servers[1].execute = mock.Mock(side_effect=Exception)
         with mock.patch.object(arista.LOG, 'exception') as log_exception:
-            self.drv.delete_router(None, tenant, router_id, router)
+            self.drv.delete_router(None, router_id, router)
             log_exception.assert_called_once_with(mock.ANY)
 
     def test_add_router_interface_when_one_switch_fails(self):
         router = {}
+        router['id'] = 'r1'
         router['name'] = 'test-router-1'
         router['tenant_id'] = 'ten-1'
         router['seg_id'] = '100'
@@ -525,6 +538,7 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
 
     def test_remove_router_interface_when_one_switch_fails(self):
         router = {}
+        router['id'] = 'r1'
         router['name'] = 'test-router-1'
         router['tenant_id'] = 'ten-1'
         router['seg_id'] = '100'
@@ -537,3 +551,293 @@ class AristaL3DriverTestCasesMlag_one_switch_failed(base.BaseTestCase):
         with mock.patch.object(arista.LOG, 'exception') as log_exception:
             self.drv.remove_router_interface(None, router)
             log_exception.assert_called_once_with(mock.ANY)
+
+
+class AristaL3ProtectedVlanParserTestCases(base.BaseTestCase):
+    """Test cases to test the parsing of protected_vlans config
+
+    1.  Empty string
+    2.  Single VLAN
+    3.  Single VLAN range
+    4.  Multiple VLANs
+    5.  Multiple VLAN ranges
+    6.  Hybrid VLANs + ranges
+    7.  Invalid VLAN
+    8.  Range with invalid min
+    9.  Range with invalid max
+    10. Range with min > max
+    11. Non-int VLAN
+    12. Non-int min
+    13. Non-int max
+    """
+
+    def setUp(self):
+        super(AristaL3ProtectedVlanParserTestCases, self).setUp()
+        setup_arista_config('value')
+
+    def test_empty_string(self):
+        cfg.CONF.set_override('protected_vlans', '', 'l3_arista')
+        self.drv = arista.AristaL3Driver()
+        self.assertEqual(self.drv._protected_vlans, set([1]))
+
+    def test_single_vlan(self):
+        cfg.CONF.set_override('protected_vlans', '100', 'l3_arista')
+        self.drv = arista.AristaL3Driver()
+        self.assertEqual(self.drv._protected_vlans, set([1, 100]))
+
+    def test_single_range(self):
+        cfg.CONF.set_override('protected_vlans', '100:105', 'l3_arista')
+        self.drv = arista.AristaL3Driver()
+        self.assertEqual(self.drv._protected_vlans,
+                         set([1] + [i for i in range(100, 106)]))
+
+    def test_multiple_vlans(self):
+        cfg.CONF.set_override('protected_vlans', '100,105', 'l3_arista')
+        self.drv = arista.AristaL3Driver()
+        self.assertEqual(self.drv._protected_vlans, set([1, 100, 105]))
+
+    def test_multiple_ranges(self):
+        cfg.CONF.set_override('protected_vlans', '100:105,110:115',
+                              'l3_arista')
+        self.drv = arista.AristaL3Driver()
+        self.assertEqual(self.drv._protected_vlans,
+                         set([1] +
+                             [i for i in range(100, 106) + range(110, 116)]))
+
+    def test_hybrid_vlan_and_range(self):
+        cfg.CONF.set_override('protected_vlans', '100,110:115', 'l3_arista')
+        self.drv = arista.AristaL3Driver()
+        self.assertEqual(self.drv._protected_vlans,
+                         set([1, 100] + range(110, 116)))
+
+    def test_invalid_vlan(self):
+        cfg.CONF.set_override('protected_vlans', '5000', 'l3_arista')
+        self.assertRaises(arista_exc.AristaServicePluginConfigError,
+                          arista.AristaL3Driver)
+
+    def test_invalid_max(self):
+        cfg.CONF.set_override('protected_vlans', '100:5000', 'l3_arista')
+        self.assertRaises(arista_exc.AristaServicePluginConfigError,
+                          arista.AristaL3Driver)
+
+    def test_invalid_min(self):
+        cfg.CONF.set_override('protected_vlans', '-100:100', 'l3_arista')
+        self.assertRaises(arista_exc.AristaServicePluginConfigError,
+                          arista.AristaL3Driver)
+
+    def test_bad_range_bounds(self):
+        cfg.CONF.set_override('protected_vlans', '200:100', 'l3_arista')
+        self.assertRaises(arista_exc.AristaServicePluginConfigError,
+                          arista.AristaL3Driver)
+
+    def test_non_int_vlan(self):
+        cfg.CONF.set_override('protected_vlans', 'string', 'l3_arista')
+        self.assertRaises(arista_exc.AristaServicePluginConfigError,
+                          arista.AristaL3Driver)
+
+    def test_non_int_min(self):
+        cfg.CONF.set_override('protected_vlans', 'string:100', 'l3_arista')
+        self.assertRaises(arista_exc.AristaServicePluginConfigError,
+                          arista.AristaL3Driver)
+
+    def test_non_int_max(self):
+        cfg.CONF.set_override('protected_vlans', '100:string', 'l3_arista')
+        self.assertRaises(arista_exc.AristaServicePluginConfigError,
+                          arista.AristaL3Driver)
+
+
+class AristaL3SyncWorkerTestBase(
+        test_db_base_plugin_v2.NeutronDbPluginV2TestCase):
+    """Base test class for L3 Sync Worker test cases"""
+
+    def setUp(self, cleanup=True):
+        cfg.CONF.import_opt('network_vlan_ranges',
+                            'neutron.plugins.ml2.drivers.type_vlan',
+                            group='ml2_type_vlan')
+        cfg.CONF.set_override('network_vlan_ranges', 'default',
+                              'ml2_type_vlan')
+        cfg.CONF.set_override('enable_cleanup', 'True' if cleanup else 'False',
+                              'l3_arista')
+        setup_arista_config('value', mlag=True, vrf=True)
+        service_plugins = {'arista_l3': 'arista_l3'}
+        super(AristaL3SyncWorkerTestBase, self).setUp(
+            plugin='ml2',
+            service_plugins=service_plugins)
+        self.driver = directory.get_plugin(constants.L3)
+        self.context = context.get_admin_context()
+        self.drv = self.driver.driver
+        self.switch1 = utils.MockSwitch()
+        self.switch2 = utils.MockSwitch()
+        self.switches = [self.switch1, self.switch2]
+        self.drv._servers = self.switches
+        for worker in self.driver._workers:
+            if worker.__class__.__name__ == 'AristaL3SyncWorker':
+                self.sync_worker = worker
+        self.sync_worker._servers = self.switches
+
+    @staticmethod
+    def _get_rd(name):
+        hashed = hashlib.sha256(name.encode('utf-8'))
+        rdm = str(int(hashed.hexdigest(), 16) % 65536)
+        return '%s:%s' % (rdm, rdm)
+
+
+class AristaL3SyncWorkerCleanupTestCases(AristaL3SyncWorkerTestBase):
+    """Test cases to test the L3 Sync Worker with enable_cleanup=True.
+
+    1. Test that VRFs are not cleaned up if router exists
+    2. Test that SVIs and VLANs are not cleaned up if router interface exists
+    3. Test that stale VRFs are cleaned up if enable_cleanup=True
+    4. Test that stale SVIs and VLANs are cleaned up if enable_cleanup=True
+    5. Test that stale VRFs are not cleaned up if not name __OpenStack__<...>
+    6. Test that stale SVIs and VLANs are not cleaned up if protected
+    """
+
+    def setUp(self):
+        super(AristaL3SyncWorkerCleanupTestCases, self).setUp()
+
+    def test_router_exists(self):
+        router = {'router': {'id': 'r1',
+                             'name': 'router1',
+                             'tenant_id': 't1',
+                             'admin_state_up': True}}
+        self.driver.create_router(self.context, router)
+        self.sync_worker.synchronize()
+        eos_vrf_name = '__OpenStack__r1-router1'
+        expected_vrfs = {eos_vrf_name:
+                         {'rd': self._get_rd(eos_vrf_name),
+                          'svis': []}}
+        self.assertEqual(self.switch1._vrfs, expected_vrfs)
+        self.assertEqual(self.switch2._vrfs, expected_vrfs)
+
+    def test_router_interface_exists(self):
+        router_dict = {'router': {'name': 'router1',
+                                  'tenant_id': 't1',
+                                  'admin_state_up': True}}
+        router = self.driver.create_router(self.context, router_dict)
+        net_dict = {'network': {'name': 'n1',
+                                'tenant_id': 't1',
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': 'default',
+                                'provider:network_type': 'vlan',
+                                'provider:segmentation_id': 100}}
+        net = self.plugin.create_network(self.context, net_dict)
+        subnet_dict = {'subnet':
+                       {'tenant_id': net['tenant_id'],
+                        'name': net['name'],
+                        'network_id': net['id'],
+                        'ip_version': 4,
+                        'cidr': '10.0.0.0/24',
+                        'gateway_ip': '10.0.0.1',
+                        'allocation_pools': None,
+                        'enable_dhcp': False,
+                        'dns_nameservers': None,
+                        'host_routes': None}}
+        subnet = self.plugin.create_subnet(self.context, subnet_dict)
+        router_interface = {'subnet_id': subnet['id']}
+        self.driver.add_router_interface(self.context, router['id'],
+                                         router_interface)
+        self.sync_worker.synchronize()
+        expected_svis_s1 = {'vlan 100': {'ip': '10.0.0.254',
+                                         'mask': '24',
+                                         'vip': '10.0.0.1'}}
+        expected_svis_s2 = {'vlan 100': {'ip': '10.0.0.253',
+                                         'mask': '24',
+                                         'vip': '10.0.0.1'}}
+        expected_vlans = {'100': {'dynamic': False}}
+        self.assertEqual(self.switch1._svis, expected_svis_s1)
+        self.assertEqual(self.switch2._svis, expected_svis_s2)
+        self.assertEqual(self.switch1._vlans, expected_vlans)
+        self.assertEqual(self.switch2._vlans, expected_vlans)
+
+    def test_stale_vrf(self):
+        eos_vrf_name = '__OpenStack__r1-router1'
+        self.switch1._vrfs = {eos_vrf_name:
+                              {'rd': self._get_rd(eos_vrf_name),
+                               'svis': []}}
+        self.switch2._vrfs = {eos_vrf_name:
+                              {'rd': self._get_rd(eos_vrf_name),
+                               'svis': []}}
+        self.sync_worker.synchronize()
+        self.assertEqual(self.switch1._vrfs, {})
+        self.assertEqual(self.switch2._vrfs, {})
+
+    def test_stale_svi_and_vlan(self):
+        self.switch1._svis = {'vlan 100': {'ip': '10.0.0.254',
+                                           'mask': '24',
+                                           'vip': '10.0.0.1'}}
+        self.switch1._vlans = {'100': {'dynamic': False}}
+        self.switch2._svis = {'vlan 100': {'ip': '10.0.0.253',
+                                           'mask': '24',
+                                           'vip': '10.0.0.1'}}
+        self.switch2._vlans = {'100': {'dynamic': False}}
+        self.sync_worker.synchronize()
+        self.assertEqual(self.switch1._svis, {})
+        self.assertEqual(self.switch2._svis, {})
+        self.assertEqual(self.switch1._vlans, {})
+        self.assertEqual(self.switch2._vlans, {})
+
+    def test_non_openstack_vrf(self):
+        eos_vrf_name = 'other-vrf'
+        expected_vrfs = {eos_vrf_name:
+                         {'rd': self._get_rd(eos_vrf_name),
+                          'svis': []}}
+        self.switch1._vrfs = expected_vrfs
+        self.switch2._vrfs = expected_vrfs
+        self.sync_worker.synchronize()
+        self.assertEqual(self.switch1._vrfs, expected_vrfs)
+        self.assertEqual(self.switch2._vrfs, expected_vrfs)
+
+    def test_protected_svi_and_vlan(self):
+        self.sync_worker._protected_vlans = set([100])
+        protected_svis = {'vlan 100': {'ip': '10.0.0.254',
+                                       'mask': '24',
+                                       'vip': '10.0.0.1'}}
+        protected_vlans = {'100': {'dynamic': False}}
+        self.switch1._svis = protected_svis
+        self.switch1._vlans = protected_vlans
+        self.switch2._svis = protected_svis
+        self.switch2._vlans = protected_vlans
+        self.sync_worker.synchronize()
+        self.assertEqual(self.switch1._svis, protected_svis)
+        self.assertEqual(self.switch1._vlans, protected_vlans)
+        self.assertEqual(self.switch2._svis, protected_svis)
+        self.assertEqual(self.switch2._vlans, protected_vlans)
+
+
+class AristaL3SyncWorkerNoCleanupTestCases(AristaL3SyncWorkerTestBase):
+    """Test cases for the L3 Sync Worker with enable_cleanup=False
+
+    1. Test that stale VRFs are not cleaned up if enable_cleanup=False
+    2. Test that stale SVIs and VLANs aren't cleaned up if enable_cleanup=False
+    """
+
+    def setUp(self):
+        super(AristaL3SyncWorkerNoCleanupTestCases, self).setUp(cleanup=False)
+
+    def test_stale_vrf(self):
+        eos_vrf_name = '__OpenStack__r1-router1'
+        expected_vrfs = {eos_vrf_name:
+                         {'rd': self._get_rd(eos_vrf_name),
+                          'svis': []}}
+        self.switch1._vrfs = expected_vrfs
+        self.switch2._vrfs = expected_vrfs
+        self.sync_worker.synchronize()
+        self.assertEqual(self.switch1._vrfs, expected_vrfs)
+        self.assertEqual(self.switch2._vrfs, expected_vrfs)
+
+    def test_stale_svi_and_vlan(self):
+        expected_svis = {'vlan 100': {'ip': '10.0.0.254',
+                                      'mask': '24',
+                                      'vip': '10.0.0.1'}}
+        expected_vlans = {'100': {'dynamic': False}}
+        self.switch1._svis = expected_svis
+        self.switch1._vlans = expected_vlans
+        self.switch2._svis = expected_svis
+        self.switch2._vlans = expected_vlans
+        self.sync_worker.synchronize()
+        self.assertEqual(self.switch1._svis, expected_svis)
+        self.assertEqual(self.switch1._vlans, expected_vlans)
+        self.assertEqual(self.switch2._svis, expected_svis)
+        self.assertEqual(self.switch2._vlans, expected_vlans)
