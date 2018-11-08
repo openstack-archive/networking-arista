@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import json
+import re
 
 from oslo_log import log as logging
 
@@ -95,9 +96,114 @@ class MockSwitch(object):
 
     def __init__(self):
         self._commands = []
+        self._vrfs = dict()
+        self._svis = dict()
+        self._vlans = dict()
+        self._acl_mode_re = re.compile('^(?P<delete>no )?ip access-list '
+                                       '(?P<acl>\S+)(?P<dyn> dynamic)?$')
+        self._interface_mode_re = re.compile(
+            '^(?P<delete>no )?interface (?P<intf>.+)$')
+        self._access_group_re = re.compile(
+            '^(?P<delete>no )?ip access-group (?P<acl>\S+) (?P<dir>\S+)$')
+        self._vrf_mode_re = re.compile(
+            '^(?P<delete>no )?vrf definition (?P<name>\S+)$')
+        self._vlan_re = re.compile('^(?P<delete>no )?vlan (?P<vlan>\d+)$')
+        self._ip_address_re = re.compile(
+            '^ip address (?P<ip>[\d.]+)/(?P<mask>\d+)$')
+        self._vip_re = re.compile('^ip virtual-router address (?P<ip>[\d.]+)$')
+        self._svi_vrf_re = re.compile('^vrf forwarding (?P<vrf>\S+)$')
+        self._rd_re = re.compile('^rd (?P<rd>\S+)$')
+        self._varp_mac_re = re.compile(
+            '^ip virtual-router mac-address (?P<varp_mac>\S+)$')
+        self._mode = None
 
     def execute(self, commands, commands_to_log=None):
-        self._commands.extend(commands)
+        ret = []
+        for command in commands:
+            if command == 'show vlan':
+                vlans = {'vlans': {}}
+                for vlan, info in self._vlans.items():
+                    vlans['vlans'][str(vlan)] = {'dynamic': info['dynamic']}
+                ret.append(vlans)
+            elif command == 'show interfaces vlan 1-$':
+                svis = {'interfaces': {}}
+                for intf, svi in self._svis.items():
+                    svis['interfaces']['Vlan%s' % intf.strip('vlan ')] = {
+                        'interfaceAddress': [
+                            {'primaryIp': {'maskLen': svi['mask'],
+                                           'address': svi['ip']}}]}
+                ret.append(svis)
+            elif command == 'show vrf':
+                vrfs = {'vrfs': {}}
+                for vrf_name, vrf in self._vrfs.items():
+                    vrfs['vrfs'][vrf_name] = {'interfaces': vrf['svis'],
+                                              'routeDistinguisher': vrf['rd']}
+                ret.append(vrfs)
+            elif command == 'enable':
+                ret.append({})
+            elif 'show' in command:
+                pass
+            elif 'interface' in command:
+                intf_match = self._interface_mode_re.match(command)
+                intf = intf_match.group('intf')
+                if intf_match.group('delete'):
+                    del self._svis[intf]
+                else:
+                    if 'vlan' in intf:
+                        self._svis[intf] = {'ip': '',
+                                            'mask': '',
+                                            'vip': ''}
+                    self._mode = ('interface', intf)
+            elif 'vrf definition' in command:
+                vrf_match = self._vrf_mode_re.match(command)
+                delete = vrf_match.group('delete')
+                vrf_name = vrf_match.group('name')
+                if delete:
+                    del self._vrfs[vrf_name]
+                else:
+                    self._vrfs[vrf_name] = {'svis': []}
+                    self._mode = ('vrf', vrf_name)
+            elif 'vlan' in command:
+                self._parse_vlan(command)
+            elif command == 'exit':
+                self._mode = None
+            else:
+                if self._mode:
+                    if self._mode[0] == 'interface':
+                        self._parse_svi(command)
+                    elif self._mode[0] == 'vrf':
+                        self._parse_vrf(command)
+            self._commands.append(command)
+        return ret
+
+    def _parse_svi(self, command):
+        ip_addr_match = self._ip_address_re.match(command)
+        if ip_addr_match:
+            self._svis[self._mode[1]]['ip'] = ip_addr_match.group('ip')
+            self._svis[self._mode[1]]['mask'] = ip_addr_match.group('mask')
+        vip_match = self._vip_re.match(command)
+        if vip_match:
+            self._svis[self._mode[1]]['vip'] = vip_match.group('ip')
+        vrf_match = self._svi_vrf_re.match(command)
+        if vrf_match:
+            self._vrfs[vrf_match.group('vrf')]['svis'].append(self._mode[1])
+
+    def _parse_vrf(self, command):
+        rd_match = self._rd_re.match(command)
+        if rd_match:
+            self._vrfs[self._mode[1]]['rd'] = rd_match.group('rd')
+        varp_mac_match = self._varp_mac_re.match(command)
+        if varp_mac_match:
+            pass
+
+    def _parse_vlan(self, command):
+        vlan_match = self._vlan_re.match(command)
+        delete = vlan_match.group('delete')
+        vlan = vlan_match.group('vlan')
+        if delete:
+            del self._vlans[vlan]
+        else:
+            self._vlans[vlan] = {'dynamic': False}
 
     @property
     def received_commands(self):
@@ -105,6 +211,12 @@ class MockSwitch(object):
 
     def clear_received_commands(self):
         self._commands = []
+
+    def reset_switch(self):
+        self._commands = []
+        self._vrfs = dict()
+        self._svis = dict()
+        self._vlans = dict()
 
 
 # Network utils #

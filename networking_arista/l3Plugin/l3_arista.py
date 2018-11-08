@@ -44,6 +44,10 @@ LOG = logging.getLogger(__name__)
 class AristaL3SyncWorker(worker.BaseWorker):
     def __init__(self, driver):
         self.driver = driver
+        self._enable_cleanup = driver._enable_cleanup
+        self._protected_vlans = driver._protected_vlans
+        self._servers = driver._servers
+        self._use_vrf = driver._use_vrf
         self._loop = None
         super(AristaL3SyncWorker, self).__init__(worker_process_count=0)
 
@@ -72,6 +76,30 @@ class AristaL3SyncWorker(worker.BaseWorker):
     def get_subnet_info(self, subnet_id):
         return self.get_subnet(subnet_id)
 
+    def get_routers_and_interfaces(self):
+        core = directory.get_plugin()
+        ctx = nctx.get_admin_context()
+        routers = directory.get_plugin(plugin_constants.L3).get_routers(ctx)
+        router_interfaces = list()
+        for r in routers:
+            ports = core.get_ports(ctx,
+                                   filters={'device_id': [r['id']]}) or []
+            for p in ports:
+                router_interface = r.copy()
+                net_id = p['network_id']
+                subnet_id = p['fixed_ips'][0]['subnet_id']
+                subnet = core.get_subnet(ctx, subnet_id)
+                ml2_db = NetworkContext(self, ctx, {'id': net_id})
+                seg_id = ml2_db.network_segments[0]['segmentation_id']
+
+                router_interface['seg_id'] = seg_id
+                router_interface['cidr'] = subnet['cidr']
+                router_interface['gip'] = subnet['gateway_ip']
+                router_interface['ip_version'] = subnet['ip_version']
+                router_interface['subnet_id'] = subnet_id
+                router_interfaces.append(router_interface)
+        return routers, router_interfaces
+
     def synchronize(self):
         """Synchronizes Router DB from Neturon DB with EOS.
 
@@ -82,40 +110,78 @@ class AristaL3SyncWorker(worker.BaseWorker):
         same commands can be repeated.
         """
         LOG.info(_LI('Syncing Neutron Router DB <-> EOS'))
-        core = directory.get_plugin()
-        ctx = nctx.get_admin_context()
-        routers = directory.get_plugin(plugin_constants.L3).get_routers(ctx)
+        routers, router_interfaces = self.get_routers_and_interfaces()
+        expected_vrfs = set()
+        if self._use_vrf:
+            expected_vrfs.update(self.driver._arista_router_name(
+                r['id'], r['name']) for r in routers)
+        expected_vlans = set(r['seg_id'] for r in router_interfaces)
+        if self._enable_cleanup:
+            self.do_cleanup(expected_vrfs, expected_vlans)
+        self.create_routers(routers)
+        self.create_router_interfaces(router_interfaces)
+
+    def get_vrfs(self, server):
+        ret = self.driver._run_eos_cmds(['show vrf'], server)
+        if len(ret or []) != 1 or 'vrfs' not in ret[0].keys():
+            return set()
+        eos_vrfs = set(vrf for vrf in ret[0]['vrfs'].keys()
+                       if vrf.startswith('__OpenStack__'))
+        return eos_vrfs
+
+    def get_svis(self, server):
+        ret = self.driver._run_eos_cmds(['show interfaces vlan 1-$'], server)
+        if len(ret or []) != 1 or 'interfaces' not in ret[0].keys():
+            return set()
+        eos_svis = set(int(vlan.strip('Vlan'))
+                       for vlan in ret[0]['interfaces'].keys())
+        return eos_svis
+
+    def get_vlans(self, server):
+        ret = self.driver._run_eos_cmds(['show vlan'], server)
+        if len(ret or []) != 1 or 'vlans' not in ret[0].keys():
+            return set()
+        eos_vlans = set(int(vlan) for vlan, info in ret[0]['vlans'].items()
+                        if not info['dynamic'])
+        return eos_vlans
+
+    def do_cleanup(self, expected_vrfs, expected_vlans):
+        for server in self._servers:
+            eos_svis = self.get_svis(server)
+            eos_vlans = self.get_vlans(server)
+            svis_to_delete = (eos_svis - self._protected_vlans
+                              - expected_vlans)
+            vlans_to_delete = (eos_vlans - self._protected_vlans
+                               - expected_vlans)
+            delete_cmds = []
+            delete_cmds.extend('no interface vlan %s' % svi
+                               for svi in svis_to_delete)
+            delete_cmds.extend('no vlan %s' % vlan
+                               for vlan in vlans_to_delete)
+            if self._use_vrf:
+                eos_vrfs = self.get_vrfs(server)
+                vrfs_to_delete = eos_vrfs - expected_vrfs
+                delete_cmds.extend(['no vrf definition %s' % vrf
+                                    for vrf in vrfs_to_delete])
+            if delete_cmds:
+                self.driver._run_config_cmds(delete_cmds, server)
+
+    def create_routers(self, routers):
         for r in routers:
-            tenant_id = r['tenant_id']
-            ports = core.get_ports(ctx,
-                                   filters={'tenant_id': [tenant_id]}) or []
-
             try:
-                self.driver.create_router(self, tenant_id, r)
-
+                self.driver.create_router(self, r)
             except Exception:
-                continue
+                LOG.error(_LE("Error Adding router %(router_id)s "
+                              "on Arista HW"), {'router_id': r})
 
-            # Figure out which interfaces are added to this router
-            for p in ports:
-                if p['device_id'] == r['id']:
-                    net_id = p['network_id']
-                    subnet_id = p['fixed_ips'][0]['subnet_id']
-                    subnet = core.get_subnet(ctx, subnet_id)
-                    ml2_db = NetworkContext(self, ctx, {'id': net_id})
-                    seg_id = ml2_db.network_segments[0]['segmentation_id']
-
-                    r['seg_id'] = seg_id
-                    r['cidr'] = subnet['cidr']
-                    r['gip'] = subnet['gateway_ip']
-                    r['ip_version'] = subnet['ip_version']
-
-                    try:
-                        self.driver.add_router_interface(self, r)
-                    except Exception:
-                        LOG.error(_LE("Error Adding interface %(subnet_id)s "
-                                      "to router %(router_id)s on Arista HW"),
-                                  {'subnet_id': subnet_id, 'router_id': r})
+    def create_router_interfaces(self, router_interfaces):
+        for r in router_interfaces:
+            try:
+                self.driver.add_router_interface(self, r)
+            except Exception:
+                LOG.error(_LE("Error Adding interface %(subnet_id)s "
+                              "to router %(router_id)s on Arista HW"),
+                          {'subnet_id': r['subnet_id'], 'router_id': r['id']})
 
 
 class AristaL3ServicePlugin(service_base.ServicePluginBase,
@@ -161,15 +227,13 @@ class AristaL3ServicePlugin(service_base.ServicePluginBase,
     def create_router(self, context, router):
         """Create a new router entry in DB, and create it Arista HW."""
 
-        tenant_id = router['router']['tenant_id']
-
         # Add router to the DB
         new_router = super(AristaL3ServicePlugin, self).create_router(
             context,
             router)
         # create router on the Arista Hw
         try:
-            self.driver.create_router(context, tenant_id, new_router)
+            self.driver.create_router(context, new_router)
             return new_router
         except Exception:
             with excutils.save_and_reraise_exception():
@@ -204,11 +268,10 @@ class AristaL3ServicePlugin(service_base.ServicePluginBase,
         """Delete an existing router from Arista HW as well as from the DB."""
 
         router = self.get_router(context, router_id)
-        tenant_id = router['tenant_id']
 
         # Delete router on the Arista Hw
         try:
-            self.driver.delete_router(context, tenant_id, router_id, router)
+            self.driver.delete_router(context, router_id, router)
         except Exception as e:
             LOG.error(_LE("Error deleting router on Arista HW "
                           "router %(r)s exception=%(e)s"),
