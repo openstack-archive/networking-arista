@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+from oslo_log import fixture as log_fixture
+
 import cProfile
 from eventlet import queue
 import mock
@@ -25,6 +28,9 @@ from neutron_lib.plugins import directory
 from oslo_config import cfg
 
 from neutron.common import utils as common_utils
+# Import neutron.db.api to load listeners that expire foreign keys
+# in context session
+import neutron.db.api  # noqa
 from neutron.plugins.ml2.drivers import type_vxlan  # noqa
 from neutron.services.trunk import constants as trunk_const
 from neutron.tests.common import helpers
@@ -35,6 +41,7 @@ from networking_arista.tests.unit import utils
 
 
 ENABLE_PROFILER = False
+ENABLE_LOGGING = False
 
 
 class MechTestBase(test_plugin.Ml2PluginV2TestCase):
@@ -53,6 +60,9 @@ class MechTestBase(test_plugin.Ml2PluginV2TestCase):
         return p
 
     def setUp(self):
+        if ENABLE_LOGGING:
+            self.useFixture(log_fixture.SetLogLevel(['neutron'],
+                                                    logging.DEBUG))
         if ENABLE_PROFILER:
             self.pr = cProfile.Profile()
             self.pr.enable()
