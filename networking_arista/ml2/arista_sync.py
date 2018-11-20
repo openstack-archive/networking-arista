@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import threading
+import os
 import time
 
 from eventlet import event
@@ -25,7 +25,6 @@ from oslo_config import cfg
 from oslo_log import log as logging
 
 from networking_arista.common import constants as a_const
-from networking_arista.common import exceptions as arista_exc
 from networking_arista.ml2 import arista_resources as resources
 from networking_arista.ml2.rpc.arista_json import AristaRPCWrapperJSON
 
@@ -34,18 +33,19 @@ LOG = logging.getLogger(__name__)
 
 class AristaSyncWorker(worker.BaseWorker):
     def __init__(self, provision_queue):
-        super(AristaSyncWorker, self).__init__(worker_process_count=0)
+        super(AristaSyncWorker, self).__init__(worker_process_count=1)
         self._rpc = AristaRPCWrapperJSON()
         self.provision_queue = provision_queue
         self._thread = None
         self._running = False
-        self.done = None
+        self.done = event.Event()
         self._sync_interval = cfg.CONF.ml2_arista.sync_interval
 
     def initialize(self):
         self._last_sync_time = 0
         self._cvx_uuid = None
         self._synchronizing_uuid = None
+        self._resources_to_update = list()
 
         self.tenants = resources.Tenants(self._rpc)
         self.networks = resources.Networks(self._rpc)
@@ -88,7 +88,6 @@ class AristaSyncWorker(worker.BaseWorker):
         LOG.info("Arista sync worker started")
         super(AristaSyncWorker, self).start()
         self.initialize()
-        self.done = event.Event()
         self._running = True
         LOG.info("Spawning Arista sync loop")
         self._thread = greenthread.spawn(self.sync_loop)
@@ -123,62 +122,28 @@ class AristaSyncWorker(worker.BaseWorker):
                      a_const.PORT_BINDING_RESOURCE: self.port_bindings}
         return class_map[resource_type]
 
-    def add_neutron_resource(self, resource):
-        resource_class = self.get_resource_class(resource.resource_type)
-        resource_class.add_neutron_resource(resource.id)
-
     def update_neutron_resource(self, resource):
-        resource_class = self.get_resource_class(resource.resource_type)
-        resource_class.update_neutron_resource(resource.id)
-
-    def delete_neutron_resource(self, resource):
-        resource_class = self.get_resource_class(resource.resource_type)
-        resource_class.delete_neutron_resource(resource.id)
-
-    def process_mech_update(self, resource):
-        LOG.info("%(tid)s %(action)s %(rtype)s with id %(id)s",
+        LOG.info("%(pid)s %(action)s %(rtype)s with id %(id)s",
                  {'action': resource.action,
                   'rtype': resource.resource_type,
                   'id': resource.id,
-                  'tid': threading.current_thread().ident})
-        if resource.action == a_const.CREATE:
-            self.add_neutron_resource(resource)
-        elif resource.action == a_const.DELETE:
-            self.delete_neutron_resource(resource)
-        else:
-            raise arista_exc.UnknownActionException(resource.action)
+                  'pid': os.getpid()})
+        resource_class = self.get_resource_class(resource.resource_type)
+        resource_class.update_neutron_resource(resource.id, resource.action)
 
     def force_full_sync(self):
-        """Recompute resources to sync
-
-        We need to compute resources to sync in reverse sync order
-        in order to avoid missing dependencies on creation
-        Eg. If we query in sync order
-        1. Query Instances -> I1 isn't there
-        2. Query Port table -> Port P1 is there, connected to I1
-        3. We send P1 to CVX without sending I1 -> Error raised
-        But if we query P1 first:
-        1. Query Ports P1 -> P1 is not there
-        2. Query Instances -> find I1
-        3. We create I1, not P1 -> harmless, mech driver creates P1
-        Missing dependencies on deletion will helpfully result in the
-        dependent resource not being created:
-        1. Query Ports -> P1 is found
-        2. Query Instances -> I1 not found
-        3. Creating P1 fails on CVX
-        """
         for resource_type in reversed(self.sync_order):
             resource_type.clear_all_data()
-            resource_type.get_neutron_resources()
 
     def check_if_out_of_sync(self):
         cvx_uuid = self._rpc.get_cvx_uuid()
         out_of_sync = False
         if self._cvx_uuid != cvx_uuid:
-            LOG.info("Initiating full sync - local uuid %(l_uuid)s"
+            LOG.info("%(pid)s Initiating full sync - local uuid %(l_uuid)s"
                      " - cvx uuid %(c_uuid)s",
                      {'l_uuid': self._cvx_uuid,
-                      'c_uuid': cvx_uuid})
+                      'c_uuid': cvx_uuid,
+                      'pid': os.getpid()})
             self.force_full_sync()
             self._synchronizing_uuid = cvx_uuid
             out_of_sync = True
@@ -188,31 +153,72 @@ class AristaSyncWorker(worker.BaseWorker):
     def wait_for_mech_driver_update(self, timeout):
         try:
             resource = self.provision_queue.get(timeout=timeout)
-            LOG.info("Processing %(res)s", {'res': resource})
-            self.process_mech_update(resource)
-            return True
+            LOG.info("%(pid)s Processing %(res)s", {'res': resource,
+                                                    'pid': os.getpid()})
+            self._resources_to_update.append(resource)
         except Empty:
-            return False
+            pass
+        return len(self._resources_to_update) > 0
 
     def wait_for_sync_required(self):
         timeout = (self._sync_interval -
                    (time.time() - self._last_sync_time))
-        LOG.info("Arista Sync time %(time)s last sync %(last_sync)s "
+        LOG.info("%(pid)s Arista Sync time %(time)s last sync %(last_sync)s "
                  "timeout %(timeout)s", {'time': time.time(),
                                          'last_sync': self._last_sync_time,
-                                         'timeout': timeout})
+                                         'timeout': timeout,
+                                         'pid': os.getpid()})
         if timeout < 0:
             return self.check_if_out_of_sync()
         else:
             return self.wait_for_mech_driver_update(timeout)
 
     def synchronize_resources(self):
+        """Synchronize worker with CVX
+
+        All database queries must occur while the sync lock is held. This
+        tightly couples reads with writes and ensures that an older read
+        does not result in the last write. Eg:
+
+        Worker 1 reads (P1 created)
+        Worder 2 reads (P1 deleted)
+        Worker 2 writes (Delete P1 from CVX)
+        Worker 1 writes (Create P1 on CVX)
+
+        By ensuring that all reads occur with the sync lock held, we ensure
+        that Worker 1 completes its writes before Worker2 is allowed to read.
+        A failure to write results in a full resync and purges all reads from
+        memory.
+
+        It is also important that we compute resources to sync in reverse sync
+        order in order to avoid missing dependencies on creation. Eg:
+
+        If we query in sync order
+        1. Query Instances -> I1 isn't there
+        2. Query Port table -> Port P1 is there, connected to I1
+        3. We send P1 to CVX without sending I1 -> Error raised
+
+        But if we query P1 first:
+        1. Query Ports P1 -> P1 is not there
+        2. Query Instances -> find I1
+        3. We create I1, not P1 -> harmless, mech driver creates P1
+
+        Missing dependencies on deletion will helpfully result in the
+        dependent resource not being created:
+        1. Query Ports -> P1 is found
+        2. Query Instances -> I1 not found
+        3. Creating P1 fails on CVX
+        """
         # Grab the sync lock
         if not self._rpc.sync_start():
-            LOG.info("Failed to grab the sync lock")
-            self._last_sync_time = 0
+            LOG.info("%(pid)s Failed to grab the sync lock",
+                     {'pid': os.getpid()})
             greenthread.sleep(1)
             return
+
+        for resource in self._resources_to_update:
+            self.update_neutron_resource(resource)
+        self._resources_to_update = list()
 
         # Sync any necessary resources.
         # We delete in reverse order and create in order to ensure that
@@ -228,8 +234,9 @@ class AristaSyncWorker(worker.BaseWorker):
 
         # Update local uuid if this was a full sync
         if self._synchronizing_uuid:
-            LOG.info("Full sync for cvx uuid %(uuid)s complete",
-                     {'uuid': self._synchronizing_uuid})
+            LOG.info("%(pid)s Full sync for cvx uuid %(uuid)s complete",
+                     {'uuid': self._synchronizing_uuid,
+                      'pid': os.getpid()})
             self._cvx_uuid = self._synchronizing_uuid
             self._synchronizing_uuid = None
 
@@ -241,7 +248,8 @@ class AristaSyncWorker(worker.BaseWorker):
                 if sync_required:
                     self.synchronize_resources()
             except Exception:
-                LOG.exception("Arista Sync failed")
+                LOG.exception("%(pid)s Arista Sync failed",
+                              {'pid': os.getpid()})
                 self._cvx_uuid = None
                 self._synchronizing_uuid = None
 

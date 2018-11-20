@@ -14,13 +14,14 @@
 # limitations under the License.
 
 import json
-import threading
+import os
 
 from neutron.services.trunk import constants as t_const
 from neutron_lib import constants as n_const
 from oslo_log import log as logging
 
 from networking_arista.common import db_lib
+from networking_arista.common import exceptions as arista_exc
 from networking_arista.common import utils
 
 
@@ -94,46 +95,58 @@ class AristaResourcesBase(object):
         self.clear_cvx_data()
         self.clear_neutron_data()
 
-    def add_neutron_resource(self, id):
+    def update_neutron_resource(self, id, action):
+        LOG.info("%(pid)s Requesting %(action)s %(class)s resource %(id)s",
+                 {'action': action, 'class': self.__class__.__name__, 'id': id,
+                  'pid': os.getpid()})
         resource = self.get_db_resources(id)
         assert(len(resource) <= 1)
         if resource:
+            # Until we start using etcd, we need to unconditionally send the
+            # create request because it might have been delete by another
+            # worker.  We force this by removing the resource to our 'view' of
+            # cvx resources
+            self.force_resource_update(id)
+            LOG.info("%(pid)s Resource %(class)s %(id)s found, creating",
+                     {'class': self.__class__.__name__, 'id': id,
+                      'pid': os.getpid()})
             self._add_neutron_resource(resource[0])
         else:
-            LOG.info("%(tid)s %(class)s resource %(id)s filtered",
+            LOG.info("%(pid)s Resource %(class)s %(id)s not found, deleting",
                      {'class': self.__class__.__name__, 'id': id,
-                      'tid': threading.current_thread().ident})
+                      'pid': os.getpid()})
+            self._delete_neutron_resource(id)
 
     def _add_neutron_resource(self, resource):
         formatted_resource = self.format_for_create(resource)
         resource_id = list(formatted_resource.keys())[0]
-        LOG.info("%(tid)s %(class)s resource %(id)s added locally",
+        LOG.info("%(pid)s %(class)s resource %(id)s added locally",
                  {'class': self.__class__.__name__,
                   'id': resource_id,
-                  'tid': threading.current_thread().ident})
+                  'pid': os.getpid()})
         # If the resource has changed, force a POST to CVX
         old_resource = self.neutron_resources.get(resource_id)
         if old_resource and old_resource != formatted_resource:
-            LOG.info("%(tid)s %(class)s resource %(id)s requires update",
+            LOG.info("%(pid)s %(class)s resource %(id)s requires update",
                      {'class': self.__class__.__name__,
                       'id': resource_id,
-                      'tid': threading.current_thread().ident})
+                      'pid': os.getpid()})
             self.force_resource_update(resource_id)
         self.neutron_resources.update(formatted_resource)
 
     def force_resource_update(self, id):
         self.cvx_ids.discard(id)
 
-    def delete_neutron_resource(self, id):
+    def _delete_neutron_resource(self, id):
         # Until we start using etcd, we need to unconditionally send the
         # delete request because it might have been created by another worker.
         # We force this by adding the resource to our 'view' of cvx resources
         self.cvx_ids.add(id)
         try:
             del self.neutron_resources[id]
-            LOG.info("%(tid)s %(class)s resource %(id)s removed locally",
+            LOG.info("%(pid)s %(class)s resource %(id)s removed locally",
                      {'class': self.__class__.__name__, 'id': id,
-                      'tid': threading.current_thread().ident})
+                      'pid': os.getpid()})
         except KeyError:
             LOG.debug("Resource ID %(id)s already deleted locally", {'id': id})
 
@@ -145,9 +158,9 @@ class AristaResourcesBase(object):
         return set([resource[cls.id_key]])
 
     def get_cvx_ids(self):
-        LOG.info("%(tid)s Getting %(class)s from CVX",
+        LOG.info("%(pid)s Getting %(class)s from CVX",
                  {'class': self.__class__.__name__,
-                  'tid': threading.current_thread().ident})
+                  'pid': os.getpid()})
         if self.cvx_data_stale:
             cvx_data = self.rpc.send_api_request(self.get_endpoint(), 'GET')
             for resource in cvx_data:
@@ -165,9 +178,9 @@ class AristaResourcesBase(object):
         return set(self.neutron_resources.keys())
 
     def get_neutron_resources(self):
-        LOG.info("%(tid)s Getting %(class)s from neutron",
+        LOG.info("%(pid)s Getting %(class)s from neutron",
                  {'class': self.__class__.__name__,
-                  'tid': threading.current_thread().ident})
+                  'pid': os.getpid()})
         if self.neutron_data_stale:
             for resource in self.get_db_resources():
                 self._add_neutron_resource(resource)
@@ -201,23 +214,23 @@ class AristaResourcesBase(object):
         resources_to_create = list(neutron_resources[resource_id] for
                                    resource_id in resource_ids_to_create)
         if resources_to_create:
-            LOG.info("%(tid)s Creating %(class)s resources with ids %(ids)s "
+            LOG.info("%(pid)s Creating %(class)s resources with ids %(ids)s "
                      "on CVX",
                      {'class': self.__class__.__name__,
                       'ids': ', '.join(str(r) for r in resource_ids_to_create),
-                      'tid': threading.current_thread().ident})
+                      'pid': os.getpid()})
             self.rpc.send_api_request(self.get_endpoint(), 'POST',
                                       resources_to_create)
             self.cvx_ids.update(resource_ids_to_create)
-            LOG.info("%(tid)s %(class)s resources with ids %(ids)s created "
+            LOG.info("%(pid)s %(class)s resources with ids %(ids)s created "
                      "on CVX",
                      {'class': self.__class__.__name__,
                       'ids': ', '.join(str(r) for r in resource_ids_to_create),
-                      'tid': threading.current_thread().ident})
+                      'pid': os.getpid()})
         else:
-            LOG.info("%(tid)s No %(class)s resources to create",
+            LOG.info("%(pid)s No %(class)s resources to create",
                      {'class': self.__class__.__name__,
-                      'tid': threading.current_thread().ident})
+                      'pid': os.getpid()})
         return resources_to_create
 
     def delete_cvx_resources(self):
@@ -225,23 +238,27 @@ class AristaResourcesBase(object):
         resources_to_delete = list(self.format_for_delete(id) for id in
                                    resource_ids_to_delete)
         if resources_to_delete:
-            LOG.info("%(tid)s Deleting %(class)s resources with ids %(ids)s "
+            LOG.info("%(pid)s Deleting %(class)s resources with ids %(ids)s "
                      "from CVX",
                      {'class': self.__class__.__name__,
                       'ids': ', '.join(str(r) for r in resource_ids_to_delete),
-                      'tid': threading.current_thread().ident})
-            self.rpc.send_api_request(self.get_endpoint(), 'DELETE',
-                                      resources_to_delete)
+                      'pid': os.getpid()})
+            try:
+                self.rpc.send_api_request(self.get_endpoint(), 'DELETE',
+                                          resources_to_delete)
+            except arista_exc.AristaRpcError as err:
+                if not err.msg.startswith('Unknown port id'):
+                    raise
             self.cvx_ids -= resource_ids_to_delete
-            LOG.info("%(tid)s %(class)s resources with ids %(ids)s deleted "
+            LOG.info("%(pid)s %(class)s resources with ids %(ids)s deleted "
                      "from CVX",
                      {'class': self.__class__.__name__,
                       'ids': ', '.join(str(r) for r in resource_ids_to_delete),
-                      'tid': threading.current_thread().ident})
+                      'pid': os.getpid()})
         else:
-            LOG.info("%(tid)s No %(class)s resources to delete",
+            LOG.info("%(pid)s No %(class)s resources to delete",
                      {'class': self.__class__.__name__,
-                      'tid': threading.current_thread().ident})
+                      'pid': os.getpid()})
         return resources_to_delete
 
 

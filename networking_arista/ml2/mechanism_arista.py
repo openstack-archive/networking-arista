@@ -260,6 +260,7 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         port = context.current
         orig_port = context.original
+        network = context.network.current
 
         log_context("update_port_postcommit: port", port)
         log_context("update_port_postcommit: orig", orig_port)
@@ -278,6 +279,7 @@ class AristaDriver(driver_api.MechanismDriver):
                 self._try_to_release_dynamic_segment(context, migration=True)
         else:
             self.create_tenant(tenant_id)
+            self.create_network(network)
             if context.binding_levels:
                 segments = [
                     level['bound_segment'] for level in context.binding_levels]
