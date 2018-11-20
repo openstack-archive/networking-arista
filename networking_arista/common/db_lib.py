@@ -348,6 +348,8 @@ def get_port_bindings(binding_key=None):
                                   dist_binding_model.host ==
                                   binding_level_model.host))
                          .filter_unnecessary_ports()
+                         .filter(dist_binding_model.status ==
+                                 n_const.PORT_STATUS_ACTIVE)
                          .join(aliased_blm,
                                and_(dist_binding_model.port_id ==
                                     aliased_blm.port_id,
