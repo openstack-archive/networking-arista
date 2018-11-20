@@ -21,6 +21,7 @@ from neutron_lib import constants as n_const
 from oslo_log import log as logging
 
 from networking_arista.common import db_lib
+from networking_arista.common import exceptions as arista_exc
 from networking_arista.common import utils
 
 
@@ -94,19 +95,30 @@ class AristaResourcesBase(object):
         self.clear_cvx_data()
         self.clear_neutron_data()
 
-    def add_neutron_resource(self, id):
+    def update_neutron_resource(self, id, action):
+        LOG.info("%(tid)s Requesting %(action)s %(class)s resource %(id)s",
+                 {'action': action, 'class': self.__class__.__name__, 'id': id,
+                  'tid': threading.current_thread().ident})
         resource = self.get_db_resources(id)
         assert(len(resource) <= 1)
         if resource:
-            self._add_neutron_resource(resource[0])
-        else:
-            LOG.info("%(tid)s %(class)s resource %(id)s filtered",
+            LOG.info("%(tid)s Resource %(class)s %(id)s found, creating",
                      {'class': self.__class__.__name__, 'id': id,
                       'tid': threading.current_thread().ident})
+            self._add_neutron_resource(resource[0])
+        else:
+            LOG.info("%(tid)s Resource %(class)s %(id)s not found, deleting",
+                     {'class': self.__class__.__name__, 'id': id,
+                      'tid': threading.current_thread().ident})
+            self._delete_neutron_resource(id)
 
     def _add_neutron_resource(self, resource):
         formatted_resource = self.format_for_create(resource)
         resource_id = list(formatted_resource.keys())[0]
+        # Until we start using etcd, we need to unconditionally send the
+        # create request because it might have been delete by another worker.
+        # We force this by removing the resource to our 'view' of cvx resources
+        self.force_resource_update(resource_id)
         LOG.info("%(tid)s %(class)s resource %(id)s added locally",
                  {'class': self.__class__.__name__,
                   'id': resource_id,
@@ -124,7 +136,7 @@ class AristaResourcesBase(object):
     def force_resource_update(self, id):
         self.cvx_ids.discard(id)
 
-    def delete_neutron_resource(self, id):
+    def _delete_neutron_resource(self, id):
         # Until we start using etcd, we need to unconditionally send the
         # delete request because it might have been created by another worker.
         # We force this by adding the resource to our 'view' of cvx resources
@@ -230,8 +242,12 @@ class AristaResourcesBase(object):
                      {'class': self.__class__.__name__,
                       'ids': ', '.join(str(r) for r in resource_ids_to_delete),
                       'tid': threading.current_thread().ident})
-            self.rpc.send_api_request(self.get_endpoint(), 'DELETE',
-                                      resources_to_delete)
+            try:
+                self.rpc.send_api_request(self.get_endpoint(), 'DELETE',
+                                          resources_to_delete)
+            except arista_exc.AristaRpcError as err:
+                if not err.msg.startswith('Unkown port id'):
+                    raise
             self.cvx_ids -= resource_ids_to_delete
             LOG.info("%(tid)s %(class)s resources with ids %(ids)s deleted "
                      "from CVX",

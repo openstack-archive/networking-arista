@@ -108,15 +108,17 @@ class SyncServiceTest(testlib_api.SqlTestCase):
                                    'get_resource_class') as get:
                 get.return_value = res_cls
                 res = MechResource('id', resource_type, a_const.CREATE)
-                self.sync_service.process_mech_update(res)
+                self.sync_service.update_neutron_resource(res)
                 get.assert_called_once_with(resource_type)
-                res_cls.add_neutron_resource.assert_called_once_with('id')
+                res_cls.update_neutron_resource.assert_called_once_with(
+                    'id', a_const.CREATE)
                 get.reset_mock()
                 get.return_value = res_cls
                 res = MechResource('id', resource_type, a_const.DELETE)
-                self.sync_service.process_mech_update(res)
+                self.sync_service.update_neutron_resource(res)
                 get.assert_called_once_with(resource_type)
-                res_cls.delete_neutron_resource.assert_called_once_with('id')
+                res_cls.update_neutron_resource.assert_called_once_with(
+                    'id', a_const.DELETE)
 
     def test_force_full_sync(self):
         self.sync_service.initialize()
@@ -125,7 +127,6 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.sync_service.force_full_sync()
         for resource_type in self.sync_service.sync_order:
             resource_type.clear_all_data.assert_called_once()
-            resource_type.get_neutron_resources.assert_called_once()
 
     def test_sync_timeout(self):
         self.sync_service.initialize()
@@ -150,19 +151,13 @@ class SyncServiceTest(testlib_api.SqlTestCase):
         self.assertFalse(self.sync_service.wait_for_mech_driver_update(1))
 
     def test_mech_queue_updated(self):
+        self.sync_service.initialize()
         resource = MechResource('tid', a_const.TENANT_RESOURCE, a_const.CREATE)
         self.mech_queue.put(resource)
         # Must yield to allow resource to be available on the queue
         greenthread.sleep(0)
-        with mock.patch.object(self.sync_service, 'process_mech_update') as up:
-            self.assertTrue(self.sync_service.wait_for_mech_driver_update(1))
-            up.assert_called_once()
-            # We can't compare the objects directly because queue does some
-            # copying under the hood, so instead compare the attributes
-            args_res = up.call_args[0][0]
-            self.assertEqual(resource.id, args_res.id)
-            self.assertEqual(resource.resource_type, args_res.resource_type)
-            self.assertEqual(resource.action, args_res.action)
+        self.assertTrue(self.sync_service.wait_for_mech_driver_update(1))
+        self.assertEqual(self.sync_service._resources_to_update, [resource])
 
     def test_sync_start_fail(self):
         self.sync_service.initialize()
