@@ -1,0 +1,8 @@
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Tue, 27 Nov 2018 15:23:40 +0000
+Reviewed-on: https://review.openstack.org/620190
+Project: openstack/networking-arista
+Branch: refs/heads/stable/queens
