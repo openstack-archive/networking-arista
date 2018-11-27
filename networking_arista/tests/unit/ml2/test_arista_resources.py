@@ -121,12 +121,14 @@ class AristaResourcesBaseTest(base.BaseTestCase):
         # Setup
         neutron_resources = {i: {'id': i} for i in range(10)}
         ar = resources.AristaResourcesBase(self.rpc)
+        ar.get_db_resources = mock.MagicMock()
+        ar.get_db_resources.return_value = []
         ar.neutron_resources = copy.copy(neutron_resources)
         id_to_delete = 5
         del neutron_resources[id_to_delete]
         # Delete neutron resource and check that it's no longer in
         # neutron_resources
-        ar.delete_neutron_resource(id_to_delete)
+        ar._delete_neutron_resource(id_to_delete)
         self.assertEqual(ar.neutron_resources, neutron_resources)
 
     def test_get_endpoint(self):
@@ -289,7 +291,7 @@ class AristaResourcesTestBase(testlib_api.SqlTestCase):
         resources_created = self.ar.create_cvx_resources()
         self.assertItemsEqual(resources_created,
                               expect_created.values())
-        self.ar.clear_all_data()
+        self.ar.clear_cvx_data()
 
         # Ensure existing resources aren't created
         resources_created = self.ar.create_cvx_resources()
