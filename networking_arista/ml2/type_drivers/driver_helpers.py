@@ -97,6 +97,7 @@ class VlanSyncService(object):
     def synchronize(self):
         LOG.info(_LI('Syncing VLANs with EOS'))
         try:
+            self._rpc.check_vlan_type_driver_commands()
             vlan_pool = self._rpc.get_vlan_allocation()
         except arista_exc.AristaRpcError:
             LOG.warning(EOS_UNREACHABLE_MSG)
