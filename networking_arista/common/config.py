@@ -92,7 +92,7 @@ ARISTA_DRIVER_OPTS = [
                        'This is required if sec_group_support is set to '
                        '"True"')),
     cfg.StrOpt('api_type',
-               default='JSON',
+               default='EAPI',
                help=_('Tells the plugin to use a sepcific API interfaces '
                       'to communicate with CVX. Valid options are:'
                       'EAPI - Use EOS\' extensible API.'
