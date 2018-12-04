@@ -1366,13 +1366,13 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         if not self.cli_commands['resource-pool']:
             LOG.warning(_('The version of CVX you are using does not support'
                           'arista VLAN type driver.'))
-            return None
-        cmd = ['show openstack resource-pools region %s' % self.region]
-        command_output = self._run_eos_cmds(cmd)
-        if command_output:
-            regions = command_output[0]['physicalNetwork']
-            if self.region in regions.keys():
-                return regions[self.region]['vlanPool']['default']
+        else:
+            cmd = ['show openstack resource-pools region %s' % self.region]
+            command_output = self._run_eos_cmds(cmd)
+            if command_output:
+                regions = command_output[0]['physicalNetwork']
+                if self.region in regions.keys():
+                    return regions[self.region]['vlanPool']['default']
         return {'assignedVlans': '',
                 'availableVlans': '',
                 'allocatedVlans': ''}
