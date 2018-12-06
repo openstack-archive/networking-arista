@@ -1389,6 +1389,7 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
 
     def _baremetal_support_check(self, vnic_type):
         # Basic error checking for baremental deployments
+        self.check_supported_features()
         if (vnic_type == portbindings.VNIC_BAREMETAL and
            not self.bm_and_dvr_supported()):
             msg = _("Baremetal instances are not supported in this"
