@@ -147,8 +147,8 @@ class AristaL3Driver(object):
             except ValueError:
                 self._raise_invalid_protected_vlans(vlan_string)
 
-            if not (const.MIN_VLAN_TAG < min_vlan
-                    <= max_vlan < const.MAX_VLAN_TAG):
+            if not (const.MIN_VLAN_TAG <= min_vlan
+                    <= max_vlan <= const.MAX_VLAN_TAG):
                 self._raise_invalid_protected_vlans(vlan_string)
             vlans.update(range(min_vlan, max_vlan + 1))
         return vlans
