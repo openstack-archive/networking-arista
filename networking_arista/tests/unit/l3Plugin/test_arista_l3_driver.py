@@ -612,6 +612,11 @@ class AristaL3ProtectedVlanParserTestCases(base.BaseTestCase):
         self.assertEqual(self.drv._protected_vlans,
                          set([1, 100] + list(range(110, 116))))
 
+    def test__vlan_range_inclusive(self):
+        cfg.CONF.set_override('protected_vlans', '1,4094', 'l3_arista')
+        self.drv = arista.AristaL3Driver()
+        self.assertEqual(self.drv._protected_vlans, set([1, 4094]))
+
     def test_invalid_vlan(self):
         cfg.CONF.set_override('protected_vlans', '5000', 'l3_arista')
         self.assertRaises(arista_exc.AristaServicePluginConfigError,
