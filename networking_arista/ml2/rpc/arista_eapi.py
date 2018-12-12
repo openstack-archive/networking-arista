@@ -735,6 +735,9 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
     def register_with_eos(self, sync=False):
         self._run_openstack_cmds(['sync interval %d' % self.sync_interval],
                                  sync=sync)
+        self._run_eos_cmds(commands=['enable', 'configure', 'cvx',
+                                     'service openstack',
+                                     'sync-timeout %d' % self.sync_interval])
 
     def get_region_updated_time(self):
         timestamp_cmd = self.cli_commands['timestamp']
