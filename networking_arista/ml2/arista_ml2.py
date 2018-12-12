@@ -740,6 +740,9 @@ class AristaRPCWrapper(object):
         log_cmds.append(sync_interval_cmd)
 
         self._run_openstack_cmds(cmds, commands_to_log=log_cmds, sync=sync)
+        self._run_eos_cmds(commands=['enable', 'configure', 'cvx',
+                                     'service openstack',
+                                     'sync-timeout %d' % self.sync_interval])
 
     def clear_region_updated_time(self):
         # TODO(shashank): Remove this once the call is removed from the ML2
