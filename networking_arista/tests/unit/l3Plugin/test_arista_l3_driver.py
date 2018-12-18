@@ -698,6 +698,7 @@ class AristaL3SyncWorkerCleanupTestCases(AristaL3SyncWorkerTestBase):
     4. Test that stale SVIs and VLANs are cleaned up if enable_cleanup=True
     5. Test that stale VRFs are not cleaned up if not name __OpenStack__<...>
     6. Test that stale SVIs and VLANs are not cleaned up if protected
+    7. Test that we don't create SVIs or VLANs for router_gateway interfaces
     """
 
     def setUp(self):
@@ -811,6 +812,41 @@ class AristaL3SyncWorkerCleanupTestCases(AristaL3SyncWorkerTestBase):
         self.assertEqual(self.switch1._vlans, protected_vlans)
         self.assertEqual(self.switch2._svis, protected_svis)
         self.assertEqual(self.switch2._vlans, protected_vlans)
+
+    def test_router_gw_interface(self):
+        router_dict = {'router': {'name': 'router1',
+                                  'tenant_id': 't1',
+                                  'admin_state_up': True}}
+        router = self.driver.create_router(self.context, router_dict)
+        router_model = self.driver._get_router(self.context, router['id'])
+        net_dict = {'network': {'name': 'n1',
+                                'tenant_id': 't1',
+                                'admin_state_up': True,
+                                'shared': False,
+                                'provider:physical_network': 'default',
+                                'provider:network_type': 'vlan',
+                                'provider:segmentation_id': 100}}
+        net = self.plugin.create_network(self.context, net_dict)
+        subnet_dict = {'subnet':
+                       {'tenant_id': net['tenant_id'],
+                        'name': net['name'],
+                        'network_id': net['id'],
+                        'ip_version': 4,
+                        'cidr': '10.0.0.0/24',
+                        'gateway_ip': '10.0.0.1',
+                        'allocation_pools': None,
+                        'enable_dhcp': False,
+                        'dns_nameservers': None,
+                        'host_routes': None}}
+        subnet = self.plugin.create_subnet(self.context, subnet_dict)
+        ext_ips = [{'subnet_id': subnet['id'], 'ip_address': '10.0.0.2'}]
+        self.driver._create_gw_port(self.context, router['id'], router_model,
+                                    net['id'], ext_ips)
+        self.sync_worker.synchronize()
+        self.assertEqual(self.switch1._svis, {})
+        self.assertEqual(self.switch2._svis, {})
+        self.assertEqual(self.switch1._vlans, {})
+        self.assertEqual(self.switch2._vlans, {})
 
 
 class AristaL3SyncWorkerNoCleanupTestCases(AristaL3SyncWorkerTestBase):
