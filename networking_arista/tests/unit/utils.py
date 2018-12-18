@@ -147,7 +147,7 @@ class MockSwitch(object):
                 for vlan, info in self._vlans.items():
                     vlans['vlans'][str(vlan)] = {'dynamic': info['dynamic']}
                 ret.append(vlans)
-            elif command == 'show interfaces vlan 1-$':
+            elif command == 'show ip interface':
                 svis = {'interfaces': {}}
                 for intf, svi in self._svis.items():
                     svis['interfaces']['Vlan%s' % intf.strip('vlan ')] = {
