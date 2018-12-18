@@ -82,8 +82,11 @@ class AristaL3SyncWorker(worker.BaseWorker):
         routers = directory.get_plugin(plugin_constants.L3).get_routers(ctx)
         router_interfaces = list()
         for r in routers:
-            ports = core.get_ports(ctx,
-                                   filters={'device_id': [r['id']]}) or []
+            ports = core.get_ports(
+                ctx,
+                filters={
+                    'device_id': [r['id']],
+                    'device_owner': [n_const.DEVICE_OWNER_ROUTER_INTF]}) or []
             for p in ports:
                 router_interface = r.copy()
                 net_id = p['network_id']
@@ -130,11 +133,12 @@ class AristaL3SyncWorker(worker.BaseWorker):
         return eos_vrfs
 
     def get_svis(self, server):
-        ret = self.driver._run_eos_cmds(['show interfaces vlan 1-$'], server)
+        ret = self.driver._run_eos_cmds(['show ip interface'], server)
         if len(ret or []) != 1 or 'interfaces' not in ret[0].keys():
             return set()
-        eos_svis = set(int(vlan.strip('Vlan'))
-                       for vlan in ret[0]['interfaces'].keys())
+        eos_svis = set(
+            int(vlan.strip('Vlan'))
+            for vlan in ret[0]['interfaces'].keys() if 'Vlan' in vlan)
         return eos_svis
 
     def get_vlans(self, server):
