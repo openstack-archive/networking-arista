@@ -18,7 +18,10 @@ import threading
 from oslo_config import cfg
 from oslo_log import log
 
+from neutron.db.models.plugins.ml2 import vlanallocation
 from neutron.plugins.ml2.drivers import type_vlan
+
+from neutron_lib.db import api as db_api
 
 from networking_arista._i18n import _LI
 from networking_arista.common import db_lib
@@ -57,15 +60,39 @@ class AristaVlanTypeDriver(type_vlan.VlanTypeDriver):
 
     def _synchronization_thread(self):
         self.sync_service.do_synchronize()
-        self.network_vlan_ranges = self.sync_service.get_network_vlan_ranges()
         self.timer = threading.Timer(self.sync_timeout,
                                      self._synchronization_thread)
         self.timer.start()
 
-    def allocate_fully_specified_segment(self, session, **raw_segment):
-        alloc = session.query(self.model).filter_by(**raw_segment).first()
-        if not alloc:
-            raise exc.VlanUnavailable(**raw_segment)
+    def _update_network_vlan_ranges(self):
+        session = db_api.get_reader_session()
+        va = vlanallocation.VlanAllocation
+        with session.begin(subtransactions=True):
+            vlans = session.query(va).filter(va.physical_network == 'default')
+            self.network_vlan_ranges = {
+                'default': set((vlan.vlan_id, vlan.vlan_id)
+                               for vlan in vlans.all())}
+
+    def validate_provider_segment(self, segment):
+        self._update_network_vlan_ranges()
+        super(AristaVlanTypeDriver, self).validate_provider_segment(segment)
+
+    def allocate_tenant_segment(self, context):
+        self._update_network_vlan_ranges()
         return super(AristaVlanTypeDriver,
-                     self).allocate_fully_specified_segment(
-                         session, **raw_segment)
+                     self).allocate_tenant_segment(context)
+
+    def release_segment(self, context, segment):
+        self._update_network_vlan_ranges()
+        return super(AristaVlanTypeDriver,
+                     self).release_segment(context, segment)
+
+    def allocate_fully_specified_segment(self, context, **raw_segment):
+        session = self._get_session(context)
+        with session.begin(subtransactions=True):
+            alloc = session.query(self.model).filter_by(**raw_segment).first()
+            if not alloc:
+                raise exc.VlanUnavailable(**raw_segment)
+            return super(AristaVlanTypeDriver,
+                         self).allocate_fully_specified_segment(
+                             context, **raw_segment)
