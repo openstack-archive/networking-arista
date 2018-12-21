@@ -1,0 +1,8 @@
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Fri, 21 Dec 2018 18:38:42 +0000
+Reviewed-on: https://review.openstack.org/626956
+Project: openstack/networking-arista
+Branch: refs/heads/stable/rocky
