@@ -770,6 +770,8 @@ class AristaRPCWrapperEapi(AristaRPCWrapperBase):
         return self.cli_commands[const.CMD_REGION_SYNC]
 
     def hpb_supported(self):
+        if len(self.cli_commands['features']) == 0:
+            self.check_supported_features()
         return 'hierarchical-port-binding' in self.cli_commands['features']
 
     def sync_start(self):
