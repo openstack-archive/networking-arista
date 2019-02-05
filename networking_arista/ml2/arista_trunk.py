@@ -138,8 +138,8 @@ class AristaTrunkDriver(base.DriverBase):
         if payload.current_trunk.status != t_const.ACTIVE_STATUS:
             self._delete_trunk(payload.current_trunk)
 
-    def trunk_delete(self, resource, event, trunk_plugin, payload):
-        self._delete_trunk(payload.original_trunk)
+    def trunk_delete(self, resource, event, trunk_plugin, payload=None):
+        self._delete_trunk(payload.states[0])
 
     def subport_create(self, resource, event, trunk_plugin, payload):
         ctx = context.get_admin_context()
