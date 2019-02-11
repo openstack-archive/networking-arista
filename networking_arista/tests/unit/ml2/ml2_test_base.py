@@ -28,9 +28,6 @@ from neutron_lib.plugins import directory
 from oslo_config import cfg
 
 from neutron.common import utils as common_utils
-# Import neutron.db.api to load listeners that expire foreign keys
-# in context session
-import neutron.db.api  # noqa
 from neutron.plugins.ml2.drivers import type_vxlan  # noqa
 from neutron.services.trunk import constants as trunk_const
 from neutron.tests.common import helpers
