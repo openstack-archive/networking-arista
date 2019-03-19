@@ -19,7 +19,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from sqlalchemy import and_, or_
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload, Query, aliased
+from sqlalchemy.orm import immediateload, Query, aliased
 
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
@@ -485,10 +485,10 @@ def get_security_groups():
     session = db.get_reader_session()
     with session.begin():
         sg_model = sg_models.SecurityGroup
-        # We do a joined load to prevent the need for the sync worker
+        # We do an immediate load to prevent the need for the sync worker
         # to issue subqueries
         security_groups = (session.query(sg_model)
-                           .options(joinedload(sg_model.rules)))
+                           .options(immediateload(sg_model.rules)))
     return security_groups
 
 
