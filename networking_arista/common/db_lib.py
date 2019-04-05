@@ -24,13 +24,13 @@ from sqlalchemy.orm import immediateload, Query, aliased
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from neutron_lib.db import api as db
+from neutron_lib.services.trunk import constants as t_const
 
 from neutron.db.models.plugins.ml2 import vlanallocation
 from neutron.db.models import securitygroup as sg_models
 from neutron.db.models import segment as segment_models
 from neutron.db import models_v2
 from neutron.plugins.ml2 import models as ml2_models
-from neutron.services.trunk import constants as t_const
 from neutron.services.trunk import models as trunk_models
 
 from networking_arista.common import utils

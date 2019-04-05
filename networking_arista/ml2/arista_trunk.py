@@ -22,11 +22,12 @@ from neutron_lib.api.definitions import trunk as t_api
 from neutron_lib.api.definitions import trunk_details as td_api
 from neutron_lib.callbacks import events
 from neutron_lib.callbacks import registry
+from neutron_lib.callbacks import resources
 from neutron_lib import constants as n_const
 from neutron_lib import context
 from neutron_lib.plugins import directory
+from neutron_lib.services.trunk import constants as t_const
 
-from neutron.services.trunk import constants as t_const
 from neutron.services.trunk.drivers import base
 
 LOG = log.getLogger(__name__)
@@ -36,7 +37,7 @@ SUPPORTED_INTERFACES = (
     portbindings.VIF_TYPE_OTHER,
 )
 SUPPORTED_SEGMENTATION_TYPES = (
-    t_const.VLAN,
+    t_const.SEGMENTATION_TYPE_VLAN,
 )
 
 
@@ -49,21 +50,21 @@ class AristaTrunkDriver(base.DriverBase):
         except cfg.NoSuchOptError:
             return False
 
-    @registry.receives(t_const.TRUNK_PLUGIN, [events.AFTER_INIT])
+    @registry.receives(resources.TRUNK_PLUGIN, [events.AFTER_INIT])
     def register(self, resource, event, trigger, **kwargs):
         """Called in trunk plugin's AFTER_INIT"""
         super(AristaTrunkDriver, self).register(resource, event,
                                                 trigger, kwargs)
         registry.subscribe(self.subport_create,
-                           t_const.SUBPORTS, events.AFTER_CREATE)
+                           resources.SUBPORTS, events.AFTER_CREATE)
         registry.subscribe(self.subport_delete,
-                           t_const.SUBPORTS, events.AFTER_DELETE)
+                           resources.SUBPORTS, events.AFTER_DELETE)
         registry.subscribe(self.trunk_create,
-                           t_const.TRUNK, events.AFTER_CREATE)
+                           resources.TRUNK, events.AFTER_CREATE)
         registry.subscribe(self.trunk_update,
-                           t_const.TRUNK, events.AFTER_UPDATE)
+                           resources.TRUNK, events.AFTER_UPDATE)
         registry.subscribe(self.trunk_delete,
-                           t_const.TRUNK, events.AFTER_DELETE)
+                           resources.TRUNK, events.AFTER_DELETE)
         self.core_plugin = directory.get_plugin()
         LOG.debug("Arista trunk driver initialized.")
 
@@ -81,7 +82,7 @@ class AristaTrunkDriver(base.DriverBase):
         trunk_plugin = directory.get_plugin(t_api.ALIAS)
         trunk_plugin.update_trunk(ctx, trunk.get('trunk_id'),
                                   {t_api.TRUNK:
-                                   {'status': t_const.ACTIVE_STATUS}})
+                                   {'status': t_const.TRUNK_ACTIVE_STATUS}})
 
     def _bind_subports(self, ctx, subport_ids, parent):
         host_id = parent.get(portbindings.HOST_ID)
@@ -135,7 +136,7 @@ class AristaTrunkDriver(base.DriverBase):
                                    {'status': parent['status']}})
 
     def trunk_update(self, resource, event, trunk_plugin, payload):
-        if payload.current_trunk.status != t_const.ACTIVE_STATUS:
+        if payload.current_trunk.status != t_const.TRUNK_ACTIVE_STATUS:
             self._delete_trunk(payload.current_trunk)
 
     def trunk_delete(self, resource, event, trunk_plugin, payload):

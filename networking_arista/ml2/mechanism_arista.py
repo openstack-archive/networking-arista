@@ -19,10 +19,9 @@ from multiprocessing import Queue
 from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 from neutron_lib.plugins.ml2 import api as driver_api
+from neutron_lib.services.trunk import constants as trunk_consts
 from oslo_config import cfg
 from oslo_log import log as logging
-
-from neutron.services.trunk import constants as trunk_consts
 
 from networking_arista.common import constants as a_const
 from networking_arista.common import db_lib

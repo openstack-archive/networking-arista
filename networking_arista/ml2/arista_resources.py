@@ -16,8 +16,8 @@
 import json
 import os
 
-from neutron.services.trunk import constants as t_const
 from neutron_lib import constants as n_const
+from neutron_lib.services.trunk import constants as t_const
 from oslo_log import log as logging
 
 from networking_arista.common import db_lib

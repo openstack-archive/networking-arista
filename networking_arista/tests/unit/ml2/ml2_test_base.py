@@ -25,11 +25,11 @@ from neutron_lib.api.definitions import portbindings
 from neutron_lib import constants as n_const
 import neutron_lib.context
 from neutron_lib.plugins import directory
+from neutron_lib.services.trunk import constants as trunk_const
 from oslo_config import cfg
 
 from neutron.common import utils as common_utils
 from neutron.plugins.ml2.drivers import type_vxlan  # noqa
-from neutron.services.trunk import constants as trunk_const
 from neutron.tests.common import helpers
 from neutron.tests.unit.plugins.ml2 import test_plugin
 
