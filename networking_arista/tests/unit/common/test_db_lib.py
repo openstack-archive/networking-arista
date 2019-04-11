@@ -48,6 +48,16 @@ class DbLibTest(testlib_api.SqlTestCase):
                             {'project_id': tenant_2_id}]
         self.assertItemsEqual(tenants, expected_tenants)
 
+    def test_get_network_with_no_tenant(self):
+        tenant_1_id = 't1'
+        tenant_2_id = ''
+        utils.create_networks([{'id': 'n1',
+                                'project_id': tenant_1_id},
+                               {'id': 'n2',
+                                'project_id': tenant_2_id}])
+        networks = db_lib.get_networks()
+        self.assertNotIn(tenant_2_id, [net.project_id for net in networks])
+
     def test_get_tenants_with_shared_network_ports(self):
         tenant_1_id = 't1'
         tenant_2_id = 't2'
