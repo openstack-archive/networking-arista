@@ -74,10 +74,10 @@ class AristaVlanTypeDriver(type_vlan.VlanTypeDriver):
         self._update_network_vlan_ranges()
         super(AristaVlanTypeDriver, self).validate_provider_segment(segment)
 
-    def allocate_tenant_segment(self, context):
+    def allocate_tenant_segment(self, context, filters=None):
         self._update_network_vlan_ranges()
         return super(AristaVlanTypeDriver,
-                     self).allocate_tenant_segment(context)
+                     self).allocate_tenant_segment(context, filters=filters)
 
     def release_segment(self, context, segment):
         self._update_network_vlan_ranges()
