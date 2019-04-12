@@ -208,7 +208,7 @@ def get_networks(network_id=None):
     session = db.get_reader_session()
     with session.begin():
         model = models_v2.Network
-        networks = session.query(model)
+        networks = session.query(model).filter(model.project_id != '')
         if network_id:
             networks = networks.filter(model.id == network_id)
     return networks.all()
