@@ -1,0 +1,8 @@
+Code-Review+2: Mitchell Jameson <mitchell@arista.com>
+Workflow+1: Mitchell Jameson <mitchell@arista.com>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Fri, 12 Apr 2019 20:54:45 +0000
+Reviewed-on: https://review.openstack.org/652134
+Project: openstack/networking-arista
+Branch: refs/heads/stable/queens
