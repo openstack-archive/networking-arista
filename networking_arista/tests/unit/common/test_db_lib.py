@@ -175,6 +175,26 @@ class DbLibTest(testlib_api.SqlTestCase):
         self.assertFalse(db_lib.tenant_provisioned(tenant_1_id))
         self.assertFalse(db_lib.tenant_provisioned(tenant_2_id))
 
+    def test_get_segments(self):
+        net_id1 = 'n1'
+        net_id2 = 'n2'
+        utils.create_networks([{'id': net_id1,
+                                'project_id': 'p1'},
+                               {'id': net_id2,
+                                'project_id': ''}])
+        utils.create_segments([{'id': 's1',
+                                'network_id': net_id1,
+                                'network_type': 'vlan',
+                                'segmentation_id': 100,
+                                'is_dynamic': False},
+                               {'id': 's2',
+                                'network_id': net_id2,
+                                'network_type': 'vlan',
+                                'segmentation_id': 200,
+                                'is_dynamic': True}])
+        segments = db_lib.get_segments()
+        self.assertNotIn(net_id2, [seg.network_id for seg in segments])
+
     def test_segment_is_dynamic(self):
         static_segment_id = 's1'
         dynamic_segment_id = 's2'

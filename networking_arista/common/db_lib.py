@@ -56,6 +56,18 @@ def outerjoin_if_necessary(query, *args, **kwargs):
     return query.outerjoin(*args, **kwargs)
 
 
+def filter_unnecessary_segments(query):
+    """Filter segments are not needed on CVX"""
+    segment_model = segment_models.NetworkSegment
+    network_model = models_v2.Network
+    query = (query
+             .join_if_necessary(network_model)
+             .join_if_necessary(segment_model)
+             .filter(network_model.project_id != '')
+             .filter_network_type())
+    return query
+
+
 def filter_network_type(query):
     """Filter unsupported segment types"""
     segment_model = segment_models.NetworkSegment
@@ -186,6 +198,7 @@ Query.filter_by_vnic_type = filter_by_vnic_type
 Query.filter_unmanaged_physnets = filter_unmanaged_physnets
 Query.filter_inactive_ports = filter_inactive_ports
 Query.filter_unnecessary_ports = filter_unnecessary_ports
+Query.filter_unnecessary_segments = filter_unnecessary_segments
 
 
 def get_tenants(tenant_id=None):
@@ -219,7 +232,7 @@ def get_segments(segment_id=None):
     session = db.get_reader_session()
     with session.begin():
         model = segment_models.NetworkSegment
-        segments = session.query(model).filter_network_type()
+        segments = session.query(model).filter_unnecessary_segments()
         if segment_id:
             segments = segments.filter(model.id == segment_id)
     return segments.all()
