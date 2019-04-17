@@ -1,0 +1,8 @@
+Code-Review+2: Shashank Hegde <shashank@aristanetworks.com>
+Workflow+1: Shashank Hegde <shashank@aristanetworks.com>
+Verified+2: Zuul
+Submitted-by: Zuul
+Submitted-at: Wed, 17 Apr 2019 00:12:09 +0000
+Reviewed-on: https://review.openstack.org/653171
+Project: openstack/networking-arista
+Branch: refs/heads/stable/stein
