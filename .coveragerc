@@ -1,7 +1,0 @@
-[run]
-branch = True
-source = networking-arista
-omit = networking-arista/tests/*,networking-arista/openstack/*
-
-[report]
-ignore_errors = True
